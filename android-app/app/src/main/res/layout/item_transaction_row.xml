@@ -3,7 +3,7 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
-    android:padding="10dp"
+    android:padding="16dp"
     android:clickable="true"
     android:focusable="true"
     android:background="?attr/selectableItemBackground">
@@ -20,12 +20,12 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:textSize="13sp"
-        android:layout_marginTop="2dp" />
+        android:layout_marginTop="4dp" />
 
     <View
         android:layout_width="match_parent"
         android:layout_height="1dp"
         android:background="#22000000"
-        android:layout_marginTop="10dp" />
+        android:layout_marginTop="16dp" />
 
 </LinearLayout>
