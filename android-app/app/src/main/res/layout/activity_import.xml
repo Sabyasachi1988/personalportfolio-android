@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="16dp">
+
+    <Button
+        android:id="@+id/importButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Import CAS PDF" />
+
+    <Button
+        android:id="@+id/commitButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:text="Add to Portfolio" />
+
+    <EditText
+        android:id="@+id/memberNameInput"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:hint="Whose statement is this? (default: Me)"
+        android:inputType="textPersonName" />
+
+    <TextView
+        android:id="@+id/statusText"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:textSize="14sp"
+        android:text="Pick an MFCentral CAS PDF to import." />
+
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/transactionsList"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:layout_marginTop="12dp" />
+
+</LinearLayout>
