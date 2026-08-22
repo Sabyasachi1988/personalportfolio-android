@@ -32,7 +32,7 @@ class CapCompositionAdapter(
 
     override fun onBindViewHolder(holder: RowHolder, position: Int) {
         val asset = assets[position]
-        holder.name.text = asset.name.ifBlank { "(unnamed asset)" }
+        holder.name.text = FundNameFormatter.shorten(asset.name).ifBlank { "(unnamed asset)" }
 
         val existing = existingByAssetId[asset.id]
         holder.largeInput.setText(existing?.large?.takeIf { it != 0.0 }?.toString() ?: "")
