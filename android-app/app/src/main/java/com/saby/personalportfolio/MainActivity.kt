@@ -1,172 +1,122 @@
 package com.saby.personalportfolio
 
 import android.content.Intent
-import android.net.Uri
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
-import android.widget.Button
 import android.widget.TextView
-import android.widget.Toast
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
-import androidx.recyclerview.widget.LinearLayoutManager
-import androidx.recyclerview.widget.RecyclerView
+import com.google.android.material.floatingactionbutton.FloatingActionButton
 import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
 import com.ledger.bridge.Bridge
-import java.util.concurrent.Executors
+import java.util.Locale
 
 class MainActivity : AppCompatActivity() {
 
     private val gson = Gson()
-    private val backgroundExecutor = Executors.newSingleThreadExecutor()
-    private val mainThread = Handler(Looper.getMainLooper())
-
-    private lateinit var statusText: TextView
-    private lateinit var transactionsList: RecyclerView
-    private lateinit var commitButton: Button
-    private lateinit var viewHoldingsButton: Button
-    private lateinit var memberNameInput: android.widget.EditText
-
-    // The most recently imported rows, kept in memory so the "Add to
-    // Portfolio" button has something to commit without re-parsing the PDF.
-    private var lastImportedRows: List<StagedRow> = emptyList()
-
-    private val pickPdf = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) {
-            importCasFile(uri)
-        }
-    }
+    private lateinit var totalValue: TextView
+    private lateinit var gainLine: TextView
+    private lateinit var xirrLine: TextView
+    private lateinit var holdingsCountLine: TextView
+    private lateinit var donutChart: DonutChartView
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        statusText = findViewById(R.id.statusText)
-        transactionsList = findViewById(R.id.transactionsList)
-        transactionsList.layoutManager = LinearLayoutManager(this)
-        commitButton = findViewById(R.id.commitButton)
-        viewHoldingsButton = findViewById(R.id.viewHoldingsButton)
-        memberNameInput = findViewById(R.id.memberNameInput)
+        totalValue = findViewById(R.id.dashboardTotalValue)
+        gainLine = findViewById(R.id.dashboardGainLine)
+        xirrLine = findViewById(R.id.dashboardXirrLine)
+        holdingsCountLine = findViewById(R.id.dashboardHoldingsCountLine)
+        donutChart = findViewById(R.id.dashboardDonut)
 
-        findViewById<Button>(R.id.importButton).setOnClickListener {
-            pickPdf.launch(arrayOf("application/pdf"))
+        findViewById<FloatingActionButton>(R.id.importFab).setOnClickListener {
+            startActivity(Intent(this, ImportActivity::class.java))
         }
-        commitButton.setOnClickListener { commitImportedRows() }
-        viewHoldingsButton.setOnClickListener {
-            startActivity(Intent(this, HoldingsActivity::class.java))
-        }
-        findViewById<Button>(R.id.settingsButton).setOnClickListener {
+        findViewById<android.widget.Button>(R.id.settingsButton).setOnClickListener {
             startActivity(Intent(this, SettingsActivity::class.java))
         }
 
-        commitButton.isEnabled = false
+        BottomNavHelper.setup(this, findViewById(R.id.bottomNav), BottomNavDestination.DASHBOARD)
     }
 
-    private fun importCasFile(uri: Uri) {
-        statusText.text = "Reading and parsing PDF…"
-        commitButton.isEnabled = false
+    override fun onResume() {
+        super.onResume()
+        // Refresh every time the Dashboard becomes visible, so coming
+        // back from Import or Settings always reflects the latest state.
+        loadDashboard()
+    }
 
-        backgroundExecutor.execute {
-            try {
-                val pdfBytes = contentResolver.openInputStream(uri)?.use { it.readBytes() }
-                    ?: throw IllegalStateException("Could not open the selected file")
+    private fun loadDashboard() {
+        val portfolioPath = PortfolioStorage.filePath(this)
+        val portfolioJson = Bridge.loadPortfolio(portfolioPath)
 
-                val resultJson = Bridge.importCAS(pdfBytes)
-                val result = gson.fromJson(resultJson, ImportCASResult::class.java)
-
-                mainThread.post { showResult(result) }
-            } catch (e: Exception) {
-                mainThread.post {
-                    statusText.text = "Failed to read/import file: ${e.message}"
-                    Toast.makeText(this, "Import failed", Toast.LENGTH_SHORT).show()
-                }
-            }
+        val holdingsJson = Bridge.computeHoldingsForMember(portfolioJson, "")
+        val holdingsType = object : TypeToken<List<Holding>>() {}.type
+        val holdings: List<Holding> = try {
+            gson.fromJson(holdingsJson, holdingsType) ?: emptyList()
+        } catch (e: Exception) {
+            emptyList()
         }
-    }
 
-    private fun showResult(result: ImportCASResult) {
-        if (result.error != null) {
-            statusText.text = "Import error: ${result.error}"
-            transactionsList.adapter = TransactionAdapter(emptyList())
-            lastImportedRows = emptyList()
-            commitButton.isEnabled = false
+        if (holdings.isEmpty()) {
+            totalValue.text = "No holdings yet"
+            gainLine.text = "Tap + below to import your first CAS statement"
+            xirrLine.text = ""
+            holdingsCountLine.text = ""
+            donutChart.setSlices(emptyList())
             return
         }
 
-        val staged = result.staged.orEmpty()
-        val manualReview = result.manualReview.orEmpty()
-        lastImportedRows = staged
-
-        statusText.text = buildString {
-            append("Format: ${result.format}\n")
-            append("${staged.size} transaction(s) parsed")
-            if (manualReview.isNotEmpty()) {
-                append(", ${manualReview.size} line(s) need manual review")
+        var totalInvested = 0.0
+        var totalCurrentValue = 0.0
+        var anyPriced = false
+        for (h in holdings) {
+            if (h.hasPrice) {
+                totalInvested += h.netInvested
+                totalCurrentValue += h.currentValue
+                anyPriced = true
             }
         }
 
-        transactionsList.adapter = TransactionAdapter(staged)
-        commitButton.isEnabled = staged.any { it.status == "NEW" }
-    }
-
-    private fun commitImportedRows() {
-        val newRows = lastImportedRows.filter { it.status == "NEW" }
-        if (newRows.isEmpty()) {
-            Toast.makeText(this, "No NEW rows to add", Toast.LENGTH_SHORT).show()
-            return
+        if (anyPriced) {
+            totalValue.text = String.format(Locale.getDefault(), "₹%,.2f", totalCurrentValue)
+            val gain = totalCurrentValue - totalInvested
+            val gainPct = if (totalInvested != 0.0) (gain / totalInvested) * 100 else 0.0
+            gainLine.text = String.format(
+                Locale.getDefault(), "%s₹%,.2f (%.1f%%) overall",
+                if (gain >= 0) "+" else "", gain, gainPct
+            )
+        } else {
+            totalValue.text = "Prices not refreshed yet"
+            gainLine.text = "Go to Holdings and tap Refresh Prices"
         }
 
-        commitButton.isEnabled = false
-        statusText.text = "Adding ${newRows.size} transaction(s) to your portfolio…"
-
-        backgroundExecutor.execute {
-            try {
-                val portfolioPath = PortfolioStorage.filePath(this)
-
-                val currentPortfolioJson = Bridge.loadPortfolio(portfolioPath)
-                if (isBridgeError(currentPortfolioJson)) {
-                    mainThread.post { failCommit("Failed to load existing portfolio: $currentPortfolioJson") }
-                    return@execute
-                }
-
-                val rowsJson = gson.toJson(newRows)
-                val memberName = memberNameInput.text.toString().trim().ifBlank { "Me" }
-                val updatedPortfolioJson = Bridge.commitStagedRows(currentPortfolioJson, rowsJson, memberName)
-                if (isBridgeError(updatedPortfolioJson)) {
-                    mainThread.post { failCommit("Failed to link transactions: $updatedPortfolioJson") }
-                    return@execute
-                }
-
-                // Only ever save a portfolio JSON we've confirmed is real,
-                // never an error object - an unguarded save here could
-                // silently clobber a good portfolio file with an empty one.
-                val saveResult = Bridge.savePortfolio(portfolioPath, updatedPortfolioJson)
-                if (isBridgeError(saveResult)) {
-                    mainThread.post { failCommit("Failed to save portfolio: $saveResult") }
-                    return@execute
-                }
-
-                mainThread.post {
-                    statusText.text = "Added ${newRows.size} transaction(s) to your portfolio."
-                    Toast.makeText(this, "Saved. Tap 'View Holdings' to see it.", Toast.LENGTH_LONG).show()
-                }
-            } catch (e: Exception) {
-                mainThread.post { failCommit("Failed to commit: ${e.message}") }
-            }
+        val xirrJson = Bridge.computePortfolioXIRR(portfolioJson)
+        val xirrResult = try {
+            gson.fromJson(xirrJson, PortfolioXirrResult::class.java)
+        } catch (e: Exception) {
+            null
         }
-    }
+        xirrLine.text = if (xirrResult?.hasXIRR == true) {
+            String.format(Locale.getDefault(), "Portfolio XIRR: %.2f%%", xirrResult.xirr)
+        } else {
+            ""
+        }
 
-    // The bridge's error responses are always a JSON object with only an
-    // "error" key (see bridge.go) - a real portfolio/result JSON never has
-    // this shape, so this check is safe and cheap without needing a full
-    // parse.
-    private fun isBridgeError(json: String): Boolean {
-        return json.trimStart().startsWith("{\"error\"")
-    }
+        holdingsCountLine.text = "${holdings.size} holding(s)"
 
-    private fun failCommit(message: String) {
-        statusText.text = message
-        commitButton.isEnabled = true
+        val allocationJson = Bridge.computeAllocationByMarketCap(portfolioJson)
+        val sliceType = object : TypeToken<List<AllocationSlice>>() {}.type
+        val slices: List<AllocationSlice> = try {
+            gson.fromJson(allocationJson, sliceType) ?: emptyList()
+        } catch (e: Exception) {
+            emptyList()
+        }
+        donutChart.setSlices(slices.map { DonutChartView.Slice(it.label, it.percent.toFloat()) })
     }
 }
+
+private data class PortfolioXirrResult(
+    val xirr: Double,
+    val hasXIRR: Boolean
+)
