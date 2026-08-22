@@ -20,11 +20,13 @@
     <color name="colorAmber">#F9A825</color>
 
     <!-- Fixed palette for chart slices, cycled if there are more slices
-         than colors. Ordered so ADJACENT slices (which in practice are
-         usually adjacent in the pie too, since slices are drawn in list
-         order) jump hue meaningfully rather than sitting close together -
-         green next to teal was a real problem: both sit in the same
-         green-cyan hue range and nearly merged visually. -->
+         than colors (now 14, not 7 - with a realistic 9-10 fund
+         portfolio, 7 colors guaranteed repeats and made the legend
+         genuinely ambiguous). Ordered so ADJACENT slices (which in
+         practice are usually adjacent in the pie too, since slices are
+         drawn in list order) jump hue meaningfully rather than sitting
+         close together - green next to teal was a real problem: both
+         sit in the same green-cyan hue range and nearly merged visually. -->
     <color name="chartSlice1">#2E7D32</color>
     <color name="chartSlice2">#1565C0</color>
     <color name="chartSlice3">#F9A825</color>
@@ -32,4 +34,11 @@
     <color name="chartSlice5">#C62828</color>
     <color name="chartSlice6">#6D4C41</color>
     <color name="chartSlice7">#00897B</color>
+    <color name="chartSlice8">#D81B60</color>
+    <color name="chartSlice9">#E64A19</color>
+    <color name="chartSlice10">#3949AB</color>
+    <color name="chartSlice11">#9E9D24</color>
+    <color name="chartSlice12">#00ACC1</color>
+    <color name="chartSlice13">#546E7A</color>
+    <color name="chartSlice14">#5E35B1</color>
 </resources>
