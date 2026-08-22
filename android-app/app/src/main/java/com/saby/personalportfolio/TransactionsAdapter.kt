@@ -26,7 +26,7 @@ class TransactionsAdapter(
 
     override fun onBindViewHolder(holder: RowHolder, position: Int) {
         val txn = transactions[position]
-        holder.assetName.text = assetNameById[txn.assetId] ?: "(unknown asset)"
+        holder.assetName.text = assetNameById[txn.assetId]?.let { FundNameFormatter.shorten(it) } ?: "(unknown asset)"
         holder.detail.text = String.format(
             Locale.getDefault(),
             "%s | %s | ₹%.2f | %s units",
