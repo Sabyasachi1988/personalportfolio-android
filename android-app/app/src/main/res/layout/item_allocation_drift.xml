@@ -12,12 +12,18 @@
         android:textStyle="bold"
         android:textSize="15sp" />
 
+    <com.saby.personalportfolio.TargetProgressBarView
+        android:id="@+id/driftBar"
+        android:layout_width="match_parent"
+        android:layout_height="18dp"
+        android:layout_marginTop="6dp" />
+
     <TextView
         android:id="@+id/driftValues"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:textSize="13sp"
-        android:layout_marginTop="2dp" />
+        android:textSize="12sp"
+        android:layout_marginTop="4dp" />
 
     <View
         android:layout_width="match_parent"
