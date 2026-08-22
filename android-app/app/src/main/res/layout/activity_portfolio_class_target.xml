@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="28dp">
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textSize="14sp"
+        android:text="Set your target Equity/Debt/Commodity/Others mix. Percentages don't need to sum to exactly 100." />
+
+    <EditText
+        android:id="@+id/classTargetEquityInput"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="24dp"
+        android:hint="Equity target %"
+        android:inputType="numberDecimal" />
+
+    <EditText
+        android:id="@+id/classTargetDebtInput"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:hint="Debt target %"
+        android:inputType="numberDecimal" />
+
+    <EditText
+        android:id="@+id/classTargetCommodityInput"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:hint="Commodity target %"
+        android:inputType="numberDecimal" />
+
+    <EditText
+        android:id="@+id/classTargetOthersInput"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:hint="Others target %"
+        android:inputType="numberDecimal" />
+
+    <Button
+        android:id="@+id/saveClassTargetButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="24dp"
+        android:text="Save Target" />
+
+    <TextView
+        android:id="@+id/classTargetStatusText"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="20dp"
+        android:textSize="14sp" />
+
+</LinearLayout>
