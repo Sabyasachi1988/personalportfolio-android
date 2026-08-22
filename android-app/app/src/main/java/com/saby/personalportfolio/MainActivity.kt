@@ -115,8 +115,3 @@ class MainActivity : AppCompatActivity() {
         donutChart.setSlices(slices.map { DonutChartView.Slice(it.label, it.percent.toFloat()) })
     }
 }
-
-private data class PortfolioXirrResult(
-    val xirr: Double,
-    val hasXIRR: Boolean
-)
