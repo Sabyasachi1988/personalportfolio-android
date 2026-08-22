@@ -2,6 +2,7 @@ package bridge
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"ledger/internal/casimport"
@@ -262,14 +263,14 @@ func TestSetCapComposition_ActuallyChangesAllocationOutput(t *testing.T) {
 	// heuristic, which (correctly) can't do better than "Multi Cap" for a
 	// fund name like this - this IS the gap the person asked to fix.
 	holdingsJSON := ComputeHoldings(string(pJSON))
-	allocBefore := ComputeAllocationByMarketCap(string(pJSON))
+	allocBefore := ComputeAllocationByMarketCap(string(pJSON), "")
 	_ = holdingsJSON
 	if !containsLabel(allocBefore, "Multi Cap") {
 		t.Fatalf("expected fallback allocation to include 'Multi Cap' before any composition entered, got: %s", allocBefore)
 	}
 
 	updated := SetCapComposition(string(pJSON), "asset-1", 50, 30, 15, 5, "2026-08-20", "Factsheet Aug 2026")
-	allocAfter := ComputeAllocationByMarketCap(updated)
+	allocAfter := ComputeAllocationByMarketCap(updated, "")
 
 	if containsLabel(allocAfter, "Multi Cap") {
 		t.Errorf("expected 'Multi Cap' to disappear once a real composition is entered, got: %s", allocAfter)
@@ -631,5 +632,87 @@ func TestComputeHoldingsInSegment_ReturnsOnlyMatchingHoldings(t *testing.T) {
 	}
 	if holdings[0].AssetID != "a1" {
 		t.Errorf("expected a1 (the small cap fund), got %s", holdings[0].AssetID)
+	}
+}
+
+func TestComputePortfolioXIRR_ScopesToMember(t *testing.T) {
+	unitsA, unitsB := 10.0, 10.0
+	p := &store.Portfolio{
+		Members: []store.Member{{ID: "m1", Name: "Alice"}, {ID: "m2", Name: "Bob"}},
+		Accounts: []store.Account{
+			{ID: "acc1", MemberID: "m1"},
+			{ID: "acc2", MemberID: "m2"},
+		},
+		Assets: []store.Asset{
+			{ID: "a1", AccountID: "acc1", Name: "Alice's Fund"},
+			{ID: "a2", AccountID: "acc2", Name: "Bob's Fund"},
+		},
+		Prices: []store.PriceRecord{
+			{AssetID: "a1", Date: "2026-08-20", Price: 10},
+			{AssetID: "a2", Date: "2026-08-20", Price: 10},
+		},
+		Transactions: []store.StoredTransaction{
+			{AssetID: "a1", AccountID: "acc1", Date: "2025-01-01", Amount: 100, Units: &unitsA, Type: store.Purchase},
+			{AssetID: "a2", AccountID: "acc2", Date: "2025-01-01", Amount: 100, Units: &unitsB, Type: store.Purchase},
+		},
+	}
+	pJSON, _ := json.Marshal(p)
+
+	// Whole family: should have an XIRR at all (both members' flows pool together).
+	familyResult := ComputePortfolioXIRR(string(pJSON), "")
+	if !strings.Contains(familyResult, `"hasXIRR":true`) {
+		t.Fatalf("expected hasXIRR:true for whole family, got: %s", familyResult)
+	}
+
+	// Scoped to a single member: must not error and must still compute -
+	// this is the exact bug being fixed (previously memberID was ignored
+	// entirely, so this call couldn't even be made).
+	aliceResult := ComputePortfolioXIRR(string(pJSON), "m1")
+	if !strings.Contains(aliceResult, `"hasXIRR":true`) {
+		t.Fatalf("expected hasXIRR:true when scoped to Alice, got: %s", aliceResult)
+	}
+
+	// A member with no holdings at all should report hasXIRR:false, not
+	// silently fall back to the whole family's XIRR.
+	noHoldingsResult := ComputePortfolioXIRR(string(pJSON), "m-nonexistent")
+	if !strings.Contains(noHoldingsResult, `"hasXIRR":false`) {
+		t.Fatalf("expected hasXIRR:false for a member with no holdings, got: %s", noHoldingsResult)
+	}
+}
+
+func TestComputeAllocationByMarketCap_ScopesToMember(t *testing.T) {
+	unitsA, unitsB := 10.0, 10.0
+	p := &store.Portfolio{
+		Members: []store.Member{{ID: "m1", Name: "Alice"}, {ID: "m2", Name: "Bob"}},
+		Accounts: []store.Account{
+			{ID: "acc1", MemberID: "m1"},
+			{ID: "acc2", MemberID: "m2"},
+		},
+		Assets: []store.Asset{
+			{ID: "a1", AccountID: "acc1", Name: "SOME NIFTY SMALLCAP 250 INDEX FUND"},
+			{ID: "a2", AccountID: "acc2", Name: "SOME NIFTY 50 INDEX FUND"},
+		},
+		Prices: []store.PriceRecord{
+			{AssetID: "a1", Date: "2026-08-20", Price: 10},
+			{AssetID: "a2", Date: "2026-08-20", Price: 10},
+		},
+		Transactions: []store.StoredTransaction{
+			{AssetID: "a1", AccountID: "acc1", Date: "2025-01-01", Amount: 100, Units: &unitsA, Type: store.Purchase},
+			{AssetID: "a2", AccountID: "acc2", Date: "2025-01-01", Amount: 100, Units: &unitsB, Type: store.Purchase},
+		},
+	}
+	pJSON, _ := json.Marshal(p)
+
+	aliceOnly := ComputeAllocationByMarketCap(string(pJSON), "m1")
+	if !containsLabel(aliceOnly, "Small Cap") {
+		t.Errorf("expected Alice-scoped allocation to include Small Cap, got: %s", aliceOnly)
+	}
+	if containsLabel(aliceOnly, "Large Cap") {
+		t.Errorf("expected Alice-scoped allocation to NOT include Bob's Large Cap fund, got: %s", aliceOnly)
+	}
+
+	wholeFamily := ComputeAllocationByMarketCap(string(pJSON), "")
+	if !containsLabel(wholeFamily, "Small Cap") || !containsLabel(wholeFamily, "Large Cap") {
+		t.Errorf("expected whole-family allocation to include both members' funds, got: %s", wholeFamily)
 	}
 }
