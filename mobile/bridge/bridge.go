@@ -126,8 +126,10 @@ func ComputeXIRR(cashFlowsJSON string) string {
 // Portfolio tab uses.
 func ComputeHoldings(portfolioJSON string) string {
 	var p store.Portfolio
-	if err := json.Unmarshal([]byte(portfolioJSON), &p); err != nil {
-		return fmt.Sprintf(`{"error":%q}`, "invalid portfolio JSON: "+err.Error())
+	if portfolioJSON != "" {
+		if err := json.Unmarshal([]byte(portfolioJSON), &p); err != nil {
+			return fmt.Sprintf(`{"error":%q}`, "invalid portfolio JSON: "+err.Error())
+		}
 	}
 	holdings := finance.ComputeHoldings(&p)
 	out, err := json.Marshal(holdings)
@@ -143,8 +145,10 @@ func ComputeHoldings(portfolioJSON string) string {
 // heuristic otherwise (same behavior as the desktop Allocation tab).
 func ComputeAllocationByMarketCap(portfolioJSON string) string {
 	var p store.Portfolio
-	if err := json.Unmarshal([]byte(portfolioJSON), &p); err != nil {
-		return fmt.Sprintf(`{"error":%q}`, "invalid portfolio JSON: "+err.Error())
+	if portfolioJSON != "" {
+		if err := json.Unmarshal([]byte(portfolioJSON), &p); err != nil {
+			return fmt.Sprintf(`{"error":%q}`, "invalid portfolio JSON: "+err.Error())
+		}
 	}
 	holdings := finance.ComputeHoldings(&p)
 
@@ -168,4 +172,118 @@ func ComputeAllocationByMarketCap(portfolioJSON string) string {
 // anything that touches real data.
 func Ping() string {
 	return "bridge ok"
+}
+
+// LoadPortfolio reads the portfolio JSON file at the given path (an
+// Android app's own filesDir path, passed in from Kotlin) and returns it
+// as a JSON string. A missing file returns an empty portfolio, not an
+// error - this matches store.Load's own first-run behavior.
+func LoadPortfolio(path string) string {
+	p, err := store.Load(path)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+	out, err := json.Marshal(p)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+	return string(out)
+}
+
+// SavePortfolio writes the given portfolio JSON to the given path
+// (backing up any existing file first, same as the desktop app).
+// Returns {"ok":true} or {"error":"..."}.
+func SavePortfolio(path string, portfolioJSON string) string {
+	var p store.Portfolio
+	if portfolioJSON != "" {
+		if err := json.Unmarshal([]byte(portfolioJSON), &p); err != nil {
+			return fmt.Sprintf(`{"error":%q}`, "invalid portfolio JSON: "+err.Error())
+		}
+	}
+	if err := store.Save(path, &p); err != nil {
+		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+	return `{"ok":true}`
+}
+
+// CommitStagedRows links the raw StagedRow output of ImportCAS into a
+// real Portfolio: only rows with Status "NEW" are committed (DUPLICATE
+// and UNMATCHED rows are left for the user to resolve, same principle as
+// the desktop Import tab). A single default Member ("Me") and Account
+// ("CAS Import") are created if they don't already exist; Assets are
+// matched by ISIN via the same FindAssetByISIN the desktop app uses, so
+// re-importing an overlapping statement won't create duplicate assets.
+// Returns the updated portfolio as JSON.
+func CommitStagedRows(portfolioJSON string, stagedRowsJSON string) string {
+	var p store.Portfolio
+	if portfolioJSON != "" {
+		if err := json.Unmarshal([]byte(portfolioJSON), &p); err != nil {
+			return fmt.Sprintf(`{"error":%q}`, "invalid portfolio JSON: "+err.Error())
+		}
+	}
+	var rows []casimport.StagedRow
+	if err := json.Unmarshal([]byte(stagedRowsJSON), &rows); err != nil {
+		return fmt.Sprintf(`{"error":%q}`, "invalid staged rows JSON: "+err.Error())
+	}
+
+	const memberName = "Me"
+	const accountName = "CAS Import"
+
+	var memberID string
+	for _, m := range p.Members {
+		if m.Name == memberName {
+			memberID = m.ID
+			break
+		}
+	}
+	if memberID == "" {
+		memberID = store.NewID("member")
+		p.Members = append(p.Members, store.Member{ID: memberID, Name: memberName})
+	}
+
+	account, ok := p.FindAccountByName(memberID, accountName)
+	if !ok {
+		account = store.Account{ID: store.NewID("account"), MemberID: memberID, Name: accountName, Currency: "INR"}
+		p.Accounts = append(p.Accounts, account)
+	}
+
+	committed := 0
+	for _, row := range rows {
+		if row.Status != "NEW" {
+			continue
+		}
+		txn := row.Txn
+
+		asset, ok := p.FindAssetByISIN(txn.ISIN)
+		if !ok {
+			asset = store.Asset{
+				ID:        store.NewID("asset"),
+				AccountID: account.ID,
+				Name:      txn.Scheme,
+				ISIN:      txn.ISIN,
+				Type:      "MutualFund",
+			}
+			p.Assets = append(p.Assets, asset)
+		}
+
+		p.Transactions = append(p.Transactions, store.StoredTransaction{
+			ID:          store.NewID("txn"),
+			AccountID:   account.ID,
+			AssetID:     asset.ID,
+			Date:        txn.Date,
+			Type:        txn.Type,
+			Description: txn.Description,
+			Amount:      txn.Amount,
+			Units:       txn.Units,
+			Price:       txn.Price,
+			Source:      "CAS_IMPORT",
+		})
+		committed++
+	}
+
+	out, err := json.Marshal(p)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+	return string(out)
 }
