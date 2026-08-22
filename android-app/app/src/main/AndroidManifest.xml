@@ -36,6 +36,9 @@
         <activity
             android:name=".SettingsActivity"
             android:exported="false" />
+        <activity
+            android:name=".TargetAllocationActivity"
+            android:exported="false" />
     </application>
 
 </manifest>
