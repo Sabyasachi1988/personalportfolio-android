@@ -13,6 +13,13 @@
         android:textStyle="bold"
         android:text="Allocation by market cap segment" />
 
+    <Button
+        android:id="@+id/editCompositionButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:text="Edit Fund Cap Composition" />
+
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/allocationRecyclerView"
         android:layout_width="match_parent"
