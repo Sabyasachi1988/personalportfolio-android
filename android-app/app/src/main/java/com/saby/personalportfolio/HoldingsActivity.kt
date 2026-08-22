@@ -3,10 +3,13 @@ package com.saby.personalportfolio
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.text.Editable
+import android.text.TextWatcher
 import android.view.View
 import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.Button
+import android.widget.EditText
 import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
@@ -30,10 +33,23 @@ class HoldingsActivity : AppCompatActivity() {
     private lateinit var recyclerView: RecyclerView
     private lateinit var refreshButton: Button
     private lateinit var memberSpinner: Spinner
+    private lateinit var searchInput: EditText
+    private lateinit var sortSpinner: Spinner
 
     // Index 0 is always "All (family)" (empty memberID); indices 1.. map
     // 1:1 with memberIds.
     private var memberIds: List<String> = emptyList()
+
+    // The full member-filtered (but not yet search/sort-filtered) list -
+    // totals and XIRR are always computed from this, so they stay stable
+    // while searching rather than confusingly changing as you type.
+    private var allHoldings: List<Holding> = emptyList()
+
+    private val sortOptions = listOf(
+        "Value (high to low)", "Value (low to high)",
+        "Gain % (high to low)", "Gain % (low to high)",
+        "Name (A-Z)"
+    )
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -45,6 +61,8 @@ class HoldingsActivity : AppCompatActivity() {
         recyclerView.layoutManager = LinearLayoutManager(this)
         refreshButton = findViewById(R.id.refreshPricesButton)
         memberSpinner = findViewById(R.id.memberFilterSpinner)
+        searchInput = findViewById(R.id.holdingsSearchInput)
+        sortSpinner = findViewById(R.id.holdingsSortSpinner)
 
         refreshButton.setOnClickListener { refreshPrices() }
         BottomNavHelper.setup(this, findViewById(R.id.bottomNav), BottomNavDestination.HOLDINGS)
@@ -55,6 +73,22 @@ class HoldingsActivity : AppCompatActivity() {
             }
             override fun onNothingSelected(parent: AdapterView<*>?) {}
         }
+
+        sortSpinner.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, sortOptions)
+        sortSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                applyFilterAndSort()
+            }
+            override fun onNothingSelected(parent: AdapterView<*>?) {}
+        }
+
+        searchInput.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: Editable?) {
+                applyFilterAndSort()
+            }
+        })
     }
 
     override fun onResume() {
@@ -116,6 +150,8 @@ class HoldingsActivity : AppCompatActivity() {
             emptyList()
         }
 
+        allHoldings = holdings
+
         if (holdings.isEmpty()) {
             summary.text = "No holdings yet for this filter."
             xirrSummary.text = ""
@@ -132,11 +168,8 @@ class HoldingsActivity : AppCompatActivity() {
             }
             summary.text = if (anyPriced) {
                 val totalGain = totalValue - totalInvested
-                String.format(
-                    Locale.getDefault(),
-                    "%d holdings | Invested: ₹%.2f | Value: ₹%.2f | Gain: ₹%.2f",
-                    holdings.size, totalInvested, totalValue, totalGain
-                )
+                "${holdings.size} holdings | Invested: ${IndianCurrencyFormatter.format(totalInvested)} | " +
+                    "Value: ${IndianCurrencyFormatter.format(totalValue)} | Gain: ${IndianCurrencyFormatter.formatSigned(totalGain)}"
             } else {
                 "${holdings.size} holdings (no current prices available yet — tap Refresh Prices)"
             }
@@ -161,7 +194,27 @@ class HoldingsActivity : AppCompatActivity() {
             }
         }
 
-        recyclerView.adapter = HoldingsAdapter(holdings)
+        applyFilterAndSort()
+    }
+
+    private fun applyFilterAndSort() {
+        val query = searchInput.text?.toString()?.trim().orEmpty()
+        var result = if (query.isBlank()) {
+            allHoldings
+        } else {
+            allHoldings.filter { it.assetName.contains(query, ignoreCase = true) }
+        }
+
+        result = when (sortSpinner.selectedItemPosition) {
+            0 -> result.sortedByDescending { it.currentValue }
+            1 -> result.sortedBy { it.currentValue }
+            2 -> result.sortedByDescending { it.gainPercent }
+            3 -> result.sortedBy { it.gainPercent }
+            4 -> result.sortedBy { FundNameFormatter.shorten(it.assetName) }
+            else -> result
+        }
+
+        recyclerView.adapter = HoldingsAdapter(result)
     }
 
     private fun refreshPrices() {
