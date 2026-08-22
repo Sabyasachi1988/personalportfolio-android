@@ -35,14 +35,17 @@ class AllocationDriftAdapter(private val slices: List<AllocationDriftSlice>) :
         )
 
         val context = holder.itemView.context
+        val segmentColor = CapSegmentColors.forLabel(context, slice.label)
         holder.bar.setValues(
             actual = slice.actual.toFloat(),
             target = slice.target.toFloat(),
-            overColor = ContextCompat.getColor(context, R.color.colorAmber),
-            underColor = ContextCompat.getColor(context, R.color.colorSecondary),
-            // Theme-aware, not a hardcoded translucent black - the
-            // previous track color was ~8% opaque black, which vanished
-            // entirely against a near-black dark-mode background.
+            // Same fixed color as the donut uses for this exact label -
+            // previously this used a generic amber/teal over/under
+            // scheme that had nothing to do with the donut's colors,
+            // which is exactly what looked inconsistent between the two
+            // charts on the same screen.
+            overColor = segmentColor,
+            underColor = segmentColor,
             trackColor = ContextCompat.getColor(context, R.color.colorSurfaceVariant),
             markerColor = ContextCompat.getColor(context, R.color.colorLoss)
         )
