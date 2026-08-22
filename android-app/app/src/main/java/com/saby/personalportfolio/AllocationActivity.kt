@@ -123,7 +123,7 @@ class AllocationActivity : AppCompatActivity() {
 
         // No target set yet (or it couldn't be read) - fall back to the
         // plain actual-only view.
-        val allocationJson = Bridge.computeAllocationByMarketCap(portfolioJson)
+        val allocationJson = Bridge.computeAllocationByMarketCap(portfolioJson, "")
         val sliceType = object : TypeToken<List<AllocationSlice>>() {}.type
         val slices: List<AllocationSlice> = try {
             gson.fromJson(allocationJson, sliceType) ?: emptyList()
