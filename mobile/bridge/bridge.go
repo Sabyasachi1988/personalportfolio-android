@@ -633,6 +633,132 @@ func AddMember(portfolioJSON string, name string) string {
 	return string(out)
 }
 
+// ComputeAllocationByEquityOrigin returns a JSON array of
+// finance.AllocationSlice splitting the portfolio's Equity-classified
+// holdings into Indian vs. International, using each asset's
+// EquityOriginComposition where present, defaulting to 100% Indian
+// otherwise (see store.EquityOriginComposition's doc comment).
+func ComputeAllocationByEquityOrigin(portfolioJSON string) string {
+	var p store.Portfolio
+	if portfolioJSON != "" {
+		if err := json.Unmarshal([]byte(portfolioJSON), &p); err != nil {
+			return fmt.Sprintf(`{"error":%q}`, "invalid portfolio JSON: "+err.Error())
+		}
+	}
+	holdings := finance.ComputeHoldings(&p)
+
+	classByAsset := make(map[string]string, len(p.Assets))
+	for _, a := range p.Assets {
+		classByAsset[a.ID] = a.AssetClass
+	}
+	compByAsset := make(map[string]store.EquityOriginComposition)
+	for _, a := range p.Assets {
+		if c, ok := p.GetEquityOriginComposition(a.ID); ok {
+			compByAsset[a.ID] = c
+		}
+	}
+
+	slices := finance.AllocationByEquityOrigin(holdings, classByAsset, compByAsset)
+	out, err := json.Marshal(slices)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+	return string(out)
+}
+
+// SetEquityOriginComposition records (or overwrites) the real Indian/
+// International factsheet breakdown for one equity asset. Returns the
+// updated portfolio as JSON.
+func SetEquityOriginComposition(portfolioJSON string, assetID string, indian, international float64, asOf, source string) string {
+	var p store.Portfolio
+	if portfolioJSON != "" {
+		if err := json.Unmarshal([]byte(portfolioJSON), &p); err != nil {
+			return fmt.Sprintf(`{"error":%q}`, "invalid portfolio JSON: "+err.Error())
+		}
+	}
+	p.SetEquityOriginComposition(assetID, indian, international, asOf, source)
+
+	out, err := json.Marshal(p)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+	return string(out)
+}
+
+// ComputeAllocationByPortfolioClass returns a JSON array of
+// finance.AllocationSlice grouping the WHOLE portfolio into
+// Equity/Debt/Commodity/Others.
+func ComputeAllocationByPortfolioClass(portfolioJSON string) string {
+	var p store.Portfolio
+	if portfolioJSON != "" {
+		if err := json.Unmarshal([]byte(portfolioJSON), &p); err != nil {
+			return fmt.Sprintf(`{"error":%q}`, "invalid portfolio JSON: "+err.Error())
+		}
+	}
+	holdings := finance.ComputeHoldings(&p)
+
+	classByAsset := make(map[string]string, len(p.Assets))
+	for _, a := range p.Assets {
+		classByAsset[a.ID] = a.AssetClass
+	}
+
+	slices := finance.AllocationByPortfolioClass(holdings, classByAsset)
+	out, err := json.Marshal(slices)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+	return string(out)
+}
+
+// SetPortfolioClassTarget records the person's own chosen target
+// Equity/Debt/Commodity/Others mix. Returns the updated portfolio as
+// JSON.
+func SetPortfolioClassTarget(portfolioJSON string, equity, debt, commodity, others float64) string {
+	var p store.Portfolio
+	if portfolioJSON != "" {
+		if err := json.Unmarshal([]byte(portfolioJSON), &p); err != nil {
+			return fmt.Sprintf(`{"error":%q}`, "invalid portfolio JSON: "+err.Error())
+		}
+	}
+	p.PortfolioClassTarget = store.PortfolioClassTarget{Equity: equity, Debt: debt, Commodity: commodity, Others: others}
+
+	out, err := json.Marshal(p)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+	return string(out)
+}
+
+// ComputePortfolioClassDrift returns the actual-vs-target comparison for
+// the four Equity/Debt/Commodity/Others buckets. Returns
+// {"hasTarget":false} if no target has been entered yet, same convention
+// as ComputeAllocationDrift.
+func ComputePortfolioClassDrift(portfolioJSON string) string {
+	var p store.Portfolio
+	if portfolioJSON != "" {
+		if err := json.Unmarshal([]byte(portfolioJSON), &p); err != nil {
+			return fmt.Sprintf(`{"error":%q}`, "invalid portfolio JSON: "+err.Error())
+		}
+	}
+	if !p.PortfolioClassTarget.HasTarget() {
+		return `{"hasTarget":false}`
+	}
+
+	holdings := finance.ComputeHoldings(&p)
+	classByAsset := make(map[string]string, len(p.Assets))
+	for _, a := range p.Assets {
+		classByAsset[a.ID] = a.AssetClass
+	}
+	actual := finance.AllocationByPortfolioClass(holdings, classByAsset)
+	drift := finance.PortfolioClassDrift(actual, p.PortfolioClassTarget)
+
+	driftJSON, err := json.Marshal(drift)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+	return fmt.Sprintf(`{"hasTarget":true,"drift":%s}`, string(driftJSON))
+}
+
 // ComputeHoldingsInSegment returns holdings (member-filtered, same as
 // ComputeHoldingsForMember) that contribute any nonzero amount to the
 // given market-cap segment label - the same classification the donut
