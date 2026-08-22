@@ -1,6 +1,5 @@
 package com.saby.personalportfolio
 
-import android.content.Intent
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -48,12 +47,7 @@ class HoldingsActivity : AppCompatActivity() {
         memberSpinner = findViewById(R.id.memberFilterSpinner)
 
         refreshButton.setOnClickListener { refreshPrices() }
-        findViewById<Button>(R.id.viewAllocationButton).setOnClickListener {
-            startActivity(Intent(this, AllocationActivity::class.java))
-        }
-        findViewById<Button>(R.id.manageTransactionsButton).setOnClickListener {
-            startActivity(Intent(this, TransactionsActivity::class.java))
-        }
+        BottomNavHelper.setup(this, findViewById(R.id.bottomNav), BottomNavDestination.HOLDINGS)
 
         memberSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
