@@ -30,10 +30,10 @@ class TransactionAdapter(private val rows: List<StagedRow>) :
         holder.scheme.text = FundNameFormatter.shorten(txn.scheme).ifBlank { "(unnamed scheme)" }
         holder.detail.text = String.format(
             Locale.getDefault(),
-            "%s | %s | ₹%.2f | %s",
+            "%s | %s | %s | %s",
             txn.date,
             txn.type,
-            txn.amount,
+            IndianCurrencyFormatter.format(txn.amount),
             txn.folio
         )
         holder.status.text = "Status: ${row.status}  (page ${row.sourcePage})"
