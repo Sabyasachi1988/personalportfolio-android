@@ -23,6 +23,20 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp" />
 
+        <EditText
+            android:id="@+id/holdingsSearchInput"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:hint="Search holdings by name"
+            android:inputType="text" />
+
+        <Spinner
+            android:id="@+id/holdingsSortSpinner"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp" />
+
         <TextView
             android:id="@+id/holdingsSummary"
             android:layout_width="match_parent"
