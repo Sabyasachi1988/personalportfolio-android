@@ -1,11 +1,11 @@
 package com.saby.personalportfolio
 
 import android.content.Context
-import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.util.AttributeSet
 import android.widget.LinearLayout
 import android.widget.TextView
+import androidx.core.content.ContextCompat
 import java.util.Locale
 
 class DonutLegendView @JvmOverloads constructor(
@@ -20,6 +20,7 @@ class DonutLegendView @JvmOverloads constructor(
     fun setSlices(slices: List<DonutChartView.Slice>) {
         removeAllViews()
         val colors = ChartColors.palette(context)
+        val textColor = ContextCompat.getColor(context, R.color.colorOnSurface)
         val positive = slices.filter { it.percent > 0f }
 
         for ((index, slice) in positive.withIndex()) {
@@ -44,13 +45,15 @@ class DonutLegendView @JvmOverloads constructor(
                 layoutParams = LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f)
                 text = slice.label
                 textSize = 13f
-                setTextColor(currentTextColorOrDefault())
+                setTextColor(textColor)
+                maxLines = 1
+                ellipsize = android.text.TextUtils.TruncateAt.END
             }
 
             val percentText = TextView(context).apply {
                 text = String.format(Locale.getDefault(), "%.1f%%", slice.percent)
                 textSize = 13f
-                setTextColor(currentTextColorOrDefault())
+                setTextColor(textColor)
             }
 
             row.addView(swatch)
@@ -58,14 +61,5 @@ class DonutLegendView @JvmOverloads constructor(
             row.addView(percentText)
             addView(row)
         }
-    }
-
-    // Falls back to a mid-grey if no theme-aware text color is easily
-    // available in this context - avoids hardcoding pure black, which
-    // would be unreadable in dark mode.
-    private fun currentTextColorOrDefault(): Int {
-        val typedValue = android.util.TypedValue()
-        val resolved = context.theme.resolveAttribute(android.R.attr.textColorPrimary, typedValue, true)
-        return if (resolved) typedValue.data else Color.GRAY
     }
 }
