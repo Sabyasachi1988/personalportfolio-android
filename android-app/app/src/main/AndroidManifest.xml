@@ -4,6 +4,7 @@
     <uses-permission android:name="android.permission.INTERNET" />
 
     <application
+        android:name=".PersonalPortfolioApp"
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
@@ -18,6 +19,9 @@
             </intent-filter>
         </activity>
         <activity
+            android:name=".LockActivity"
+            android:exported="false" />
+        <activity
             android:name=".HoldingsActivity"
             android:exported="false" />
         <activity
@@ -28,6 +32,9 @@
             android:exported="false" />
         <activity
             android:name=".TransactionsActivity"
+            android:exported="false" />
+        <activity
+            android:name=".SettingsActivity"
             android:exported="false" />
     </application>
 
