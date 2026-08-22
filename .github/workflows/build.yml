@@ -50,7 +50,7 @@ jobs:
         run: |
           mkdir -p android-app/app/libs
           gomobile bind -target=android -androidapi 24 \
-            -javapkg=com.ledger.bridge \
+            -javapkg=com.ledger \
             -o android-app/app/libs/bridge.aar \
             ./mobile/bridge
 
