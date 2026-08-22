@@ -30,6 +30,13 @@ class MainActivity : AppCompatActivity() {
         holdingsCountLine = findViewById(R.id.dashboardHoldingsCountLine)
         donutChart = findViewById(R.id.dashboardDonut)
         donutLegend = findViewById(R.id.dashboardDonutLegend)
+        donutChart.onSliceTapped = { label, percent ->
+            android.widget.Toast.makeText(
+                this,
+                String.format(Locale.getDefault(), "%s: %.1f%%", label, percent),
+                android.widget.Toast.LENGTH_SHORT
+            ).show()
+        }
 
         findViewById<FloatingActionButton>(R.id.importFab).setOnClickListener {
             startActivity(Intent(this, ImportActivity::class.java))
