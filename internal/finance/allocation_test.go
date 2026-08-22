@@ -311,6 +311,137 @@ func TestHoldingsInSegment_PartialCompositionContributionStillCounts(t *testing.
 	}
 }
 
+func TestAllocationByEquityOrigin_DefaultsToIndianWhenNoComposition(t *testing.T) {
+	holdings := []Holding{
+		{AssetID: "a1", AssetName: "NIPPON INDIA MULTI CAP FUND", HasPrice: true, CurrentValue: 1000},
+	}
+	classByAsset := map[string]string{"a1": "Equity"}
+
+	slices := AllocationByEquityOrigin(holdings, classByAsset, nil)
+	byLabel := make(map[string]AllocationSlice)
+	for _, s := range slices {
+		byLabel[s.Label] = s
+	}
+	if byLabel["Indian Equity"].Value != 1000 {
+		t.Errorf("Indian Equity = %+v, want 1000 (default with no composition entered)", byLabel["Indian Equity"])
+	}
+	if byLabel["International Equity"].Value != 0 {
+		t.Errorf("International Equity = %+v, want 0", byLabel["International Equity"])
+	}
+}
+
+func TestAllocationByEquityOrigin_RealCompositionOverridesDefault(t *testing.T) {
+	holdings := []Holding{
+		{AssetID: "a1", AssetName: "SOME GLOBAL FUND OF FUNDS", HasPrice: true, CurrentValue: 1000},
+		{AssetID: "a2", AssetName: "SOME PURE DOMESTIC FUND", HasPrice: true, CurrentValue: 500},
+	}
+	classByAsset := map[string]string{"a1": "Equity", "a2": "Equity"}
+	compositions := map[string]store.EquityOriginComposition{
+		"a1": {AssetID: "a1", Indian: 20, International: 80},
+	}
+
+	slices := AllocationByEquityOrigin(holdings, classByAsset, compositions)
+	byLabel := make(map[string]AllocationSlice)
+	for _, s := range slices {
+		byLabel[s.Label] = s
+	}
+	// a1: 200 Indian + 800 International. a2: 500 Indian (default).
+	if byLabel["Indian Equity"].Value != 700 {
+		t.Errorf("Indian Equity = %+v, want 700 (200 from a1 + 500 default from a2)", byLabel["Indian Equity"])
+	}
+	if byLabel["International Equity"].Value != 800 {
+		t.Errorf("International Equity = %+v, want 800", byLabel["International Equity"])
+	}
+}
+
+func TestAllocationByEquityOrigin_NonEquityHoldingsExcluded(t *testing.T) {
+	holdings := []Holding{
+		{AssetID: "a1", AssetName: "Some Equity Fund", HasPrice: true, CurrentValue: 1000},
+		{AssetID: "a2", AssetName: "Some Debt Fund", HasPrice: true, CurrentValue: 500},
+	}
+	classByAsset := map[string]string{"a1": "Equity", "a2": "Debt"}
+
+	slices := AllocationByEquityOrigin(holdings, classByAsset, nil)
+	total := 0.0
+	for _, s := range slices {
+		total += s.Value
+	}
+	if total != 1000 {
+		t.Errorf("total = %v, want 1000 (the Debt holding must be excluded entirely)", total)
+	}
+}
+
+func TestAllocationByPortfolioClass_BucketsIntoFour(t *testing.T) {
+	holdings := []Holding{
+		{AssetID: "a1", HasPrice: true, CurrentValue: 500}, // Equity
+		{AssetID: "a2", HasPrice: true, CurrentValue: 300}, // Debt
+		{AssetID: "a3", HasPrice: true, CurrentValue: 100}, // Commodity
+		{AssetID: "a4", HasPrice: true, CurrentValue: 50},  // Hybrid -> Others
+		{AssetID: "a5", HasPrice: true, CurrentValue: 50},  // no class at all -> Unclassified -> Others
+	}
+	classByAsset := map[string]string{
+		"a1": "Equity", "a2": "Debt", "a3": "Commodity", "a4": "Hybrid",
+	}
+
+	slices := AllocationByPortfolioClass(holdings, classByAsset)
+	byLabel := make(map[string]AllocationSlice)
+	for _, s := range slices {
+		byLabel[s.Label] = s
+	}
+	if byLabel["Equity"].Value != 500 {
+		t.Errorf("Equity = %+v, want 500", byLabel["Equity"])
+	}
+	if byLabel["Debt"].Value != 300 {
+		t.Errorf("Debt = %+v, want 300", byLabel["Debt"])
+	}
+	if byLabel["Commodity"].Value != 100 {
+		t.Errorf("Commodity = %+v, want 100", byLabel["Commodity"])
+	}
+	if byLabel["Others"].Value != 100 {
+		t.Errorf("Others = %+v, want 100 (50 Hybrid + 50 Unclassified)", byLabel["Others"])
+	}
+}
+
+func TestPortfolioClassDrift_ComputesActualMinusTarget(t *testing.T) {
+	actual := []AllocationSlice{
+		{Label: "Equity", Percent: 70},
+		{Label: "Debt", Percent: 15},
+		{Label: "Commodity", Percent: 5},
+		{Label: "Others", Percent: 10},
+	}
+	target := store.PortfolioClassTarget{Equity: 66, Debt: 20, Commodity: 5, Others: 9}
+
+	drift := PortfolioClassDrift(actual, target)
+	if len(drift) != 4 {
+		t.Fatalf("expected 4 buckets, got %d", len(drift))
+	}
+	byLabel := make(map[string]AllocationDriftSlice)
+	for _, d := range drift {
+		byLabel[d.Label] = d
+	}
+	if got := byLabel["Equity"].Drift; got != 4 {
+		t.Errorf("Equity drift = %v, want 4 (overweight)", got)
+	}
+	if got := byLabel["Debt"].Drift; got != -5 {
+		t.Errorf("Debt drift = %v, want -5 (underweight)", got)
+	}
+	if got := byLabel["Commodity"].Drift; got != 0 {
+		t.Errorf("Commodity drift = %v, want 0 (on target)", got)
+	}
+	if got := byLabel["Others"].Drift; got != 1 {
+		t.Errorf("Others drift = %v, want 1 (overweight)", got)
+	}
+}
+
+func TestPortfolioClassTarget_HasTargetDetection(t *testing.T) {
+	if (store.PortfolioClassTarget{}).HasTarget() {
+		t.Errorf("zero-value PortfolioClassTarget should report HasTarget() = false")
+	}
+	if !(store.PortfolioClassTarget{Commodity: 5}).HasTarget() {
+		t.Errorf("a target with even one nonzero field should report HasTarget() = true")
+	}
+}
+
 func TestHoldingsInSegment_UnpricedHoldingsExcluded(t *testing.T) {
 	holdings := []Holding{
 		{AssetID: "a1", AssetName: "SOME NIFTY LARGE CAP FUND", HasPrice: false},
