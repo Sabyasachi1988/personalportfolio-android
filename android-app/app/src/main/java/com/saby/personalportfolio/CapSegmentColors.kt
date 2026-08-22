@@ -23,6 +23,10 @@ object CapSegmentColors {
             "Multi Cap" -> palette[4]
             "Debt" -> palette[5]
             "Commodity" -> palette[6]
+            "Equity" -> palette[7]
+            "Others" -> palette[8]
+            "Indian Equity" -> palette[0]
+            "International Equity" -> palette[9]
             // Any other/unclassified label falls back to a stable hash
             // of its own text, so it's at least consistent across the
             // donut and legend even without a dedicated slot.
