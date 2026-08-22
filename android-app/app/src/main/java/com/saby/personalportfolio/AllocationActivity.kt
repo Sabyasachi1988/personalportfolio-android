@@ -28,6 +28,13 @@ class AllocationActivity : AppCompatActivity() {
         recyclerView.layoutManager = LinearLayoutManager(this)
         donutChart = findViewById(R.id.donutChart)
         donutLegend = findViewById(R.id.donutLegend)
+        donutChart.onSliceTapped = { label, percent ->
+            android.widget.Toast.makeText(
+                this,
+                String.format(java.util.Locale.getDefault(), "%s: %.1f%%", label, percent),
+                android.widget.Toast.LENGTH_SHORT
+            ).show()
+        }
 
         findViewById<Button>(R.id.editCompositionButton).setOnClickListener {
             startActivity(Intent(this, CapCompositionActivity::class.java))
