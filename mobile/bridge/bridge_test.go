@@ -603,6 +603,109 @@ func TestAddMember_EmptyNameRejected(t *testing.T) {
 	}
 }
 
+func TestAddAccount_CreatesAndValidatesMember(t *testing.T) {
+	p := &store.Portfolio{Members: []store.Member{{ID: "m1", Name: "Saby"}}}
+	pJSON, _ := json.Marshal(p)
+
+	result := AddAccount(string(pJSON), "m1", "Questrade CAD", "CAD")
+	if isBridgeErrorForTest(result) {
+		t.Fatalf("expected success, got: %s", result)
+	}
+	var updated store.Portfolio
+	if err := json.Unmarshal([]byte(result), &updated); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if len(updated.Accounts) != 1 {
+		t.Fatalf("expected 1 account, got %d", len(updated.Accounts))
+	}
+	if updated.Accounts[0].Currency != "CAD" || updated.Accounts[0].MemberID != "m1" {
+		t.Errorf("account = %+v, want Currency=CAD MemberID=m1", updated.Accounts[0])
+	}
+
+	// A nonexistent member should be rejected, not silently create an
+	// orphaned account.
+	badResult := AddAccount(string(pJSON), "m-nonexistent", "Some Account", "CAD")
+	if !isBridgeErrorForTest(badResult) {
+		t.Fatalf("expected an error for a nonexistent member, got: %s", badResult)
+	}
+
+	// Empty currency should be rejected too - a manually-entered account
+	// with no currency would break every downstream conversion.
+	noCurrencyResult := AddAccount(string(pJSON), "m1", "Some Account", "")
+	if !isBridgeErrorForTest(noCurrencyResult) {
+		t.Fatalf("expected an error for an empty currency, got: %s", noCurrencyResult)
+	}
+}
+
+func TestAddAsset_CreatesAndValidatesAccount(t *testing.T) {
+	p := &store.Portfolio{
+		Members:  []store.Member{{ID: "m1", Name: "Saby"}},
+		Accounts: []store.Account{{ID: "acc1", MemberID: "m1", Name: "Questrade CAD", Currency: "CAD"}},
+	}
+	pJSON, _ := json.Marshal(p)
+
+	result := AddAsset(string(pJSON), "acc1", "Vanguard S&P 500 Index ETF", "VFV.TO", "ETF")
+	if isBridgeErrorForTest(result) {
+		t.Fatalf("expected success, got: %s", result)
+	}
+	var updated store.Portfolio
+	if err := json.Unmarshal([]byte(result), &updated); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if len(updated.Assets) != 1 {
+		t.Fatalf("expected 1 asset, got %d", len(updated.Assets))
+	}
+	if updated.Assets[0].Symbol != "VFV.TO" || updated.Assets[0].ISIN != "" {
+		t.Errorf("asset = %+v, want Symbol=VFV.TO and no ISIN", updated.Assets[0])
+	}
+
+	badResult := AddAsset(string(pJSON), "acc-nonexistent", "Some ETF", "XYZ.TO", "ETF")
+	if !isBridgeErrorForTest(badResult) {
+		t.Fatalf("expected an error for a nonexistent account, got: %s", badResult)
+	}
+}
+
+func TestAddManualTransaction_ValidatesTypeAndAsset(t *testing.T) {
+	p := &store.Portfolio{
+		Members:  []store.Member{{ID: "m1", Name: "Saby"}},
+		Accounts: []store.Account{{ID: "acc1", MemberID: "m1", Currency: "CAD"}},
+		Assets:   []store.Asset{{ID: "a1", AccountID: "acc1", Name: "VFV", Symbol: "VFV.TO"}},
+	}
+	pJSON, _ := json.Marshal(p)
+
+	result := AddManualTransaction(string(pJSON), "acc1", "a1", "2026-01-15", "PURCHASE", 1000, 10)
+	if isBridgeErrorForTest(result) {
+		t.Fatalf("expected success, got: %s", result)
+	}
+	var updated store.Portfolio
+	if err := json.Unmarshal([]byte(result), &updated); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if len(updated.Transactions) != 1 {
+		t.Fatalf("expected 1 transaction, got %d", len(updated.Transactions))
+	}
+	txn := updated.Transactions[0]
+	if txn.Source != "MANUAL" || txn.Type != store.Purchase || txn.Amount != 1000 {
+		t.Errorf("transaction = %+v, want Source=MANUAL Type=PURCHASE Amount=1000", txn)
+	}
+
+	// An unrecognised transaction type must be rejected outright - it
+	// would otherwise corrupt XIRR/holdings math downstream with a type
+	// none of that code knows how to interpret.
+	badTypeResult := AddManualTransaction(string(pJSON), "acc1", "a1", "2026-01-15", "BOGUS_TYPE", 1000, 10)
+	if !isBridgeErrorForTest(badTypeResult) {
+		t.Fatalf("expected an error for an unsupported transaction type, got: %s", badTypeResult)
+	}
+
+	// An asset that doesn't belong to the given account must be rejected
+	// - this is the same cross-check CommitStagedRows relies on for CAS
+	// imports, applied here to manual entry too.
+	badAssetResult := AddManualTransaction(string(pJSON), "acc-wrong", "a1", "2026-01-15", "PURCHASE", 1000, 10)
+	if !isBridgeErrorForTest(badAssetResult) {
+		t.Fatalf("expected an error for an asset/account mismatch, got: %s", badAssetResult)
+	}
+}
+
 func TestComputeHoldingsInSegment_ReturnsOnlyMatchingHoldings(t *testing.T) {
 	units := 10.0
 	p := &store.Portfolio{
