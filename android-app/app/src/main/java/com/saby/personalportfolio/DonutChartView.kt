@@ -6,7 +6,6 @@ import android.graphics.Paint
 import android.graphics.RectF
 import android.util.AttributeSet
 import android.view.View
-import androidx.core.content.ContextCompat
 
 class DonutChartView @JvmOverloads constructor(
     context: Context,
@@ -23,17 +22,7 @@ class DonutChartView @JvmOverloads constructor(
     }
     private val rectF = RectF()
 
-    private val sliceColors: List<Int> by lazy {
-        listOf(
-            ContextCompat.getColor(context, R.color.chartSlice1),
-            ContextCompat.getColor(context, R.color.chartSlice2),
-            ContextCompat.getColor(context, R.color.chartSlice3),
-            ContextCompat.getColor(context, R.color.chartSlice4),
-            ContextCompat.getColor(context, R.color.chartSlice5),
-            ContextCompat.getColor(context, R.color.chartSlice6),
-            ContextCompat.getColor(context, R.color.chartSlice7)
-        )
-    }
+    private val sliceColors: List<Int> by lazy { ChartColors.palette(context) }
 
     fun setSlices(newSlices: List<Slice>) {
         // Only positive-percent slices are drawable; anything at 0%
