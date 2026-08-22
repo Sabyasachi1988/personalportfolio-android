@@ -63,7 +63,9 @@ jobs:
         id: gradle_build
         working-directory: android-app
         continue-on-error: true
-        run: gradle assembleDebug --stacktrace 2>&1 | tee /tmp/gradle_log.txt
+        run: |
+          set -o pipefail
+          gradle assembleDebug --stacktrace 2>&1 | tee /tmp/gradle_log.txt
 
       # GitHub's raw build-log storage isn't reachable from every network,
       # so on failure this posts the real error text to a GitHub issue,
