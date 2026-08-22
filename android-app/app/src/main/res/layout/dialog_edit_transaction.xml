@@ -3,7 +3,7 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
-    android:padding="20dp">
+    android:padding="28dp">
 
     <EditText
         android:id="@+id/editDate"
@@ -16,7 +16,7 @@
         android:id="@+id/editAmount"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
+        android:layout_marginTop="12dp"
         android:hint="Amount"
         android:inputType="numberDecimal|numberSigned" />
 
@@ -24,7 +24,7 @@
         android:id="@+id/editUnits"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
+        android:layout_marginTop="12dp"
         android:hint="Units"
         android:inputType="numberDecimal|numberSigned" />
 
