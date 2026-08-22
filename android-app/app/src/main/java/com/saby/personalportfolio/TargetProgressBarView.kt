@@ -34,18 +34,37 @@ class TargetProgressBarView @JvmOverloads constructor(
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-        val h = height.toFloat()
+        val fullHeight = height.toFloat()
         val w = width.toFloat()
-        val radius = h / 2f
 
-        canvas.drawRoundRect(0f, 0f, w, h, radius, radius, trackPaint)
+        // The visual bar is shorter than the View's own height, leaving
+        // room above/below for the marker to genuinely protrude within
+        // real (unclipped) bounds - drawing outside a View's own bounds
+        // gets clipped by Android, so this can't be done by drawing past
+        // the edges of a bar that fills the whole View.
+        val barHeight = fullHeight * 0.55f
+        val barTop = (fullHeight - barHeight) / 2f
+        val barBottom = barTop + barHeight
+        val radius = barHeight / 2f
+
+        canvas.drawRoundRect(0f, barTop, w, barBottom, radius, radius, trackPaint)
 
         val fillWidth = (actualPercent / 100f) * w
         if (fillWidth > 0f) {
-            canvas.drawRoundRect(0f, 0f, fillWidth.coerceAtLeast(h), h, radius, radius, fillPaint)
+            canvas.drawRoundRect(0f, barTop, fillWidth.coerceAtLeast(barHeight), barBottom, radius, radius, fillPaint)
         }
 
+        // The marker spans the View's full height (taller than the bar
+        // itself), so it always reads as a distinct "goal line" whether
+        // it lands on empty track (underweight) or inside the solid
+        // fill (overweight) - a marker confined to the bar's own height
+        // becomes visually indistinguishable when it sits inside a
+        // similarly-toned fill.
         val markerX = (targetPercent / 100f) * w
-        canvas.drawRect((markerX - 3f).coerceAtLeast(0f), 0f, (markerX + 3f).coerceAtMost(w), h, markerPaint)
+        canvas.drawRect(
+            (markerX - 3f).coerceAtLeast(0f), 0f,
+            (markerX + 3f).coerceAtMost(w), fullHeight,
+            markerPaint
+        )
     }
 }
