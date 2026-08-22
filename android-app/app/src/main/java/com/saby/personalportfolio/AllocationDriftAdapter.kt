@@ -7,7 +7,6 @@ import android.view.ViewGroup
 import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
 import java.util.Locale
-import kotlin.math.abs
 
 class AllocationDriftAdapter(private val slices: List<AllocationDriftSlice>) :
     RecyclerView.Adapter<AllocationDriftAdapter.RowHolder>() {
@@ -15,6 +14,7 @@ class AllocationDriftAdapter(private val slices: List<AllocationDriftSlice>) :
     class RowHolder(view: View) : RecyclerView.ViewHolder(view) {
         val label: TextView = view.findViewById(R.id.driftLabel)
         val values: TextView = view.findViewById(R.id.driftValues)
+        val bar: TargetProgressBarView = view.findViewById(R.id.driftBar)
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RowHolder {
@@ -34,17 +34,13 @@ class AllocationDriftAdapter(private val slices: List<AllocationDriftSlice>) :
             slice.actual, slice.target, driftSign, slice.drift
         )
 
-        // Within 3 points either way reads as "on target" (green);
-        // beyond that scales toward amber/red the further off it is.
-        // This is a display convenience, not a claim about what
-        // tolerance actually matters for rebalancing - that's a personal
-        // judgment call, not something to bake in as a hard rule.
-        holder.values.setTextColor(
-            when {
-                abs(slice.drift) <= 3 -> Color.parseColor("#2E7D32") // green
-                abs(slice.drift) <= 8 -> Color.parseColor("#F9A825") // amber
-                else -> Color.parseColor("#C62828")                 // red
-            }
+        holder.bar.setValues(
+            actual = slice.actual.toFloat(),
+            target = slice.target.toFloat(),
+            overColor = Color.parseColor("#F9A825"),  // amber: overweight
+            underColor = Color.parseColor("#5C6BC0"), // blue: underweight
+            trackColor = Color.parseColor("#15000000"),
+            markerColor = Color.parseColor("#C62828") // red marker: the target line
         )
     }
 
