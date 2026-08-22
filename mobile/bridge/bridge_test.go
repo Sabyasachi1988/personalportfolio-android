@@ -213,3 +213,81 @@ func TestApplyAmfiRecords_DifferentDayAppendsNewRecord(t *testing.T) {
 }
 
 func floatPtr(f float64) *float64 { return &f }
+
+func TestSetCapComposition_CreatesThenOverwritesInPlace(t *testing.T) {
+	after1 := SetCapComposition("", "asset-1", 60, 30, 10, 0, "2026-08-01", "Factsheet Aug 2026")
+
+	var p1 store.Portfolio
+	if err := json.Unmarshal([]byte(after1), &p1); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if len(p1.CapCompositions) != 1 {
+		t.Fatalf("expected 1 CapComposition, got %d", len(p1.CapCompositions))
+	}
+	if p1.CapCompositions[0].Large != 60 || p1.CapCompositions[0].Mid != 30 || p1.CapCompositions[0].Small != 10 {
+		t.Errorf("composition = %+v, want 60/30/10", p1.CapCompositions[0])
+	}
+
+	// Re-entering for the same asset should overwrite, not duplicate -
+	// matches the desktop app's "there is only ever one current entry per
+	// asset" design (see SetCapComposition's own doc comment in
+	// internal/store/portfolio.go).
+	after2 := SetCapComposition(after1, "asset-1", 50, 30, 15, 5, "2026-09-01", "Factsheet Sep 2026")
+
+	var p2 store.Portfolio
+	if err := json.Unmarshal([]byte(after2), &p2); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if len(p2.CapCompositions) != 1 {
+		t.Fatalf("expected still exactly 1 CapComposition after overwrite, got %d", len(p2.CapCompositions))
+	}
+	if p2.CapCompositions[0].Large != 50 || p2.CapCompositions[0].Cash != 5 {
+		t.Errorf("composition after overwrite = %+v, want Large=50, Cash=5", p2.CapCompositions[0])
+	}
+}
+
+func TestSetCapComposition_ActuallyChangesAllocationOutput(t *testing.T) {
+	units := 100.0
+	p := &store.Portfolio{
+		Assets: []store.Asset{{ID: "asset-1", Name: "SOME MULTI CAP FUND"}},
+		Prices: []store.PriceRecord{{AssetID: "asset-1", Date: "2026-08-20", Price: 10}},
+		Transactions: []store.StoredTransaction{{
+			AssetID: "asset-1", AccountID: "acc", Date: "2025-01-01", Amount: 1000,
+			Units: floatPtr(units), Type: store.Purchase,
+		}},
+	}
+	pJSON, _ := json.Marshal(p)
+
+	// Before any composition is entered: falls back to the single-bucket
+	// heuristic, which (correctly) can't do better than "Multi Cap" for a
+	// fund name like this - this IS the gap the person asked to fix.
+	holdingsJSON := ComputeHoldings(string(pJSON))
+	allocBefore := ComputeAllocationByMarketCap(string(pJSON))
+	_ = holdingsJSON
+	if !containsLabel(allocBefore, "Multi Cap") {
+		t.Fatalf("expected fallback allocation to include 'Multi Cap' before any composition entered, got: %s", allocBefore)
+	}
+
+	updated := SetCapComposition(string(pJSON), "asset-1", 50, 30, 15, 5, "2026-08-20", "Factsheet Aug 2026")
+	allocAfter := ComputeAllocationByMarketCap(updated)
+
+	if containsLabel(allocAfter, "Multi Cap") {
+		t.Errorf("expected 'Multi Cap' to disappear once a real composition is entered, got: %s", allocAfter)
+	}
+	if !containsLabel(allocAfter, "Large Cap") || !containsLabel(allocAfter, "Cash") {
+		t.Errorf("expected Large Cap and Cash buckets after composition entered, got: %s", allocAfter)
+	}
+}
+
+func containsLabel(allocationJSON string, label string) bool {
+	var slices []map[string]any
+	if err := json.Unmarshal([]byte(allocationJSON), &slices); err != nil {
+		return false
+	}
+	for _, s := range slices {
+		if s["Label"] == label {
+			return true
+		}
+	}
+	return false
+}
