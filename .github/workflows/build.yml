@@ -5,6 +5,10 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
+permissions:
+  contents: read
+  issues: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -56,10 +60,36 @@ jobs:
           gradle-version: '8.7'
 
       - name: Build the APK
+        id: gradle_build
         working-directory: android-app
-        run: gradle assembleDebug --stacktrace
+        continue-on-error: true
+        run: gradle assembleDebug --stacktrace 2>&1 | tee /tmp/gradle_log.txt
+
+      # GitHub's raw build-log storage isn't reachable from every network,
+      # so on failure this posts the real error text to a GitHub issue,
+      # which IS reachable via the normal API — this makes the actual
+      # error readable/fixable from anywhere, not just this web UI.
+      - name: Post error details to an issue (only runs if the build failed)
+        if: steps.gradle_build.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tail -c 30000 /tmp/gradle_log.txt > /tmp/gradle_tail.txt
+          jq -Rs --arg title "build-log run ${{ github.run_id }}" \
+            '{title: $title, body: ("```\n" + . + "\n```")}' \
+            /tmp/gradle_tail.txt > /tmp/issue_payload.json
+          curl -s -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/issues" \
+            -d @/tmp/issue_payload.json
+
+      - name: Fail the job if the build actually failed
+        if: steps.gradle_build.outcome == 'failure'
+        run: exit 1
 
       - name: Upload the APK
+        if: steps.gradle_build.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: PersonalPortfolio-test-apk
