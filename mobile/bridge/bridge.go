@@ -603,3 +603,32 @@ func ComputeAllocationDrift(portfolioJSON string) string {
 	}
 	return fmt.Sprintf(`{"hasTarget":true,"drift":%s}`, string(driftJSON))
 }
+
+// AddMember creates a new Member with the given name, if one with that
+// exact name doesn't already exist (matches CommitStagedRows' own
+// member-matching rule, so a member added here and one created later via
+// a CAS import under the same name resolve to the same person, not two).
+// Returns the updated portfolio as JSON.
+func AddMember(portfolioJSON string, name string) string {
+	var p store.Portfolio
+	if portfolioJSON != "" {
+		if err := json.Unmarshal([]byte(portfolioJSON), &p); err != nil {
+			return fmt.Sprintf(`{"error":%q}`, "invalid portfolio JSON: "+err.Error())
+		}
+	}
+	if name == "" {
+		return `{"error":"name cannot be empty"}`
+	}
+	for _, m := range p.Members {
+		if m.Name == name {
+			return `{"error":"a member with that name already exists"}`
+		}
+	}
+	p.Members = append(p.Members, store.Member{ID: store.NewID("member"), Name: name})
+
+	out, err := json.Marshal(p)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+	return string(out)
+}
