@@ -1,0 +1,166 @@
+package finance
+
+import (
+	"strings"
+
+	"ledger/internal/store"
+)
+
+// AllocationSlice is one wedge of a portfolio-allocation breakdown.
+type AllocationSlice struct {
+	Label   string
+	Value   float64
+	Percent float64
+}
+
+// AllocationByAssetClass groups current value by each Asset's AssetClass
+// field (the official AMFI/SEBI category, e.g. "Equity", "Debt",
+// "Other" - which is where index funds and ETFs land, "Hybrid",
+// "Solution Oriented"). Assets without a known class (not yet priced via
+// AMFI, or a stock/ETF with no AMFI record) are grouped under "Unclassified".
+// AllocationByAssetClass groups current value by each holding's *effective*
+// asset class (see EffectiveAssetClass): the official AMFI/SEBI category
+// where that's meaningful (Equity/Debt/Hybrid/Solution Oriented), refined
+// by the fund-name heuristic specifically for AMFI's generic "Other"
+// bucket, since that bucket otherwise hides whether an index fund/ETF is
+// equity, debt, or commodity. Assets with no signal at all fall under
+// "Unclassified".
+func AllocationByAssetClass(holdings []Holding, classByAssetID map[string]string) []AllocationSlice {
+	totals := make(map[string]float64)
+	var total float64
+	for _, h := range holdings {
+		if !h.HasPrice {
+			continue
+		}
+		class := EffectiveAssetClass(classByAssetID[h.AssetID], h.AssetName)
+		totals[class] += h.CurrentValue
+		total += h.CurrentValue
+	}
+	return toSlices(totals, total)
+}
+
+// EffectiveAssetClass resolves the asset class actually used for
+// allocation reporting. AMFI's own category is authoritative and kept
+// as-is for "Equity", "Debt", "Hybrid", and "Solution Oriented" - those
+// are already correctly bucketed by AMFI itself. But AMFI's "Other"
+// bucket lumps every index fund, ETF, and fund-of-fund together
+// regardless of what they actually invest in, which hides exactly the
+// equity/debt/commodity split someone would want to see. For that
+// bucket (and for anything with no AMFI category at all, e.g. a
+// manually-added stock/ETF), the fund-name heuristic
+// (GuessMarketCapSegment) is used to recover the real asset class: any
+// cap-size segment (Large/Mid/Small/Multi/Flexi Cap) implies Equity,
+// since cap-size is an equity-only concept; Debt and Commodity segments
+// map straight across.
+func EffectiveAssetClass(amfiClass, fundName string) string {
+	switch amfiClass {
+	case "Equity", "Debt", "Hybrid", "Solution Oriented":
+		return amfiClass
+	}
+
+	switch GuessMarketCapSegment(fundName) {
+	case "Large Cap", "Mid Cap", "Small Cap", "Multi Cap", "Flexi Cap":
+		return "Equity"
+	case "Debt":
+		return "Debt"
+	case "Commodity":
+		return "Commodity"
+	}
+
+	if amfiClass != "" {
+		return amfiClass // some other AMFI category we haven't special-cased, e.g. a future new bucket
+	}
+	return "Unclassified"
+}
+
+// AllocationByMarketCapSegment groups current value by a heuristic
+// market-cap/asset-type segment derived from each holding's fund name
+// (see GuessMarketCapSegment). This is NOT an official AMFI/SEBI
+// classification - AMFI groups all index funds under one generic
+// "Other Scheme - Index Funds" bucket regardless of what index they
+// track, so for an index-fund-heavy portfolio the official category
+// alone can't tell large-cap from small-cap. This heuristic reads the
+// fund name instead to answer that specific question.
+// AllocationByMarketCapSegment groups current value by cap-size segment.
+// Where a real, entered CapComposition exists for a holding (see
+// store.CapComposition), that fund's current value is split proportionally
+// across Large/Mid/Small according to the actual entered percentages -
+// this is the accurate path. Where no real composition has been entered,
+// it falls back to the heuristic single-bucket guess from the fund's name
+// (see GuessMarketCapSegment) - reasonable for a pure single-segment index
+// tracker, an approximation otherwise.
+func AllocationByMarketCapSegment(holdings []Holding, compositionByAsset map[string]store.CapComposition) []AllocationSlice {
+	totals := make(map[string]float64)
+	var total float64
+	for _, h := range holdings {
+		if !h.HasPrice {
+			continue
+		}
+		if comp, ok := compositionByAsset[h.AssetID]; ok {
+			sum := comp.Large + comp.Mid + comp.Small + comp.Cash
+			if sum > 0 {
+				totals["Large Cap"] += h.CurrentValue * comp.Large / sum
+				totals["Mid Cap"] += h.CurrentValue * comp.Mid / sum
+				totals["Small Cap"] += h.CurrentValue * comp.Small / sum
+				totals["Cash"] += h.CurrentValue * comp.Cash / sum
+				total += h.CurrentValue
+				continue
+			}
+		}
+		seg := GuessMarketCapSegment(h.AssetName)
+		totals[seg] += h.CurrentValue
+		total += h.CurrentValue
+	}
+	return toSlices(totals, total)
+}
+
+func toSlices(totals map[string]float64, total float64) []AllocationSlice {
+	var out []AllocationSlice
+	for label, value := range totals {
+		pct := 0.0
+		if total != 0 {
+			pct = value / total * 100
+		}
+		out = append(out, AllocationSlice{Label: label, Value: round2(value), Percent: round2(pct)})
+	}
+	return out
+}
+
+// GuessMarketCapSegment infers a market-cap/asset-type segment from a
+// fund's name using common NSE/BSE index and category naming
+// conventions. This is a heuristic, not a certified classification -
+// unusual or newly-launched fund names may not match any pattern and
+// will return "Unclassified" rather than a guess presented as fact.
+func GuessMarketCapSegment(fundName string) string {
+	n := strings.ToLower(fundName)
+
+	switch {
+	case containsAny(n, "gold", "silver"):
+		return "Commodity"
+	case containsAny(n, "gilt", "g-sec", "government securities", "corporate bond", "liquid fund", "overnight fund", "banking and psu", "credit risk", "dynamic bond", "money market", "debt fund", "short duration", "ultra short"):
+		return "Debt"
+	case containsAny(n, "smallcap", "small cap"):
+		return "Small Cap"
+	case containsAny(n, "midcap", "mid cap"):
+		return "Mid Cap"
+	case containsAny(n, "500 momentum", "nifty 500", "nifty500"):
+		return "Multi Cap"
+	case containsAny(n, "multicap", "multi cap"):
+		return "Multi Cap"
+	case containsAny(n, "flexicap", "flexi cap"):
+		return "Flexi Cap"
+	case containsAny(n, "next 50", "nifty 50", "nifty50", "sensex", "nifty 100", "nifty100", "bluechip", "blue chip", "large cap", "largecap"):
+		return "Large Cap"
+	default:
+		return "Unclassified"
+	}
+}
+
+func containsAny(haystack string, needles ...string) bool {
+	for _, needle := range needles {
+		if strings.Contains(haystack, needle) {
+			return true
+		}
+	}
+	return false
+}
