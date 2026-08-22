@@ -34,6 +34,10 @@ class SettingsActivity : AppCompatActivity() {
         statusText = findViewById(R.id.settingsStatusText)
         setupThemeToggle()
 
+        findViewById<android.widget.Button>(R.id.manageMembersButton).setOnClickListener {
+            startActivity(android.content.Intent(this, MembersActivity::class.java))
+        }
+
         findViewById<android.widget.Button>(R.id.exportButton).setOnClickListener {
             val stamp = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
             createBackupFile.launch("personalportfolio-backup-$stamp.json")
