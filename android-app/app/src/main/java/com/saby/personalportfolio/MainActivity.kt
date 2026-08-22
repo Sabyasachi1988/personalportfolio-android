@@ -18,6 +18,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var xirrLine: TextView
     private lateinit var holdingsCountLine: TextView
     private lateinit var donutChart: DonutChartView
+    private lateinit var donutLegend: DonutLegendView
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -28,6 +29,7 @@ class MainActivity : AppCompatActivity() {
         xirrLine = findViewById(R.id.dashboardXirrLine)
         holdingsCountLine = findViewById(R.id.dashboardHoldingsCountLine)
         donutChart = findViewById(R.id.dashboardDonut)
+        donutLegend = findViewById(R.id.dashboardDonutLegend)
 
         findViewById<FloatingActionButton>(R.id.importFab).setOnClickListener {
             startActivity(Intent(this, ImportActivity::class.java))
@@ -64,6 +66,7 @@ class MainActivity : AppCompatActivity() {
             xirrLine.text = ""
             holdingsCountLine.text = ""
             donutChart.setSlices(emptyList())
+            donutLegend.setSlices(emptyList())
             return
         }
 
@@ -112,6 +115,8 @@ class MainActivity : AppCompatActivity() {
         } catch (e: Exception) {
             emptyList()
         }
-        donutChart.setSlices(slices.map { DonutChartView.Slice(it.label, it.percent.toFloat()) })
+        val chartSlices = slices.map { DonutChartView.Slice(it.label, it.percent.toFloat()) }
+        donutChart.setSlices(chartSlices)
+        donutLegend.setSlices(chartSlices)
     }
 }
