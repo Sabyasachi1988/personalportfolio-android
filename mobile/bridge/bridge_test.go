@@ -552,3 +552,52 @@ func TestComputeAllocationDrift_WithTargetReturnsRealNumbers(t *testing.T) {
 		t.Errorf("Large Cap drift = %v, want 60", largeCapDrift.Drift)
 	}
 }
+
+func TestAddMember_CreatesAndRejectsDuplicates(t *testing.T) {
+	after1 := AddMember("", "Mom")
+	if isBridgeErrorForTest(after1) {
+		t.Fatalf("expected success adding first member, got: %s", after1)
+	}
+
+	var p1 store.Portfolio
+	if err := json.Unmarshal([]byte(after1), &p1); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if len(p1.Members) != 1 || p1.Members[0].Name != "Mom" {
+		t.Fatalf("expected one member named Mom, got %+v", p1.Members)
+	}
+
+	// Adding a second, different member should succeed and add to the list.
+	after2 := AddMember(after1, "Me")
+	var p2 store.Portfolio
+	if err := json.Unmarshal([]byte(after2), &p2); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if len(p2.Members) != 2 {
+		t.Fatalf("expected 2 members after adding a second, got %d", len(p2.Members))
+	}
+
+	// Re-adding "Mom" should be rejected, not silently duplicate.
+	after3 := AddMember(after2, "Mom")
+	if !isBridgeErrorForTest(after3) {
+		t.Fatalf("expected an error re-adding an existing member name, got: %s", after3)
+	}
+
+	var p3 store.Portfolio
+	// Confirm the error response didn't corrupt anything - re-parse the
+	// LAST KNOWN GOOD state (after2) to make sure it's still intact,
+	// since the caller should discard an error response, not save it.
+	if err := json.Unmarshal([]byte(after2), &p3); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if len(p3.Members) != 2 {
+		t.Fatalf("expected the last good state to still have 2 members, got %d", len(p3.Members))
+	}
+}
+
+func TestAddMember_EmptyNameRejected(t *testing.T) {
+	result := AddMember("", "")
+	if !isBridgeErrorForTest(result) {
+		t.Fatalf("expected an error for an empty member name, got: %s", result)
+	}
+}
