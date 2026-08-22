@@ -21,6 +21,9 @@
         <activity
             android:name=".AllocationActivity"
             android:exported="false" />
+        <activity
+            android:name=".CapCompositionActivity"
+            android:exported="false" />
     </application>
 
 </manifest>
