@@ -350,7 +350,22 @@ func SavePortfolio(path string, portfolioJSON string) string {
 // matched by ISIN via the same FindAssetByISIN the desktop app uses, so
 // re-importing an overlapping statement won't create duplicate assets.
 // Returns the updated portfolio as JSON.
-func CommitStagedRows(portfolioJSON string, stagedRowsJSON string) string {
+// CommitStagedRows links the raw StagedRow output of ImportCAS into a
+// real Portfolio: only rows with Status "NEW" are committed (DUPLICATE
+// and UNMATCHED rows are left for the user to resolve, same principle as
+// the desktop Import tab). A Member with the given name is created if one
+// doesn't already exist (case-sensitive exact match), along with a
+// default "CAS Import" Account under that member. An empty memberName
+// defaults to "Me".
+//
+// Assets are matched by ISIN scoped to the target account, NOT globally
+// across the whole portfolio: two different members holding the same
+// fund (same ISIN) must NOT be silently merged onto whichever account
+// happened to create the Asset first - store.Portfolio.FindAssetByISIN
+// is deliberately not used here for that reason.
+//
+// Returns the updated portfolio as JSON.
+func CommitStagedRows(portfolioJSON string, stagedRowsJSON string, memberName string) string {
 	var p store.Portfolio
 	if portfolioJSON != "" {
 		if err := json.Unmarshal([]byte(portfolioJSON), &p); err != nil {
@@ -362,7 +377,9 @@ func CommitStagedRows(portfolioJSON string, stagedRowsJSON string) string {
 		return fmt.Sprintf(`{"error":%q}`, "invalid staged rows JSON: "+err.Error())
 	}
 
-	const memberName = "Me"
+	if memberName == "" {
+		memberName = "Me"
+	}
 	const accountName = "CAS Import"
 
 	var memberID string
@@ -390,7 +407,7 @@ func CommitStagedRows(portfolioJSON string, stagedRowsJSON string) string {
 		}
 		txn := row.Txn
 
-		asset, ok := p.FindAssetByISIN(txn.ISIN)
+		asset, ok := findAssetByISINInAccount(&p, txn.ISIN, account.ID)
 		if !ok {
 			asset = store.Asset{
 				ID:        store.NewID("asset"),
@@ -415,6 +432,117 @@ func CommitStagedRows(portfolioJSON string, stagedRowsJSON string) string {
 			Source:      "CAS_IMPORT",
 		})
 		committed++
+	}
+
+	out, err := json.Marshal(p)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+	return string(out)
+}
+
+// findAssetByISINInAccount matches an Asset by ISIN scoped to a specific
+// account - deliberately not store.Portfolio.FindAssetByISIN, which
+// matches globally across the whole portfolio and would silently merge
+// two different members' holdings of the same fund onto one account.
+func findAssetByISINInAccount(p *store.Portfolio, isin string, accountID string) (store.Asset, bool) {
+	if isin == "" {
+		return store.Asset{}, false
+	}
+	for _, a := range p.Assets {
+		if a.ISIN == isin && a.AccountID == accountID {
+			return a, true
+		}
+	}
+	return store.Asset{}, false
+}
+
+// ListMembers returns the portfolio's Members as JSON, for a member
+// picker/filter UI.
+func ListMembers(portfolioJSON string) string {
+	var p store.Portfolio
+	if portfolioJSON != "" {
+		if err := json.Unmarshal([]byte(portfolioJSON), &p); err != nil {
+			return fmt.Sprintf(`{"error":%q}`, "invalid portfolio JSON: "+err.Error())
+		}
+	}
+	out, err := json.Marshal(p.Members)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+	return string(out)
+}
+
+// ComputeHoldingsForMember is ComputeHoldings filtered to one member, via
+// the same finance.FilterHoldingsByMember the desktop app uses. An empty
+// memberID returns all holdings unfiltered (the "whole family" view).
+func ComputeHoldingsForMember(portfolioJSON string, memberID string) string {
+	var p store.Portfolio
+	if portfolioJSON != "" {
+		if err := json.Unmarshal([]byte(portfolioJSON), &p); err != nil {
+			return fmt.Sprintf(`{"error":%q}`, "invalid portfolio JSON: "+err.Error())
+		}
+	}
+	holdings := finance.FilterHoldingsByMember(finance.ComputeHoldings(&p), memberID)
+	out, err := json.Marshal(holdings)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+	return string(out)
+}
+
+// DeleteTransaction removes the StoredTransaction with the given ID.
+// Returns the updated portfolio as JSON. If no transaction with that ID
+// exists, the portfolio is returned unchanged (not an error) - deleting
+// something already gone is a no-op, not a failure.
+func DeleteTransaction(portfolioJSON string, txnID string) string {
+	var p store.Portfolio
+	if portfolioJSON != "" {
+		if err := json.Unmarshal([]byte(portfolioJSON), &p); err != nil {
+			return fmt.Sprintf(`{"error":%q}`, "invalid portfolio JSON: "+err.Error())
+		}
+	}
+	kept := p.Transactions[:0]
+	for _, t := range p.Transactions {
+		if t.ID != txnID {
+			kept = append(kept, t)
+		}
+	}
+	p.Transactions = kept
+
+	out, err := json.Marshal(p)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+	return string(out)
+}
+
+// UpdateTransaction edits the date, amount, and units of an existing
+// StoredTransaction in place (matched by ID). Price and Type are left
+// untouched - correcting a mistyped amount or date doesn't mean the
+// transaction type or recorded price changed. Returns
+// {"error":"transaction not found"} if txnID doesn't match anything, so
+// the caller can tell "nothing changed because it succeeded" apart from
+// "nothing changed because the ID was wrong".
+func UpdateTransaction(portfolioJSON string, txnID string, date string, amount float64, units float64) string {
+	var p store.Portfolio
+	if portfolioJSON != "" {
+		if err := json.Unmarshal([]byte(portfolioJSON), &p); err != nil {
+			return fmt.Sprintf(`{"error":%q}`, "invalid portfolio JSON: "+err.Error())
+		}
+	}
+	found := false
+	for i := range p.Transactions {
+		if p.Transactions[i].ID == txnID {
+			p.Transactions[i].Date = date
+			p.Transactions[i].Amount = amount
+			p.Transactions[i].Units = &units
+			found = true
+			break
+		}
+	}
+	if !found {
+		return `{"error":"transaction not found"}`
 	}
 
 	out, err := json.Marshal(p)
