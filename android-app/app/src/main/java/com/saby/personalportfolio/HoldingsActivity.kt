@@ -4,7 +4,11 @@ import android.content.Intent
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.view.View
+import android.widget.AdapterView
+import android.widget.ArrayAdapter
 import android.widget.Button
+import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
@@ -26,6 +30,11 @@ class HoldingsActivity : AppCompatActivity() {
     private lateinit var xirrSummary: TextView
     private lateinit var recyclerView: RecyclerView
     private lateinit var refreshButton: Button
+    private lateinit var memberSpinner: Spinner
+
+    // Index 0 is always "All (family)" (empty memberID); indices 1.. map
+    // 1:1 with memberIds.
+    private var memberIds: List<String> = emptyList()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -36,21 +45,69 @@ class HoldingsActivity : AppCompatActivity() {
         recyclerView = findViewById(R.id.holdingsRecyclerView)
         recyclerView.layoutManager = LinearLayoutManager(this)
         refreshButton = findViewById(R.id.refreshPricesButton)
+        memberSpinner = findViewById(R.id.memberFilterSpinner)
 
         refreshButton.setOnClickListener { refreshPrices() }
         findViewById<Button>(R.id.viewAllocationButton).setOnClickListener {
             startActivity(Intent(this, AllocationActivity::class.java))
         }
+        findViewById<Button>(R.id.manageTransactionsButton).setOnClickListener {
+            startActivity(Intent(this, TransactionsActivity::class.java))
+        }
 
-        loadAndShowHoldings()
+        memberSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                showHoldingsForSelectedMember()
+            }
+            override fun onNothingSelected(parent: AdapterView<*>?) {}
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Refresh the member list every time this screen becomes visible
+        // (in particular after a new CAS import may have added a new
+        // member), then show holdings for whichever filter is selected.
+        loadMemberSpinner()
     }
 
     private fun isBridgeError(json: String): Boolean = json.trimStart().startsWith("{\"error\"")
 
-    private fun loadAndShowHoldings() {
+    private fun loadMemberSpinner() {
         val portfolioPath = PortfolioStorage.filePath(this)
         val portfolioJson = Bridge.loadPortfolio(portfolioPath)
-        val holdingsJson = Bridge.computeHoldings(portfolioJson)
+        val membersJson = Bridge.listMembers(portfolioJson)
+
+        val memberType = object : TypeToken<List<Member>>() {}.type
+        val members: List<Member> = try {
+            gson.fromJson(membersJson, memberType) ?: emptyList()
+        } catch (e: Exception) {
+            emptyList()
+        }
+
+        val previousSelection = memberSpinner.selectedItemPosition.takeIf { it >= 0 } ?: 0
+
+        memberIds = listOf("") + members.map { it.id }
+        val labels = listOf("All (family)") + members.map { it.name }
+        memberSpinner.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, labels)
+
+        // Keep the same selection if it's still valid, rather than always
+        // resetting to "All" on every refresh.
+        memberSpinner.setSelection(previousSelection.coerceAtMost(memberIds.size - 1))
+
+        showHoldingsForSelectedMember()
+    }
+
+    private fun showHoldingsForSelectedMember() {
+        val selectedIndex = memberSpinner.selectedItemPosition
+        val memberId = memberIds.getOrElse(selectedIndex) { "" }
+        loadAndShowHoldings(memberId)
+    }
+
+    private fun loadAndShowHoldings(memberId: String) {
+        val portfolioPath = PortfolioStorage.filePath(this)
+        val portfolioJson = Bridge.loadPortfolio(portfolioPath)
+        val holdingsJson = Bridge.computeHoldingsForMember(portfolioJson, memberId)
 
         val holdingsType = object : TypeToken<List<Holding>>() {}.type
         val holdings: List<Holding> = try {
@@ -61,7 +118,7 @@ class HoldingsActivity : AppCompatActivity() {
         }
 
         if (holdings.isEmpty()) {
-            summary.text = "No holdings yet. Import a CAS PDF first."
+            summary.text = "No holdings yet for this filter."
             xirrSummary.text = ""
         } else {
             var totalInvested = 0.0
@@ -85,6 +142,9 @@ class HoldingsActivity : AppCompatActivity() {
                 "${holdings.size} holdings (no current prices available yet — tap Refresh Prices)"
             }
 
+            // Portfolio XIRR is computed for whichever holdings are
+            // currently shown, so switching the member filter also scopes
+            // the XIRR - matches PortfolioXIRR's own filtering behavior.
             xirrSummary.text = if (anyPriced) {
                 val xirrJson = Bridge.computePortfolioXIRR(portfolioJson)
                 val xirrResult = try {
@@ -119,9 +179,6 @@ class HoldingsActivity : AppCompatActivity() {
                     return@execute
                 }
 
-                // This is a real network call (AMFI's NAV file, several
-                // hundred KB) - can genuinely fail from no connectivity,
-                // AMFI being down, or a slow connection timing out.
                 val refreshResult = Bridge.refreshAmfiPrices(currentPortfolioJson)
                 if (isBridgeError(refreshResult)) {
                     mainThread.post { failRefresh("Price refresh failed: $refreshResult") }
@@ -149,7 +206,7 @@ class HoldingsActivity : AppCompatActivity() {
                         "Matched prices for ${parsed.matchedCount} holding(s)",
                         Toast.LENGTH_LONG
                     ).show()
-                    loadAndShowHoldings()
+                    showHoldingsForSelectedMember()
                 }
             } catch (e: Exception) {
                 mainThread.post { failRefresh("Price refresh failed: ${e.message}") }
@@ -163,10 +220,6 @@ class HoldingsActivity : AppCompatActivity() {
     }
 }
 
-// Matches RefreshAmfiPrices' {"matchedCount":N,"portfolio":{...}} shape.
-// The "portfolio" field is left as a raw JsonObject rather than a typed
-// Portfolio data class, since it just needs to be round-tripped straight
-// into SavePortfolio, not read field-by-field on the Kotlin side.
 private data class RefreshPricesResult(
     val matchedCount: Int,
     val portfolio: com.google.gson.JsonObject
