@@ -21,10 +21,21 @@ data class CapCompositionEntry(
     @SerializedName("Source") val source: String
 )
 
-// Just enough of the full Portfolio JSON to read Assets and
-// CapCompositions - Gson ignores the other fields (Members, Accounts,
-// Transactions, Prices) it doesn't need for this screen.
+data class StoredTransactionEntry(
+    @SerializedName("ID") val id: String,
+    @SerializedName("AssetID") val assetId: String,
+    @SerializedName("Date") val date: String,
+    @SerializedName("Type") val type: String,
+    @SerializedName("Description") val description: String,
+    @SerializedName("Amount") val amount: Double,
+    @SerializedName("Units") val units: Double?
+)
+
+// Just enough of the full Portfolio JSON to read Assets, CapCompositions,
+// and Transactions - Gson ignores the fields (Members, Accounts, Prices)
+// it doesn't need for these screens.
 data class PortfolioAssetsSnapshot(
     @SerializedName("Assets") val assets: List<AssetSummary>?,
-    @SerializedName("CapCompositions") val capCompositions: List<CapCompositionEntry>?
+    @SerializedName("CapCompositions") val capCompositions: List<CapCompositionEntry>?,
+    @SerializedName("Transactions") val transactions: List<StoredTransactionEntry>?
 )
