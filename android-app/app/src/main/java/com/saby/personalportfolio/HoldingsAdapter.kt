@@ -55,7 +55,7 @@ class HoldingsAdapter(private val holdings: List<Holding>) :
             val totalValue = pricedHoldings.sumOf { it.currentValue }
             val slices = pricedHoldings
                 .filter { totalValue > 0 }
-                .map { DonutChartView.Slice(it.assetName, ((it.currentValue / totalValue) * 100).toFloat()) }
+                .map { DonutChartView.Slice(FundNameFormatter.shorten(it.assetName), ((it.currentValue / totalValue) * 100).toFloat()) }
                 .sortedByDescending { it.percent }
             holder.donut.setSlices(slices)
             holder.legend.setSlices(slices)
@@ -72,7 +72,7 @@ class HoldingsAdapter(private val holdings: List<Holding>) :
         val rowHolder = holder as RowHolder
         val h = holdings[if (hasHeader) position - 1 else position]
 
-        rowHolder.name.text = h.assetName.ifBlank { "(unnamed asset)" }
+        rowHolder.name.text = FundNameFormatter.shorten(h.assetName).ifBlank { "(unnamed asset)" }
 
         if (h.hasPrice) {
             rowHolder.currentValue.text = String.format(Locale.getDefault(), "₹%,.0f", h.currentValue)
