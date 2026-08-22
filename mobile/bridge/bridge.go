@@ -632,3 +632,31 @@ func AddMember(portfolioJSON string, name string) string {
 	}
 	return string(out)
 }
+
+// ComputeHoldingsInSegment returns holdings (member-filtered, same as
+// ComputeHoldingsForMember) that contribute any nonzero amount to the
+// given market-cap segment label - the same classification the donut
+// chart and drift bars themselves use, not a separate reimplementation.
+func ComputeHoldingsInSegment(portfolioJSON string, memberID string, segmentLabel string) string {
+	var p store.Portfolio
+	if portfolioJSON != "" {
+		if err := json.Unmarshal([]byte(portfolioJSON), &p); err != nil {
+			return fmt.Sprintf(`{"error":%q}`, "invalid portfolio JSON: "+err.Error())
+		}
+	}
+	holdings := finance.FilterHoldingsByMember(finance.ComputeHoldings(&p), memberID)
+
+	compByAsset := make(map[string]store.CapComposition)
+	for _, a := range p.Assets {
+		if c, ok := p.GetCapComposition(a.ID); ok {
+			compByAsset[a.ID] = c
+		}
+	}
+
+	filtered := finance.HoldingsInSegment(holdings, compByAsset, segmentLabel)
+	out, err := json.Marshal(filtered)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+	return string(out)
+}
