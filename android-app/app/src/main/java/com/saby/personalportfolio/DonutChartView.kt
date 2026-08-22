@@ -85,8 +85,11 @@ class DonutChartView @JvmOverloads constructor(
         for ((index, range) in sliceRanges.withIndex()) {
             val (start, end) = range
             val fullSweep = end - start
-            // Guard tiny slices: never let the gap eat the whole slice.
-            val gap = gapDegrees.coerceAtMost(fullSweep * 0.3f)
+            // A gap only makes sense to separate adjacent slices - with
+            // just one slice (necessarily the full 360°, since there's
+            // nothing else to sum to 100%), a gap reads as a broken
+            // circle rather than a boundary marker.
+            val gap = if (slices.size == 1) 0f else gapDegrees.coerceAtMost(fullSweep * 0.3f)
             arcPaint.color = slices[index].color ?: sliceColors[index % sliceColors.size]
             canvas.drawArc(rectF, start + gap / 2f, fullSweep - gap, false, arcPaint)
         }
