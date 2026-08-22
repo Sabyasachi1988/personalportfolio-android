@@ -97,14 +97,50 @@ func (t TargetAllocation) HasTarget() bool {
 	return t.Large != 0 || t.Mid != 0 || t.Small != 0 || t.Cash != 0
 }
 
+// EquityOriginComposition is the real Indian vs. International split of
+// one equity fund's actual holdings - percentages, normalised by their
+// own sum wherever used, same convention as CapComposition. Only
+// meaningful for funds classified as Equity (see
+// finance.EffectiveAssetClass); a fund with no entry here defaults to
+// 100% Indian when used, since the large majority of Indian AMC schemes
+// are domestic-only. That default is a reasonable starting assumption,
+// not a verified fact - it should be overridden by entering the real
+// composition for any fund that actually holds international exposure
+// (e.g. a fund-of-fund tracking a US index).
+type EquityOriginComposition struct {
+	AssetID       string
+	Indian        float64
+	International float64
+	AsOf          string
+	Source        string
+}
+
+// PortfolioClassTarget is the person's own chosen target Equity/Debt/
+// Commodity/Others mix (percentages, not required to sum to exactly
+// 100). All-zero means "no target set yet", same convention as
+// TargetAllocation.
+type PortfolioClassTarget struct {
+	Equity    float64
+	Debt      float64
+	Commodity float64
+	Others    float64
+}
+
+// HasTarget reports whether a real target has been entered.
+func (t PortfolioClassTarget) HasTarget() bool {
+	return t.Equity != 0 || t.Debt != 0 || t.Commodity != 0 || t.Others != 0
+}
+
 type Portfolio struct {
-	Members          []Member
-	Accounts         []Account
-	Assets           []Asset
-	Transactions     []StoredTransaction
-	Prices           []PriceRecord
-	CapCompositions  []CapComposition
-	TargetAllocation TargetAllocation
+	Members                  []Member
+	Accounts                 []Account
+	Assets                   []Asset
+	Transactions             []StoredTransaction
+	Prices                   []PriceRecord
+	CapCompositions          []CapComposition
+	TargetAllocation         TargetAllocation
+	EquityOriginCompositions []EquityOriginComposition
+	PortfolioClassTarget     PortfolioClassTarget
 }
 
 // idCounter guarantees NewID is unique even when called many times within
@@ -220,4 +256,29 @@ func (p *Portfolio) SetCapComposition(assetID string, large, mid, small, cash fl
 		}
 	}
 	p.CapCompositions = append(p.CapCompositions, CapComposition{AssetID: assetID, Large: large, Mid: mid, Small: small, Cash: cash, AsOf: asOf, Source: source})
+}
+
+// GetEquityOriginComposition returns the saved Indian/International
+// breakdown for an asset, if one has been entered.
+func (p *Portfolio) GetEquityOriginComposition(assetID string) (EquityOriginComposition, bool) {
+	for _, c := range p.EquityOriginCompositions {
+		if c.AssetID == assetID {
+			return c, true
+		}
+	}
+	return EquityOriginComposition{}, false
+}
+
+// SetEquityOriginComposition creates or updates the single current
+// Indian/International record for an asset (there is only ever one
+// "current" entry per asset, not a history, same convention as
+// SetCapComposition).
+func (p *Portfolio) SetEquityOriginComposition(assetID string, indian, international float64, asOf, source string) {
+	for i := range p.EquityOriginCompositions {
+		if p.EquityOriginCompositions[i].AssetID == assetID {
+			p.EquityOriginCompositions[i] = EquityOriginComposition{AssetID: assetID, Indian: indian, International: international, AsOf: asOf, Source: source}
+			return
+		}
+	}
+	p.EquityOriginCompositions = append(p.EquityOriginCompositions, EquityOriginComposition{AssetID: assetID, Indian: indian, International: international, AsOf: asOf, Source: source})
 }
