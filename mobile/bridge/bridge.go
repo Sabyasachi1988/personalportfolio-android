@@ -551,3 +551,55 @@ func UpdateTransaction(portfolioJSON string, txnID string, date string, amount f
 	}
 	return string(out)
 }
+
+// SetTargetAllocation records the person's own chosen target market-cap
+// mix. Returns the updated portfolio as JSON.
+func SetTargetAllocation(portfolioJSON string, large, mid, small, cash float64) string {
+	var p store.Portfolio
+	if portfolioJSON != "" {
+		if err := json.Unmarshal([]byte(portfolioJSON), &p); err != nil {
+			return fmt.Sprintf(`{"error":%q}`, "invalid portfolio JSON: "+err.Error())
+		}
+	}
+	p.TargetAllocation = store.TargetAllocation{Large: large, Mid: mid, Small: small, Cash: cash}
+
+	out, err := json.Marshal(p)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+	return string(out)
+}
+
+// ComputeAllocationDrift returns the actual-vs-target comparison for the
+// four market-cap buckets a target can be set for. Returns
+// {"hasTarget":false} (no drift array) if no target has been entered yet
+// - showing a zero-drift comparison against an unset target would be
+// misleading, since "no target set" and "target is exactly met" are very
+// different things.
+func ComputeAllocationDrift(portfolioJSON string) string {
+	var p store.Portfolio
+	if portfolioJSON != "" {
+		if err := json.Unmarshal([]byte(portfolioJSON), &p); err != nil {
+			return fmt.Sprintf(`{"error":%q}`, "invalid portfolio JSON: "+err.Error())
+		}
+	}
+	if !p.TargetAllocation.HasTarget() {
+		return `{"hasTarget":false}`
+	}
+
+	holdings := finance.ComputeHoldings(&p)
+	compByAsset := make(map[string]store.CapComposition)
+	for _, a := range p.Assets {
+		if c, ok := p.GetCapComposition(a.ID); ok {
+			compByAsset[a.ID] = c
+		}
+	}
+	actual := finance.AllocationByMarketCapSegment(holdings, compByAsset)
+	drift := finance.AllocationDrift(actual, p.TargetAllocation)
+
+	driftJSON, err := json.Marshal(drift)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+	return fmt.Sprintf(`{"hasTarget":true,"drift":%s}`, string(driftJSON))
+}
