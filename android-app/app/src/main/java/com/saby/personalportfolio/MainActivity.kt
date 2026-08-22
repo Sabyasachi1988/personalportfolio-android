@@ -94,12 +94,12 @@ class MainActivity : AppCompatActivity() {
         }
 
         if (anyPriced) {
-            totalValue.text = String.format(Locale.getDefault(), "₹%,.2f", totalCurrentValue)
+            totalValue.text = IndianCurrencyFormatter.format(totalCurrentValue)
             val gain = totalCurrentValue - totalInvested
             val gainPct = if (totalInvested != 0.0) (gain / totalInvested) * 100 else 0.0
             gainLine.text = String.format(
-                Locale.getDefault(), "%s₹%,.2f (%.1f%%) overall",
-                if (gain >= 0) "+" else "", gain, gainPct
+                Locale.getDefault(), "%s (%.1f%%) overall",
+                IndianCurrencyFormatter.formatSigned(gain), gainPct
             )
         } else {
             totalValue.text = "Prices not refreshed yet"
