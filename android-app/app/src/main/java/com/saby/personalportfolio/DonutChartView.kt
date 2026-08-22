@@ -15,7 +15,7 @@ class DonutChartView @JvmOverloads constructor(
     attrs: AttributeSet? = null
 ) : View(context, attrs) {
 
-    data class Slice(val label: String, val percent: Float)
+    data class Slice(val label: String, val percent: Float, val color: Int? = null)
 
     /** Called when the person taps a slice, with that slice's label and percent. */
     var onSliceTapped: ((label: String, percent: Float) -> Unit)? = null
@@ -79,7 +79,7 @@ class DonutChartView @JvmOverloads constructor(
             val fullSweep = end - start
             // Guard tiny slices: never let the gap eat the whole slice.
             val gap = gapDegrees.coerceAtMost(fullSweep * 0.3f)
-            arcPaint.color = sliceColors[index % sliceColors.size]
+            arcPaint.color = slices[index].color ?: sliceColors[index % sliceColors.size]
             canvas.drawArc(rectF, start + gap / 2f, fullSweep - gap, false, arcPaint)
         }
     }
