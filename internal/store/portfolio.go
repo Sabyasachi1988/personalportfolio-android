@@ -80,13 +80,31 @@ type CapComposition struct {
 }
 
 // Portfolio is the full persisted state of the app.
+// TargetAllocation is the person's own chosen target market-cap mix
+// (percentages, not required to sum to exactly 100). All-zero means "no
+// target has been set yet" - a real target would never actually be all
+// zero, so this doubles as the "is a target set" check without needing a
+// separate boolean flag.
+type TargetAllocation struct {
+	Large float64
+	Mid   float64
+	Small float64
+	Cash  float64
+}
+
+// HasTarget reports whether a real target has been entered.
+func (t TargetAllocation) HasTarget() bool {
+	return t.Large != 0 || t.Mid != 0 || t.Small != 0 || t.Cash != 0
+}
+
 type Portfolio struct {
-	Members         []Member
-	Accounts        []Account
-	Assets          []Asset
-	Transactions    []StoredTransaction
-	Prices          []PriceRecord
-	CapCompositions []CapComposition
+	Members          []Member
+	Accounts         []Account
+	Assets           []Asset
+	Transactions     []StoredTransaction
+	Prices           []PriceRecord
+	CapCompositions  []CapComposition
+	TargetAllocation TargetAllocation
 }
 
 // idCounter guarantees NewID is unique even when called many times within
