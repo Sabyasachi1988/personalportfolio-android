@@ -28,22 +28,39 @@ class AllocationActivity : AppCompatActivity() {
         findViewById<Button>(R.id.editCompositionButton).setOnClickListener {
             startActivity(Intent(this, CapCompositionActivity::class.java))
         }
+        findViewById<Button>(R.id.setTargetButton).setOnClickListener {
+            startActivity(Intent(this, TargetAllocationActivity::class.java))
+        }
     }
 
     override fun onResume() {
         super.onResume()
-        // Recomputes every time this screen becomes visible - in
-        // particular, right after coming back from CapCompositionActivity,
-        // so an edited composition shows up immediately without needing
-        // to force-close and reopen the app.
+        // Recomputes every time this screen becomes visible, so coming
+        // back from editing cap composition or the target both reflect
+        // immediately.
         loadAndShowAllocation()
     }
 
     private fun loadAndShowAllocation() {
         val portfolioPath = PortfolioStorage.filePath(this)
         val portfolioJson = Bridge.loadPortfolio(portfolioPath)
-        val allocationJson = Bridge.computeAllocationByMarketCap(portfolioJson)
 
+        val driftJson = Bridge.computeAllocationDrift(portfolioJson)
+        val driftResult: AllocationDriftResult? = try {
+            gson.fromJson(driftJson, AllocationDriftResult::class.java)
+        } catch (e: Exception) {
+            null
+        }
+
+        if (driftResult?.hasTarget == true && !driftResult.drift.isNullOrEmpty()) {
+            summary.text = "Actual vs. target allocation"
+            recyclerView.adapter = AllocationDriftAdapter(driftResult.drift)
+            return
+        }
+
+        // No target set yet (or it couldn't be read) - fall back to the
+        // plain actual-only view.
+        val allocationJson = Bridge.computeAllocationByMarketCap(portfolioJson)
         val sliceType = object : TypeToken<List<AllocationSlice>>() {}.type
         val slices: List<AllocationSlice> = try {
             gson.fromJson(allocationJson, sliceType) ?: emptyList()
@@ -56,10 +73,9 @@ class AllocationActivity : AppCompatActivity() {
         summary.text = if (slices.isEmpty()) {
             "No allocation data yet — this needs holdings with a current price. Refresh prices from the Holdings screen first."
         } else {
-            "Allocation by market cap segment"
+            "Allocation by market cap segment (set a target to see drift)"
         }
 
-        // Largest slice first, so the breakdown reads naturally.
         val sorted = slices.sortedByDescending { it.percent }
         recyclerView.adapter = AllocationAdapter(sorted)
     }
