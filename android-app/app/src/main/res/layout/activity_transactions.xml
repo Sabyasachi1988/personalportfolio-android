@@ -18,6 +18,20 @@
             android:textSize="14sp"
             android:text="Tap a transaction to edit or delete it." />
 
+        <EditText
+            android:id="@+id/transactionsSearchInput"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:hint="Search transactions by fund name"
+            android:inputType="text" />
+
+        <Spinner
+            android:id="@+id/transactionsSortSpinner"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp" />
+
         <androidx.recyclerview.widget.RecyclerView
             android:id="@+id/transactionsRecyclerView"
             android:layout_width="match_parent"
