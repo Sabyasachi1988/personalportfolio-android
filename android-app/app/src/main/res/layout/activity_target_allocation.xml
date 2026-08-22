@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="20dp">
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textSize="14sp"
+        android:text="Set your target Large/Mid/Small/Cash mix. Percentages don't need to sum to exactly 100." />
+
+    <EditText
+        android:id="@+id/targetLargeInput"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:hint="Large Cap target %"
+        android:inputType="numberDecimal" />
+
+    <EditText
+        android:id="@+id/targetMidInput"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:hint="Mid Cap target %"
+        android:inputType="numberDecimal" />
+
+    <EditText
+        android:id="@+id/targetSmallInput"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:hint="Small Cap target %"
+        android:inputType="numberDecimal" />
+
+    <EditText
+        android:id="@+id/targetCashInput"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:hint="Cash target %"
+        android:inputType="numberDecimal" />
+
+    <Button
+        android:id="@+id/saveTargetButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:text="Save Target" />
+
+    <TextView
+        android:id="@+id/targetStatusText"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:textSize="14sp" />
+
+</LinearLayout>
