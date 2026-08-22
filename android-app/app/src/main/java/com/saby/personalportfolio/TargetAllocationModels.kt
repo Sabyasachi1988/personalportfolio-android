@@ -27,3 +27,22 @@ data class AllocationDriftSlice(
 data class PortfolioTargetSnapshot(
     @SerializedName("TargetAllocation") val targetAllocation: TargetAllocation?
 )
+
+data class PortfolioClassTarget(
+    @SerializedName("Equity") val equity: Double,
+    @SerializedName("Debt") val debt: Double,
+    @SerializedName("Commodity") val commodity: Double,
+    @SerializedName("Others") val others: Double
+)
+
+// Matches ComputePortfolioClassDrift's {"hasTarget":bool,"drift":[...]} shape.
+data class PortfolioClassDriftResult(
+    val hasTarget: Boolean,
+    val drift: List<AllocationDriftSlice>?
+)
+
+// Just enough of the full Portfolio JSON to read the current class
+// target, for prefilling its edit screen.
+data class PortfolioClassTargetSnapshot(
+    @SerializedName("PortfolioClassTarget") val portfolioClassTarget: PortfolioClassTarget?
+)
