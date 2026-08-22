@@ -258,6 +258,19 @@ func TestParseMFCentral_CleanLines_PageBreakWrap(t *testing.T) {
 	if last.Balance == nil || *last.Balance != 148.379 {
 		t.Errorf("closing txn balance = %v, want 148.379", last.Balance)
 	}
+
+	// SourcePage regression guard: the wrapped row's description spans
+	// cp3/cp4 (pages 3 and 4), and the merge logic keeps the FIRST half's
+	// page since that's where the transaction actually starts.
+	if result.Staged[2].SourcePage != 3 {
+		t.Errorf("wrapped row SourcePage = %d, want 3", result.Staged[2].SourcePage)
+	}
+	// The first transaction (01-JUL) is on cp3 — cp2's own page ends
+	// exactly at the "Unit Balance"/"Date" header with nothing following
+	// it, so cp2 contributes zero real content lines.
+	if result.Staged[0].SourcePage != 3 {
+		t.Errorf("first row SourcePage = %d, want 3", result.Staged[0].SourcePage)
+	}
 }
 
 func TestParseMFCentral_CleanLines_NextSchemeInheritsAMC(t *testing.T) {
