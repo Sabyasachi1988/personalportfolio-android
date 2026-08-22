@@ -176,6 +176,27 @@ func Ping() string {
 	return "bridge ok"
 }
 
+// SetCapComposition records (or overwrites) the real Large/Mid/Small/Cash
+// factsheet breakdown for one asset, mirroring the desktop app's manual
+// entry workflow (deliberately manual, not auto-scraped - some AMCs'
+// robots.txt blocks scraping their factsheets anyway). Returns the
+// updated portfolio as JSON.
+func SetCapComposition(portfolioJSON string, assetID string, large, mid, small, cash float64, asOf, source string) string {
+	var p store.Portfolio
+	if portfolioJSON != "" {
+		if err := json.Unmarshal([]byte(portfolioJSON), &p); err != nil {
+			return fmt.Sprintf(`{"error":%q}`, "invalid portfolio JSON: "+err.Error())
+		}
+	}
+	p.SetCapComposition(assetID, large, mid, small, cash, asOf, source)
+
+	out, err := json.Marshal(p)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+	return string(out)
+}
+
 // RefreshAmfiPrices fetches the current AMFI NAV file over the network
 // (real HTTP call - requires the Android app to hold the INTERNET
 // permission) and updates the portfolio's PriceRecords for any Asset
