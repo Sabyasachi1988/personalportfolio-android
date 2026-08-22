@@ -601,3 +601,35 @@ func TestAddMember_EmptyNameRejected(t *testing.T) {
 		t.Fatalf("expected an error for an empty member name, got: %s", result)
 	}
 }
+
+func TestComputeHoldingsInSegment_ReturnsOnlyMatchingHoldings(t *testing.T) {
+	units := 10.0
+	p := &store.Portfolio{
+		Assets: []store.Asset{
+			{ID: "a1", Name: "SOME NIFTY SMALLCAP 250 INDEX FUND"},
+			{ID: "a2", Name: "SOME NIFTY 50 INDEX FUND"},
+		},
+		Prices: []store.PriceRecord{
+			{AssetID: "a1", Date: "2026-08-20", Price: 10},
+			{AssetID: "a2", Date: "2026-08-20", Price: 10},
+		},
+		Transactions: []store.StoredTransaction{
+			{AssetID: "a1", AccountID: "acc", Date: "2025-01-01", Amount: 100, Units: &units, Type: store.Purchase},
+			{AssetID: "a2", AccountID: "acc", Date: "2025-01-01", Amount: 100, Units: &units, Type: store.Purchase},
+		},
+	}
+	pJSON, _ := json.Marshal(p)
+
+	result := ComputeHoldingsInSegment(string(pJSON), "", "Small Cap")
+
+	var holdings []finance.Holding
+	if err := json.Unmarshal([]byte(result), &holdings); err != nil {
+		t.Fatalf("invalid JSON: %v\nresult: %s", err, result)
+	}
+	if len(holdings) != 1 {
+		t.Fatalf("expected 1 holding in Small Cap, got %d: %+v", len(holdings), holdings)
+	}
+	if holdings[0].AssetID != "a1" {
+		t.Errorf("expected a1 (the small cap fund), got %s", holdings[0].AssetID)
+	}
+}
