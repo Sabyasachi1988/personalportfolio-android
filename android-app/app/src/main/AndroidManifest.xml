@@ -12,12 +12,16 @@
         android:theme="@style/Theme.PersonalPortfolio">
         <activity
             android:name=".MainActivity"
+            android:launchMode="singleTop"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <activity
+            android:name=".ImportActivity"
+            android:exported="false" />
         <activity
             android:name=".LockActivity"
             android:exported="false" />
