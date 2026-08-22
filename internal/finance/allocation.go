@@ -209,6 +209,99 @@ func AllocationDrift(actual []AllocationSlice, target store.TargetAllocation) []
 	return out
 }
 
+// AllocationByEquityOrigin splits the current value of Equity-classified
+// holdings (per EffectiveAssetClass) into Indian vs. International,
+// using each fund's real EquityOriginComposition where entered, falling
+// back to 100% Indian otherwise (see EquityOriginComposition's doc
+// comment for why that default is reasonable, not a guess presented as
+// fact). Non-equity holdings (Debt, Commodity, Hybrid, etc.) are not
+// included at all - this answers "of my equity, how much is
+// international", not "of my whole portfolio".
+func AllocationByEquityOrigin(holdings []Holding, classByAssetID map[string]string, compositionByAsset map[string]store.EquityOriginComposition) []AllocationSlice {
+	totals := make(map[string]float64)
+	var total float64
+	for _, h := range holdings {
+		if !h.HasPrice {
+			continue
+		}
+		if EffectiveAssetClass(classByAssetID[h.AssetID], h.AssetName) != "Equity" {
+			continue
+		}
+		if comp, ok := compositionByAsset[h.AssetID]; ok {
+			sum := comp.Indian + comp.International
+			if sum > 0 {
+				totals["Indian Equity"] += h.CurrentValue * comp.Indian / sum
+				totals["International Equity"] += h.CurrentValue * comp.International / sum
+				total += h.CurrentValue
+				continue
+			}
+		}
+		totals["Indian Equity"] += h.CurrentValue
+		total += h.CurrentValue
+	}
+	return toSlices(totals, total)
+}
+
+// AllocationByPortfolioClass groups the current value of ALL holdings
+// into four top-level buckets: Equity, Debt, Commodity, Others. Built on
+// EffectiveAssetClass; anything that isn't exactly Equity/Debt/Commodity
+// (Hybrid, Solution Oriented, Unclassified, or any future AMFI category)
+// is folded into "Others" as a placeholder, same spirit as the
+// heuristic-fallback pattern used elsewhere in this file - a real
+// per-fund override can refine this later the same way CapComposition
+// refines the market-cap heuristic.
+func AllocationByPortfolioClass(holdings []Holding, classByAssetID map[string]string) []AllocationSlice {
+	totals := make(map[string]float64)
+	var total float64
+	for _, h := range holdings {
+		if !h.HasPrice {
+			continue
+		}
+		class := EffectiveAssetClass(classByAssetID[h.AssetID], h.AssetName)
+		switch class {
+		case "Equity", "Debt", "Commodity":
+			totals[class] += h.CurrentValue
+		default:
+			totals["Others"] += h.CurrentValue
+		}
+		total += h.CurrentValue
+	}
+	return toSlices(totals, total)
+}
+
+// PortfolioClassDrift compares AllocationByPortfolioClass's output
+// against a PortfolioClassTarget, across all four buckets - same
+// actual-minus-target comparison as AllocationDrift, generalised for
+// this classification's own label set.
+func PortfolioClassDrift(actual []AllocationSlice, target store.PortfolioClassTarget) []AllocationDriftSlice {
+	actualByLabel := make(map[string]float64, len(actual))
+	for _, a := range actual {
+		actualByLabel[a.Label] = a.Percent
+	}
+
+	buckets := []struct {
+		label     string
+		targetPct float64
+	}{
+		{"Equity", target.Equity},
+		{"Debt", target.Debt},
+		{"Commodity", target.Commodity},
+		{"Others", target.Others},
+	}
+
+	out := make([]AllocationDriftSlice, 0, len(buckets))
+	for _, b := range buckets {
+		actualPct := actualByLabel[b.label]
+		out = append(out, AllocationDriftSlice{
+			Label:  b.label,
+			Actual: round2(actualPct),
+			Target: round2(b.targetPct),
+			Drift:  round2(actualPct - b.targetPct),
+		})
+	}
+	return out
+}
+
 // HoldingsInSegment returns the subset of holdings that contribute any
 // nonzero amount to the given market-cap segment label (Large Cap/Mid
 // Cap/Small Cap/Cash, or a heuristic fallback label like "Multi Cap"),
