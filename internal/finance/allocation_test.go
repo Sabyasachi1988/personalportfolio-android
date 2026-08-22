@@ -274,3 +274,49 @@ func TestTargetAllocation_HasTargetDetection(t *testing.T) {
 		t.Errorf("a target with even one nonzero field should report HasTarget() = true")
 	}
 }
+
+func TestHoldingsInSegment_HeuristicFallbackMatchesByName(t *testing.T) {
+	holdings := []Holding{
+		{AssetID: "a1", AssetName: "SOME NIFTY SMALLCAP 250 INDEX FUND", HasPrice: true},
+		{AssetID: "a2", AssetName: "SOME NIFTY 50 INDEX FUND", HasPrice: true},
+	}
+	result := HoldingsInSegment(holdings, map[string]store.CapComposition{}, "Small Cap")
+	if len(result) != 1 || result[0].AssetID != "a1" {
+		t.Fatalf("expected only a1 (small cap by name) to match, got %+v", result)
+	}
+}
+
+func TestHoldingsInSegment_PartialCompositionContributionStillCounts(t *testing.T) {
+	holdings := []Holding{
+		{AssetID: "a1", AssetName: "SOME MULTI CAP FUND", HasPrice: true},
+	}
+	comp := map[string]store.CapComposition{
+		// Mostly Large/Mid, but a small real Small Cap sliver too - a
+		// fund like this genuinely does belong in "Small Cap holdings",
+		// even though it's not primarily a small-cap fund.
+		"a1": {Large: 50, Mid: 45, Small: 2, Cash: 3},
+	}
+	result := HoldingsInSegment(holdings, comp, "Small Cap")
+	if len(result) != 1 {
+		t.Fatalf("expected the fund with a nonzero Small Cap slice to be included, got %d results", len(result))
+	}
+
+	// But it should NOT show up for a segment it has zero exposure to.
+	noExposure := map[string]store.CapComposition{
+		"a1": {Large: 60, Mid: 40, Small: 0, Cash: 0},
+	}
+	result2 := HoldingsInSegment(holdings, noExposure, "Small Cap")
+	if len(result2) != 0 {
+		t.Fatalf("expected zero results for a segment with zero composition exposure, got %d", len(result2))
+	}
+}
+
+func TestHoldingsInSegment_UnpricedHoldingsExcluded(t *testing.T) {
+	holdings := []Holding{
+		{AssetID: "a1", AssetName: "SOME NIFTY LARGE CAP FUND", HasPrice: false},
+	}
+	result := HoldingsInSegment(holdings, map[string]store.CapComposition{}, "Large Cap")
+	if len(result) != 0 {
+		t.Fatalf("expected unpriced holdings to be excluded (they have no meaningful current value), got %d", len(result))
+	}
+}
