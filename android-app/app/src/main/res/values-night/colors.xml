@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="colorPrimary">#66BB6A</color>
+    <color name="colorPrimaryVariant">#388E3C</color>
+    <color name="colorOnPrimary">#00390D</color>
+
+    <color name="colorSecondary">#4DB6AC</color>
+    <color name="colorOnSecondary">#00201C</color>
+
+    <color name="colorBackground">#121212</color>
+    <color name="colorOnBackground">#E6E6E6</color>
+
+    <color name="colorSurface">#1C1C1C</color>
+    <color name="colorOnSurface">#E6E6E6</color>
+    <color name="colorSurfaceVariant">#26302A</color>
+
+    <color name="colorGain">#66BB6A</color>
+    <color name="colorLoss">#EF5350</color>
+    <color name="colorNeutral">#AAAAAA</color>
+    <color name="colorAmber">#FFCA28</color>
+
+    <color name="chartSlice1">#66BB6A</color>
+    <color name="chartSlice2">#4DB6AC</color>
+    <color name="chartSlice3">#FFCA28</color>
+    <color name="chartSlice4">#7986CB</color>
+    <color name="chartSlice5">#EF5350</color>
+    <color name="chartSlice6">#A1887F</color>
+    <color name="chartSlice7">#78909C</color>
+</resources>
