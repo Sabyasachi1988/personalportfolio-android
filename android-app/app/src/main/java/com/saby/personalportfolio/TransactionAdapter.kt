@@ -27,7 +27,7 @@ class TransactionAdapter(private val rows: List<StagedRow>) :
         val row = rows[position]
         val txn = row.txn
 
-        holder.scheme.text = txn.scheme.ifBlank { "(unnamed scheme)" }
+        holder.scheme.text = FundNameFormatter.shorten(txn.scheme).ifBlank { "(unnamed scheme)" }
         holder.detail.text = String.format(
             Locale.getDefault(),
             "%s | %s | ₹%.2f | %s",
