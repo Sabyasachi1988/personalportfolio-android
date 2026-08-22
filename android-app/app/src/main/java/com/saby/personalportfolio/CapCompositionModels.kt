@@ -7,8 +7,28 @@ import com.google.gson.annotations.SerializedName
 
 data class AssetSummary(
     @SerializedName("ID") val id: String,
+    @SerializedName("AccountID") val accountId: String = "",
     @SerializedName("Name") val name: String,
-    @SerializedName("ISIN") val isin: String
+    @SerializedName("ISIN") val isin: String,
+    @SerializedName("Symbol") val symbol: String = "",
+    @SerializedName("Type") val type: String = ""
+)
+
+data class AccountSummary(
+    @SerializedName("ID") val id: String,
+    @SerializedName("MemberID") val memberId: String,
+    @SerializedName("Name") val name: String,
+    @SerializedName("Currency") val currency: String
+)
+
+// Just enough of the full Portfolio JSON for the manual (non-CAS)
+// holdings entry screen: members (to attach a new account to), accounts
+// (to attach a new asset to, and to pick from for a new transaction),
+// and assets (to pick from for a new transaction).
+data class PortfolioManualEntrySnapshot(
+    @SerializedName("Members") val members: List<Member>?,
+    @SerializedName("Accounts") val accounts: List<AccountSummary>?,
+    @SerializedName("Assets") val assets: List<AssetSummary>?
 )
 
 data class CapCompositionEntry(
