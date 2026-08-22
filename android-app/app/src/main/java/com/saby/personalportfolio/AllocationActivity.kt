@@ -16,6 +16,7 @@ class AllocationActivity : AppCompatActivity() {
     private val gson = Gson()
     private lateinit var summary: TextView
     private lateinit var recyclerView: RecyclerView
+    private lateinit var donutChart: DonutChartView
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -24,6 +25,7 @@ class AllocationActivity : AppCompatActivity() {
         summary = findViewById(R.id.allocationSummary)
         recyclerView = findViewById(R.id.allocationRecyclerView)
         recyclerView.layoutManager = LinearLayoutManager(this)
+        donutChart = findViewById(R.id.donutChart)
 
         findViewById<Button>(R.id.editCompositionButton).setOnClickListener {
             startActivity(Intent(this, CapCompositionActivity::class.java))
@@ -31,6 +33,8 @@ class AllocationActivity : AppCompatActivity() {
         findViewById<Button>(R.id.setTargetButton).setOnClickListener {
             startActivity(Intent(this, TargetAllocationActivity::class.java))
         }
+
+        BottomNavHelper.setup(this, findViewById(R.id.bottomNav), BottomNavDestination.ALLOCATION)
     }
 
     override fun onResume() {
@@ -55,6 +59,7 @@ class AllocationActivity : AppCompatActivity() {
         if (driftResult?.hasTarget == true && !driftResult.drift.isNullOrEmpty()) {
             summary.text = "Actual vs. target allocation"
             recyclerView.adapter = AllocationDriftAdapter(driftResult.drift)
+            donutChart.setSlices(driftResult.drift.map { DonutChartView.Slice(it.label, it.actual.toFloat()) })
             return
         }
 
@@ -67,6 +72,7 @@ class AllocationActivity : AppCompatActivity() {
         } catch (e: Exception) {
             summary.text = "Could not read allocation: ${e.message}"
             recyclerView.adapter = AllocationAdapter(emptyList())
+            donutChart.setSlices(emptyList())
             return
         }
 
@@ -78,5 +84,6 @@ class AllocationActivity : AppCompatActivity() {
 
         val sorted = slices.sortedByDescending { it.percent }
         recyclerView.adapter = AllocationAdapter(sorted)
+        donutChart.setSlices(sorted.map { DonutChartView.Slice(it.label, it.percent.toFloat()) })
     }
 }
