@@ -19,6 +19,12 @@
             android:layout_gravity="center_horizontal"
             android:layout_marginBottom="8dp" />
 
+        <com.saby.personalportfolio.DonutLegendView
+            android:id="@+id/donutLegend"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="8dp" />
+
         <TextView
             android:id="@+id/allocationSummary"
             android:layout_width="match_parent"
@@ -65,6 +71,7 @@
         android:id="@+id/bottomNav"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        app:menu="@menu/bottom_nav_menu" />
+        app:menu="@menu/bottom_nav_menu"
+        app:labelVisibilityMode="labeled" />
 
 </LinearLayout>
