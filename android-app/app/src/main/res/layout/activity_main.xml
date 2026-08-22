@@ -18,7 +18,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                android:padding="16dp">
+                android:padding="24dp">
 
                 <TextView
                     android:layout_width="match_parent"
@@ -30,7 +30,7 @@
                 <com.google.android.material.card.MaterialCardView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="16dp"
+                    android:layout_marginTop="24dp"
                     app:cardCornerRadius="16dp"
                     app:cardElevation="3dp">
 
@@ -38,7 +38,7 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:orientation="vertical"
-                        android:padding="18dp">
+                        android:padding="24dp">
 
                         <TextView
                             android:id="@+id/dashboardTotalValue"
@@ -52,21 +52,21 @@
                             android:id="@+id/dashboardGainLine"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:layout_marginTop="4dp"
+                            android:layout_marginTop="8dp"
                             android:textSize="15sp" />
 
                         <TextView
                             android:id="@+id/dashboardXirrLine"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:layout_marginTop="4dp"
+                            android:layout_marginTop="8dp"
                             android:textSize="15sp" />
 
                         <TextView
                             android:id="@+id/dashboardHoldingsCountLine"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:layout_marginTop="8dp"
+                            android:layout_marginTop="12dp"
                             android:textSize="13sp"
                             android:textColor="#757575" />
 
@@ -77,7 +77,7 @@
                 <com.google.android.material.card.MaterialCardView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="16dp"
+                    android:layout_marginTop="24dp"
                     app:cardCornerRadius="16dp"
                     app:cardElevation="3dp">
 
@@ -86,7 +86,7 @@
                         android:layout_height="wrap_content"
                         android:orientation="vertical"
                         android:gravity="center_horizontal"
-                        android:padding="18dp">
+                        android:padding="24dp">
 
                         <TextView
                             android:layout_width="match_parent"
@@ -99,19 +99,19 @@
                             android:id="@+id/dashboardDonut"
                             android:layout_width="140dp"
                             android:layout_height="140dp"
-                            android:layout_marginTop="8dp" />
+                            android:layout_marginTop="12dp" />
 
                         <com.saby.personalportfolio.DonutLegendView
                             android:id="@+id/dashboardDonutLegend"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:layout_marginTop="8dp" />
+                            android:layout_marginTop="12dp" />
 
                         <TextView
                             android:id="@+id/dashboardAllocationHint"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:layout_marginTop="4dp"
+                            android:layout_marginTop="8dp"
                             android:textSize="12sp"
                             android:textColor="#757575"
                             android:gravity="center"
@@ -125,7 +125,7 @@
                     android:id="@+id/settingsButton"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="16dp"
+                    android:layout_marginTop="24dp"
                     android:text="Settings (Backup / Theme)" />
 
                 <!-- Spacer so the FAB never overlaps the last item -->
@@ -142,7 +142,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_gravity="bottom|end"
-            android:layout_margin="20dp"
+            android:layout_margin="28dp"
             android:contentDescription="Import CAS PDF"
             app:srcCompat="@drawable/ic_fab_add" />
 
