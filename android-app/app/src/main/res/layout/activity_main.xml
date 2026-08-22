@@ -35,6 +35,14 @@
 
     </LinearLayout>
 
+    <EditText
+        android:id="@+id/memberNameInput"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:hint="Whose statement is this? (default: Me)"
+        android:inputType="textPersonName" />
+
     <TextView
         android:id="@+id/statusText"
         android:layout_width="match_parent"
