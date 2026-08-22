@@ -24,6 +24,7 @@ var (
 type rawMFCTxn struct {
 	date, desc, amt, units, price, bal string
 	amc, folio, scheme, isin           string
+	page                                int
 }
 
 // ParseMFCentral parses MFCentral-format CAS text extracted via
@@ -34,7 +35,7 @@ type rawMFCTxn struct {
 func ParseMFCentral(pageTexts []string) ImportResult {
 	result := ImportResult{Format: "MFCENTRAL"}
 
-	lines := buildLines(pageTexts)
+	lines, pageOf := buildLines(pageTexts)
 	if len(lines) == 0 {
 		return result
 	}
@@ -46,6 +47,7 @@ func ParseMFCentral(pageTexts []string) ImportResult {
 	i := 0
 	for i < len(lines) {
 		line := lines[i]
+		page := pageOf[i]
 
 		switch {
 		case folioNoLineRe.MatchString(line):
@@ -77,6 +79,7 @@ func ParseMFCentral(pageTexts []string) ImportResult {
 		case dateOnlyRe.MatchString(line):
 			if i+5 >= len(lines) {
 				result.ManualReview = append(result.ManualReview, ManualReviewLine{
+					Page:   page,
 					Folio:  currentFolio,
 					Reason: fmt.Sprintf("row dated %s near end of document: not enough following lines for a full row", line),
 					Text:   line,
@@ -88,6 +91,7 @@ func ParseMFCentral(pageTexts []string) ImportResult {
 			if !numericLineRe.MatchString(amt) || !numericLineRe.MatchString(units) ||
 				!numericLineRe.MatchString(price) || !numericLineRe.MatchString(bal) {
 				result.ManualReview = append(result.ManualReview, ManualReviewLine{
+					Page:   page,
 					Folio:  currentFolio,
 					Reason: fmt.Sprintf("row dated %s: the next 4 lines don't all look numeric", line),
 					Text:   fmt.Sprintf("%s | %s | %s | %s | %s", desc, amt, units, price, bal),
@@ -98,6 +102,7 @@ func ParseMFCentral(pageTexts []string) ImportResult {
 			raw = append(raw, rawMFCTxn{
 				date: line, desc: desc, amt: amt, units: units, price: price, bal: bal,
 				amc: currentAMC, folio: currentFolio, scheme: currentScheme, isin: currentISIN,
+				page: page,
 			})
 			i += 6
 
@@ -115,7 +120,8 @@ func ParseMFCentral(pageTexts []string) ImportResult {
 	// price/balance to the row directly above means this is the second
 	// half of a wrapped description (MFCentral's own renderer duplicates
 	// the numeric columns when a description wraps across a page break),
-	// not a new transaction.
+	// not a new transaction. The merged row keeps the FIRST half's page
+	// number, since that's where the transaction actually starts.
 	merged := make([]rawMFCTxn, 0, len(raw))
 	for _, r := range raw {
 		if n := len(merged); n > 0 && merged[n-1].date == r.date && merged[n-1].amt == r.amt &&
@@ -130,13 +136,14 @@ func ParseMFCentral(pageTexts []string) ImportResult {
 		txn, reason := buildMFCTransaction(r)
 		if reason != "" {
 			result.ManualReview = append(result.ManualReview, ManualReviewLine{
+				Page:   r.page,
 				Folio:  r.folio,
 				Reason: reason,
 				Text:   fmt.Sprintf("%s | %s | %s %s %s %s", r.date, r.desc, r.amt, r.units, r.price, r.bal),
 			})
 			continue
 		}
-		result.Staged = append(result.Staged, StagedRow{Txn: txn, Status: "NEW", SourceFolio: r.folio})
+		result.Staged = append(result.Staged, StagedRow{Txn: txn, Status: "NEW", SourceFolio: r.folio, SourcePage: r.page})
 	}
 
 	return result
@@ -145,11 +152,14 @@ func ParseMFCentral(pageTexts []string) ImportResult {
 // buildLines strips each page's repeated banner/table header (marked by
 // the two-line sequence "Unit Balance" / "Date" that ends every page's
 // header block) and returns the remaining real content as trimmed,
-// non-empty lines, concatenated across pages in order. Pages with no such
-// header (title page, "No Folios Found" pages) contribute nothing.
-func buildLines(pageTexts []string) []string {
+// non-empty lines, concatenated across pages in order, along with a
+// parallel slice giving the 1-based source page number for each line.
+// Pages with no such header (title page, "No Folios Found" pages)
+// contribute nothing.
+func buildLines(pageTexts []string) ([]string, []int) {
 	var all []string
-	for _, pt := range pageTexts {
+	var pageOf []int
+	for pageIdx, pt := range pageTexts {
 		pageLines := strings.Split(pt, "\n")
 		start := -1
 		for j := 0; j+1 < len(pageLines); j++ {
@@ -165,10 +175,11 @@ func buildLines(pageTexts []string) []string {
 			l = strings.TrimSpace(l)
 			if l != "" {
 				all = append(all, l)
+				pageOf = append(pageOf, pageIdx+1) // 1-based
 			}
 		}
 	}
-	return all
+	return all, pageOf
 }
 
 // cutSchemeName trims the scheme-name line down to just the fund name,
