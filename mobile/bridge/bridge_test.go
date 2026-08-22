@@ -29,7 +29,7 @@ func TestCommitStagedRows_CreatesLinkedTransactions(t *testing.T) {
 	}
 	rowsJSON, _ := json.Marshal(rows)
 
-	result := CommitStagedRows("", string(rowsJSON))
+	result := CommitStagedRows("", string(rowsJSON), "Me")
 
 	var p store.Portfolio
 	if err := json.Unmarshal([]byte(result), &p); err != nil {
@@ -77,11 +77,11 @@ func TestCommitStagedRows_ReimportReusesExistingAssetAndAccount(t *testing.T) {
 	}
 
 	// First commit, starting from an empty portfolio.
-	afterFirst := CommitStagedRows("", makeRows("2025-01-01"))
+	afterFirst := CommitStagedRows("", makeRows("2025-01-01"), "Me")
 
 	// Second commit, starting from the first commit's own output - as the
 	// real app would do on a second CAS import.
-	afterSecond := CommitStagedRows(afterFirst, makeRows("2025-02-01"))
+	afterSecond := CommitStagedRows(afterFirst, makeRows("2025-02-01"), "Me")
 
 	var p store.Portfolio
 	if err := json.Unmarshal([]byte(afterSecond), &p); err != nil {
@@ -290,4 +290,181 @@ func containsLabel(allocationJSON string, label string) bool {
 		}
 	}
 	return false
+}
+
+func TestCommitStagedRows_TwoDifferentMembersSameISINGetSeparateAssets(t *testing.T) {
+	units := 1.0
+	makeRows := func() string {
+		rows := []casimport.StagedRow{{
+			Txn: store.Transaction{
+				Date: "2025-01-01", Amount: 100, Units: &units, Type: store.Purchase,
+				Scheme: "SHARED FUND", ISIN: "INF_SHARED_0001",
+			},
+			Status: "NEW",
+		}}
+		b, _ := json.Marshal(rows)
+		return string(b)
+	}
+
+	// The person imports their own CAS, then imports their mother's CAS
+	// into the SAME portfolio file - both happen to hold the same fund.
+	afterMe := CommitStagedRows("", makeRows(), "Me")
+	afterBoth := CommitStagedRows(afterMe, makeRows(), "Mom")
+
+	var p store.Portfolio
+	if err := json.Unmarshal([]byte(afterBoth), &p); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+
+	if len(p.Members) != 2 {
+		t.Fatalf("expected 2 Members, got %d: %+v", len(p.Members), p.Members)
+	}
+	// The real bug this guards against: two Assets should exist (one per
+	// member's account), NOT one Asset shared between both members just
+	// because the ISIN matches.
+	if len(p.Assets) != 2 {
+		t.Fatalf("expected 2 Assets (same ISIN, different accounts), got %d: %+v", len(p.Assets), p.Assets)
+	}
+	if p.Assets[0].AccountID == p.Assets[1].AccountID {
+		t.Errorf("both assets have the same AccountID %q - they should belong to different members' accounts", p.Assets[0].AccountID)
+	}
+
+	holdingsAll := finance.ComputeHoldings(&p)
+	if len(holdingsAll) != 2 {
+		t.Fatalf("expected 2 holdings total (one per member), got %d", len(holdingsAll))
+	}
+
+	var meMemberID, momMemberID string
+	for _, m := range p.Members {
+		if m.Name == "Me" {
+			meMemberID = m.ID
+		}
+		if m.Name == "Mom" {
+			momMemberID = m.ID
+		}
+	}
+	meHoldings := finance.FilterHoldingsByMember(holdingsAll, meMemberID)
+	momHoldings := finance.FilterHoldingsByMember(holdingsAll, momMemberID)
+	if len(meHoldings) != 1 || len(momHoldings) != 1 {
+		t.Errorf("expected each member to see exactly their own 1 holding, got Me=%d Mom=%d", len(meHoldings), len(momHoldings))
+	}
+}
+
+func TestDeleteTransaction_RemovesOnlyTheMatchingOne(t *testing.T) {
+	units := 1.0
+	p := store.Portfolio{
+		Transactions: []store.StoredTransaction{
+			{ID: "txn-1", Amount: 100, Units: &units},
+			{ID: "txn-2", Amount: 200, Units: &units},
+			{ID: "txn-3", Amount: 300, Units: &units},
+		},
+	}
+	pJSON, _ := json.Marshal(p)
+
+	result := DeleteTransaction(string(pJSON), "txn-2")
+
+	var after store.Portfolio
+	if err := json.Unmarshal([]byte(result), &after); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if len(after.Transactions) != 2 {
+		t.Fatalf("expected 2 remaining transactions, got %d", len(after.Transactions))
+	}
+	for _, txn := range after.Transactions {
+		if txn.ID == "txn-2" {
+			t.Errorf("txn-2 should have been deleted but is still present")
+		}
+	}
+}
+
+func TestDeleteTransaction_UnknownIDIsNoOpNotError(t *testing.T) {
+	units := 1.0
+	p := store.Portfolio{
+		Transactions: []store.StoredTransaction{{ID: "txn-1", Amount: 100, Units: &units}},
+	}
+	pJSON, _ := json.Marshal(p)
+
+	result := DeleteTransaction(string(pJSON), "does-not-exist")
+
+	var after store.Portfolio
+	if err := json.Unmarshal([]byte(result), &after); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if len(after.Transactions) != 1 {
+		t.Errorf("expected the unrelated transaction to survive untouched, got %d transactions", len(after.Transactions))
+	}
+}
+
+func TestUpdateTransaction_EditsFieldsAndLeavesOthersUntouched(t *testing.T) {
+	units := 5.0
+	price := 20.0
+	p := store.Portfolio{
+		Transactions: []store.StoredTransaction{{
+			ID: "txn-1", Date: "2025-01-01", Amount: 100, Units: &units,
+			Type: store.Purchase, Price: &price, Description: "original desc",
+		}},
+	}
+	pJSON, _ := json.Marshal(p)
+
+	result := UpdateTransaction(string(pJSON), "txn-1", "2025-02-15", 150, 7.5)
+
+	var after store.Portfolio
+	if err := json.Unmarshal([]byte(result), &after); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	txn := after.Transactions[0]
+	if txn.Date != "2025-02-15" {
+		t.Errorf("Date = %q, want 2025-02-15", txn.Date)
+	}
+	if txn.Amount != 150 {
+		t.Errorf("Amount = %v, want 150", txn.Amount)
+	}
+	if txn.Units == nil || *txn.Units != 7.5 {
+		t.Errorf("Units = %v, want 7.5", txn.Units)
+	}
+	// Type, Price, and Description were NOT part of the edit and must be
+	// left exactly as they were.
+	if txn.Type != store.Purchase {
+		t.Errorf("Type changed to %q, should have been left untouched", txn.Type)
+	}
+	if txn.Price == nil || *txn.Price != 20.0 {
+		t.Errorf("Price changed, should have been left untouched (was 20.0)")
+	}
+	if txn.Description != "original desc" {
+		t.Errorf("Description changed, should have been left untouched")
+	}
+}
+
+func TestUpdateTransaction_UnknownIDReturnsError(t *testing.T) {
+	pJSON := `{}`
+	result := UpdateTransaction(pJSON, "does-not-exist", "2025-01-01", 100, 1)
+	if !isBridgeErrorForTest(result) {
+		t.Errorf("expected an error response for an unknown transaction ID, got: %s", result)
+	}
+}
+
+func TestListMembers_ReturnsAllMembers(t *testing.T) {
+	p := store.Portfolio{
+		Members: []store.Member{{ID: "m1", Name: "Me"}, {ID: "m2", Name: "Mom"}},
+	}
+	pJSON, _ := json.Marshal(p)
+
+	result := ListMembers(string(pJSON))
+
+	var members []store.Member
+	if err := json.Unmarshal([]byte(result), &members); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if len(members) != 2 {
+		t.Fatalf("expected 2 members, got %d", len(members))
+	}
+}
+
+func isBridgeErrorForTest(s string) bool {
+	var m map[string]any
+	if err := json.Unmarshal([]byte(s), &m); err != nil {
+		return false
+	}
+	_, ok := m["error"]
+	return ok
 }
