@@ -19,9 +19,11 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"ledger/internal/casimport"
 	"ledger/internal/finance"
+	"ledger/internal/priceapi"
 	"ledger/internal/store"
 
 	"github.com/ledongthuc/pdf"
@@ -172,6 +174,119 @@ func ComputeAllocationByMarketCap(portfolioJSON string) string {
 // anything that touches real data.
 func Ping() string {
 	return "bridge ok"
+}
+
+// RefreshAmfiPrices fetches the current AMFI NAV file over the network
+// (real HTTP call - requires the Android app to hold the INTERNET
+// permission) and updates the portfolio's PriceRecords for any Asset
+// whose ISIN matches an AMFI record. Returns the updated portfolio JSON,
+// same pattern as CommitStagedRows - the caller is responsible for
+// calling SavePortfolio afterward.
+func RefreshAmfiPrices(portfolioJSON string) string {
+	var p store.Portfolio
+	if portfolioJSON != "" {
+		if err := json.Unmarshal([]byte(portfolioJSON), &p); err != nil {
+			return fmt.Sprintf(`{"error":%q}`, "invalid portfolio JSON: "+err.Error())
+		}
+	}
+
+	records, err := priceapi.FetchAmfiNav()
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, "fetching AMFI NAV file: "+err.Error())
+	}
+
+	matched := applyAmfiRecords(&p, records)
+
+	out, err := json.Marshal(p)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+	// Prepend the match count as a sibling top-level field isn't possible
+	// once p is already marshaled, so wrap it instead.
+	return fmt.Sprintf(`{"matchedCount":%d,"portfolio":%s}`, matched, string(out))
+}
+
+// applyAmfiRecords matches AMFI NavRecords against the portfolio's Assets
+// by ISIN (checking both the payout and reinvest ISIN columns, since a
+// fund's own ISIN could be listed under either depending on its
+// distribution option) and upserts a PriceRecord for each match. Split
+// out from RefreshAmfiPrices specifically so it can be unit-tested with
+// synthetic records, without needing a real network call.
+func applyAmfiRecords(p *store.Portfolio, records []priceapi.NavRecord) (matchedCount int) {
+	byISIN := make(map[string]priceapi.NavRecord, len(records)*2)
+	for _, r := range records {
+		if r.ISINPayout != "" {
+			byISIN[r.ISINPayout] = r
+		}
+		if r.ISINReinvest != "" {
+			byISIN[r.ISINReinvest] = r
+		}
+	}
+
+	for _, asset := range p.Assets {
+		if asset.ISIN == "" {
+			continue
+		}
+		rec, ok := byISIN[asset.ISIN]
+		if !ok {
+			continue
+		}
+		isoDate, ok := amfiDateToISO(rec.Date)
+		if !ok {
+			continue
+		}
+		upsertPriceRecord(p, asset.ID, isoDate, rec.NAV)
+		matchedCount++
+	}
+	return matchedCount
+}
+
+// upsertPriceRecord replaces any existing PriceRecord for the same
+// AssetID+Date (so refreshing twice on the same day doesn't accumulate
+// duplicate rows), or appends a new one otherwise.
+func upsertPriceRecord(p *store.Portfolio, assetID, isoDate string, price float64) {
+	for i := range p.Prices {
+		if p.Prices[i].AssetID == assetID && p.Prices[i].Date == isoDate {
+			p.Prices[i].Price = price
+			p.Prices[i].Source = "AMFI"
+			return
+		}
+	}
+	p.Prices = append(p.Prices, store.PriceRecord{
+		AssetID: assetID, Date: isoDate, Price: price, Source: "AMFI",
+	})
+}
+
+// amfiDateToISO converts AMFI's printed date format ("20-Aug-2026") to
+// ISO yyyy-mm-dd. This matters beyond cosmetics: finance.ComputeHoldings
+// picks the "latest" price for an asset via plain string comparison of
+// the Date field, which only gives the right answer if dates are stored
+// in a lexicographically sortable (ISO) format.
+func amfiDateToISO(s string) (string, bool) {
+	t, err := time.Parse("02-Jan-2006", s)
+	if err != nil {
+		return "", false
+	}
+	return t.Format("2006-01-02"), true
+}
+
+// ComputePortfolioXIRR computes the single pooled XIRR across the whole
+// portfolio (or whatever subset of holdings was passed in), matching the
+// desktop app's PortfolioXIRR. Returns {"xirr":..,"hasXIRR":bool}.
+func ComputePortfolioXIRR(portfolioJSON string) string {
+	var p store.Portfolio
+	if portfolioJSON != "" {
+		if err := json.Unmarshal([]byte(portfolioJSON), &p); err != nil {
+			return fmt.Sprintf(`{"error":%q}`, "invalid portfolio JSON: "+err.Error())
+		}
+	}
+	holdings := finance.ComputeHoldings(&p)
+	rate, ok := finance.PortfolioXIRR(&p, holdings)
+	out, err := json.Marshal(map[string]any{"xirr": rate, "hasXIRR": ok})
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+	return string(out)
 }
 
 // LoadPortfolio reads the portfolio JSON file at the given path (an
