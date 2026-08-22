@@ -3,6 +3,8 @@ package com.saby.personalportfolio
 import android.app.AlertDialog
 import android.net.Uri
 import android.os.Bundle
+import android.widget.RadioButton
+import android.widget.RadioGroup
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
@@ -30,6 +32,7 @@ class SettingsActivity : AppCompatActivity() {
         setContentView(R.layout.activity_settings)
 
         statusText = findViewById(R.id.settingsStatusText)
+        setupThemeToggle()
 
         findViewById<android.widget.Button>(R.id.exportButton).setOnClickListener {
             val stamp = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
@@ -38,6 +41,28 @@ class SettingsActivity : AppCompatActivity() {
 
         findViewById<android.widget.Button>(R.id.importButton).setOnClickListener {
             pickBackupFile.launch(arrayOf("application/json"))
+        }
+    }
+
+    private fun setupThemeToggle() {
+        val group = findViewById<RadioGroup>(R.id.themeRadioGroup)
+        val systemRadio = findViewById<RadioButton>(R.id.themeSystemRadio)
+        val lightRadio = findViewById<RadioButton>(R.id.themeLightRadio)
+        val darkRadio = findViewById<RadioButton>(R.id.themeDarkRadio)
+
+        when (ThemePreference.getSavedMode(this)) {
+            ThemePreference.MODE_LIGHT -> lightRadio.isChecked = true
+            ThemePreference.MODE_DARK -> darkRadio.isChecked = true
+            else -> systemRadio.isChecked = true
+        }
+
+        group.setOnCheckedChangeListener { _, checkedId ->
+            val mode = when (checkedId) {
+                R.id.themeLightRadio -> ThemePreference.MODE_LIGHT
+                R.id.themeDarkRadio -> ThemePreference.MODE_DARK
+                else -> ThemePreference.MODE_SYSTEM
+            }
+            ThemePreference.setMode(this, mode)
         }
     }
 
