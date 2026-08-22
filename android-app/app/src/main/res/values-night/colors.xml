@@ -20,10 +20,10 @@
     <color name="colorAmber">#FFCA28</color>
 
     <color name="chartSlice1">#66BB6A</color>
-    <color name="chartSlice2">#4DB6AC</color>
+    <color name="chartSlice2">#64B5F6</color>
     <color name="chartSlice3">#FFCA28</color>
-    <color name="chartSlice4">#7986CB</color>
+    <color name="chartSlice4">#CE93D8</color>
     <color name="chartSlice5">#EF5350</color>
     <color name="chartSlice6">#A1887F</color>
-    <color name="chartSlice7">#78909C</color>
+    <color name="chartSlice7">#4DB6AC</color>
 </resources>
