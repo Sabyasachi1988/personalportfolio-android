@@ -26,6 +26,7 @@ class TransactionsActivity : AppCompatActivity() {
 
         recyclerView = findViewById(R.id.transactionsRecyclerView)
         recyclerView.layoutManager = LinearLayoutManager(this)
+        BottomNavHelper.setup(this, findViewById(R.id.bottomNav), BottomNavDestination.TRANSACTIONS)
     }
 
     override fun onResume() {
