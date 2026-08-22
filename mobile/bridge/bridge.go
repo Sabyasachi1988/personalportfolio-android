@@ -145,14 +145,15 @@ func ComputeHoldings(portfolioJSON string) string {
 // returns a JSON array of finance.AllocationSlice using each asset's
 // CapComposition where present, falling back to the GuessMarketCapSegment
 // heuristic otherwise (same behavior as the desktop Allocation tab).
-func ComputeAllocationByMarketCap(portfolioJSON string) string {
+// memberID scopes to one member's holdings; empty means the whole family.
+func ComputeAllocationByMarketCap(portfolioJSON string, memberID string) string {
 	var p store.Portfolio
 	if portfolioJSON != "" {
 		if err := json.Unmarshal([]byte(portfolioJSON), &p); err != nil {
 			return fmt.Sprintf(`{"error":%q}`, "invalid portfolio JSON: "+err.Error())
 		}
 	}
-	holdings := finance.ComputeHoldings(&p)
+	holdings := finance.FilterHoldingsByMember(finance.ComputeHoldings(&p), memberID)
 
 	compByAsset := make(map[string]store.CapComposition)
 	for _, a := range p.Assets {
@@ -294,14 +295,20 @@ func amfiDateToISO(s string) (string, bool) {
 // ComputePortfolioXIRR computes the single pooled XIRR across the whole
 // portfolio (or whatever subset of holdings was passed in), matching the
 // desktop app's PortfolioXIRR. Returns {"xirr":..,"hasXIRR":bool}.
-func ComputePortfolioXIRR(portfolioJSON string) string {
+// ComputePortfolioXIRR computes XIRR across holdings for the given member
+// (empty memberID means the whole family). Previously this always
+// computed across every holding regardless of memberID, even though
+// finance.PortfolioXIRR itself already scopes correctly to whatever
+// holdings slice it's given - the missing piece was simply not filtering
+// by member before calling it.
+func ComputePortfolioXIRR(portfolioJSON string, memberID string) string {
 	var p store.Portfolio
 	if portfolioJSON != "" {
 		if err := json.Unmarshal([]byte(portfolioJSON), &p); err != nil {
 			return fmt.Sprintf(`{"error":%q}`, "invalid portfolio JSON: "+err.Error())
 		}
 	}
-	holdings := finance.ComputeHoldings(&p)
+	holdings := finance.FilterHoldingsByMember(finance.ComputeHoldings(&p), memberID)
 	rate, ok := finance.PortfolioXIRR(&p, holdings)
 	out, err := json.Marshal(map[string]any{"xirr": rate, "hasXIRR": ok})
 	if err != nil {
