@@ -468,3 +468,87 @@ func isBridgeErrorForTest(s string) bool {
 	_, ok := m["error"]
 	return ok
 }
+
+func TestSetTargetAllocation_PersistsAndOverwrites(t *testing.T) {
+	after1 := SetTargetAllocation("", 40, 33, 24, 3)
+
+	var p1 store.Portfolio
+	if err := json.Unmarshal([]byte(after1), &p1); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if p1.TargetAllocation.Large != 40 || p1.TargetAllocation.Cash != 3 {
+		t.Errorf("target = %+v, want Large=40, Cash=3", p1.TargetAllocation)
+	}
+
+	after2 := SetTargetAllocation(after1, 50, 30, 15, 5)
+	var p2 store.Portfolio
+	if err := json.Unmarshal([]byte(after2), &p2); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if p2.TargetAllocation.Large != 50 {
+		t.Errorf("target after overwrite = %+v, want Large=50", p2.TargetAllocation)
+	}
+}
+
+func TestComputeAllocationDrift_NoTargetSetReturnsHasTargetFalse(t *testing.T) {
+	result := ComputeAllocationDrift("")
+
+	var parsed map[string]any
+	if err := json.Unmarshal([]byte(result), &parsed); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if parsed["hasTarget"] != false {
+		t.Errorf("hasTarget = %v, want false when no target has been set", parsed["hasTarget"])
+	}
+	if _, hasDrift := parsed["drift"]; hasDrift {
+		t.Errorf("expected no 'drift' key when hasTarget is false, got one: %s", result)
+	}
+}
+
+func TestComputeAllocationDrift_WithTargetReturnsRealNumbers(t *testing.T) {
+	units := 100.0
+	p := &store.Portfolio{
+		Assets: []store.Asset{{ID: "asset-1", Name: "SOME LARGE CAP FUND"}},
+		Prices: []store.PriceRecord{{AssetID: "asset-1", Date: "2026-08-20", Price: 10}},
+		Transactions: []store.StoredTransaction{{
+			AssetID: "asset-1", AccountID: "acc", Date: "2025-01-01", Amount: 1000,
+			Units: &units, Type: store.Purchase,
+		}},
+	}
+	pJSON, _ := json.Marshal(p)
+	withTarget := SetTargetAllocation(string(pJSON), 40, 33, 24, 3)
+
+	result := ComputeAllocationDrift(withTarget)
+
+	var parsed struct {
+		HasTarget bool                          `json:"hasTarget"`
+		Drift     []finance.AllocationDriftSlice `json:"drift"`
+	}
+	if err := json.Unmarshal([]byte(result), &parsed); err != nil {
+		t.Fatalf("invalid JSON: %v\nresult: %s", err, result)
+	}
+	if !parsed.HasTarget {
+		t.Fatalf("expected hasTarget=true after setting a target")
+	}
+	if len(parsed.Drift) != 4 {
+		t.Fatalf("expected 4 drift buckets, got %d", len(parsed.Drift))
+	}
+
+	var largeCapDrift *finance.AllocationDriftSlice
+	for i := range parsed.Drift {
+		if parsed.Drift[i].Label == "Large Cap" {
+			largeCapDrift = &parsed.Drift[i]
+		}
+	}
+	if largeCapDrift == nil {
+		t.Fatalf("expected a Large Cap drift entry")
+	}
+	// 100% of the (single, fully-priced) holding is Large Cap by name
+	// heuristic, target is 40 -> drift should be +60.
+	if largeCapDrift.Actual != 100 {
+		t.Errorf("Large Cap actual = %v, want 100", largeCapDrift.Actual)
+	}
+	if largeCapDrift.Drift != 60 {
+		t.Errorf("Large Cap drift = %v, want 60", largeCapDrift.Drift)
+	}
+}
