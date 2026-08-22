@@ -2196,6 +2196,23 @@ func TestParseMFCentral_FullCleanRealDocument(t *testing.T) {
 		t.Errorf("expected 0 manual review lines on the real document, got %d", len(result.ManualReview))
 	}
 
+	// SourcePage regression guard: every staged row on a real 30-page
+	// document must have a real (1-based) page number, and since rows are
+	// produced in document order, page numbers should never decrease.
+	prevPage := 0
+	for idx, s := range result.Staged {
+		if s.SourcePage < 1 {
+			t.Errorf("row %d (%s): SourcePage = %d, want >= 1", idx, s.Txn.Description, s.SourcePage)
+		}
+		if s.SourcePage < prevPage {
+			t.Errorf("row %d: SourcePage %d is less than previous row's page %d", idx, s.SourcePage, prevPage)
+		}
+		prevPage = s.SourcePage
+	}
+	if result.Staged[len(result.Staged)-1].SourcePage > 30 {
+		t.Errorf("last row's SourcePage = %d, but document only has 30 pages", result.Staged[len(result.Staged)-1].SourcePage)
+	}
+
 	wantISINs := []string{
 		"INF204K01E54", "INF204K01H36", "INF204K01XF9", "INF204KB12Z0",
 		"INF204KC1DG5", "INF204KB18Z7", "INF204KB1X25", "INF204KB15W0", "INF204K01K15",
