@@ -3,7 +3,7 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:padding="16dp">
+    android:padding="24dp">
 
     <TextView
         android:layout_width="match_parent"
@@ -15,7 +15,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:layout_marginTop="12dp">
+        android:layout_marginTop="20dp">
 
         <EditText
             android:id="@+id/newMemberNameInput"
@@ -29,7 +29,7 @@
             android:id="@+id/addMemberButton"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginStart="8dp"
+            android:layout_marginStart="12dp"
             android:text="Add" />
 
     </LinearLayout>
@@ -38,13 +38,13 @@
         android:id="@+id/membersStatusText"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
+        android:layout_marginTop="12dp"
         android:textSize="13sp" />
 
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="20dp"
+        android:layout_marginTop="28dp"
         android:textSize="16sp"
         android:textStyle="bold"
         android:text="Current members" />
@@ -54,6 +54,6 @@
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
-        android:layout_marginTop="8dp" />
+        android:layout_marginTop="12dp" />
 
 </LinearLayout>
