@@ -37,13 +37,13 @@ class DonutLegendView @JvmOverloads constructor(
                 }
                 background = GradientDrawable().apply {
                     shape = GradientDrawable.OVAL
-                    setColor(colors[index % colors.size])
+                    setColor(slice.color ?: colors[index % colors.size])
                 }
             }
 
             val label = TextView(context).apply {
                 layoutParams = LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f)
-                text = slice.label
+                text = FundNameFormatter.shorten(slice.label)
                 textSize = 13f
                 setTextColor(textColor)
                 maxLines = 1
