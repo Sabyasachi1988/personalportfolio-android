@@ -1,10 +1,10 @@
 package com.saby.personalportfolio
 
-import android.graphics.Color
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
+import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.RecyclerView
 import java.util.Locale
 
@@ -34,13 +34,17 @@ class AllocationDriftAdapter(private val slices: List<AllocationDriftSlice>) :
             slice.actual, slice.target, driftSign, slice.drift
         )
 
+        val context = holder.itemView.context
         holder.bar.setValues(
             actual = slice.actual.toFloat(),
             target = slice.target.toFloat(),
-            overColor = Color.parseColor("#F9A825"),  // amber: overweight
-            underColor = Color.parseColor("#5C6BC0"), // blue: underweight
-            trackColor = Color.parseColor("#15000000"),
-            markerColor = Color.parseColor("#C62828") // red marker: the target line
+            overColor = ContextCompat.getColor(context, R.color.colorAmber),
+            underColor = ContextCompat.getColor(context, R.color.colorSecondary),
+            // Theme-aware, not a hardcoded translucent black - the
+            // previous track color was ~8% opaque black, which vanished
+            // entirely against a near-black dark-mode background.
+            trackColor = ContextCompat.getColor(context, R.color.colorSurfaceVariant),
+            markerColor = ContextCompat.getColor(context, R.color.colorLoss)
         )
     }
 
