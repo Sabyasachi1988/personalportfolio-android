@@ -59,6 +59,13 @@ class HoldingsAdapter(private val holdings: List<Holding>) :
                 .sortedByDescending { it.percent }
             holder.donut.setSlices(slices)
             holder.legend.setSlices(slices)
+            holder.donut.onSliceTapped = { label, percent ->
+                android.widget.Toast.makeText(
+                    holder.itemView.context,
+                    String.format(Locale.getDefault(), "%s: %.1f%%", label, percent),
+                    android.widget.Toast.LENGTH_SHORT
+                ).show()
+            }
             return
         }
 
