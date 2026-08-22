@@ -29,8 +29,8 @@ class AllocationAdapter(private val slices: List<AllocationSlice>) :
         holder.label.text = slice.label
         holder.valueLine.text = String.format(
             Locale.getDefault(),
-            "₹%.2f (%.1f%%)",
-            slice.value,
+            "%s (%.1f%%)",
+            IndianCurrencyFormatter.format(slice.value),
             slice.percent
         )
 
