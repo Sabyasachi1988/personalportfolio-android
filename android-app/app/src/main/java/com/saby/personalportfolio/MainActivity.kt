@@ -56,6 +56,9 @@ class MainActivity : AppCompatActivity() {
         viewHoldingsButton.setOnClickListener {
             startActivity(Intent(this, HoldingsActivity::class.java))
         }
+        findViewById<Button>(R.id.settingsButton).setOnClickListener {
+            startActivity(Intent(this, SettingsActivity::class.java))
+        }
 
         commitButton.isEnabled = false
     }
