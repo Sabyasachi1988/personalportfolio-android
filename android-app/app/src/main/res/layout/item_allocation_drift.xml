@@ -3,7 +3,7 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
-    android:padding="10dp">
+    android:padding="16dp">
 
     <TextView
         android:id="@+id/driftLabel"
@@ -16,19 +16,19 @@
         android:id="@+id/driftBar"
         android:layout_width="match_parent"
         android:layout_height="26dp"
-        android:layout_marginTop="8dp" />
+        android:layout_marginTop="12dp" />
 
     <TextView
         android:id="@+id/driftValues"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:textSize="12sp"
-        android:layout_marginTop="4dp" />
+        android:layout_marginTop="8dp" />
 
     <View
         android:layout_width="match_parent"
         android:layout_height="1dp"
         android:background="#22000000"
-        android:layout_marginTop="10dp" />
+        android:layout_marginTop="16dp" />
 
 </LinearLayout>
