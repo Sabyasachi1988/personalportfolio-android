@@ -15,9 +15,28 @@ android {
         versionName = "0.2"
     }
 
+    // IMPORTANT: without this, every CI build (each running in a fresh,
+    // throwaway container) would auto-generate a brand-new random debug
+    // signing key, which made Android refuse to install an update over
+    // the existing app - forcing an uninstall (and losing the portfolio
+    // data) on every single new build. This fixed, committed keystore
+    // makes every future build sign with the SAME key, so updates
+    // install in place from here on. This is a debug-only key, not a
+    // secret - the standard debug alias/password ("android"/"android")
+    // is intentional and matches Android's own default convention.
+    signingConfigs {
+        create("fixedDebug") {
+            storeFile = file("${rootDir}/keystore/debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     buildTypes {
         debug {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("fixedDebug")
         }
     }
 
