@@ -93,14 +93,18 @@ jobs:
       # Verifies the fixed-keystore fix actually worked: prints the built
       # APK's signing certificate fingerprint to an issue so it can be
       # confirmed to match the committed keystore's known fingerprint
-      # (97:13:9A:B4:8A:07:78:8E:67:36:72:A9:63:E7:12:21:1A:58:30:02:A3:F8:A9:20:6E:B5:4A:23:3B:19:6D:92),
-      # rather than assuming the Gradle config change worked.
+      # (97:13:9A:B4:8A:07:78:8E:67:36:72:A9:63:E7:12:21:1A:58:30:02:A3:F8:A9:20:6E:B5:4A:23:3B:19:6D:92).
+      # Uses apksigner, not keytool - keytool only understands old-style
+      # JAR signing and reports "not a signed jar" on a modern v2/v3-signed
+      # APK even when it genuinely is signed.
       - name: Verify APK signing certificate fingerprint
         if: steps.gradle_build.outcome == 'success'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          keytool -printcert -jarfile android-app/app/build/outputs/apk/debug/app-debug.apk > /tmp/cert_info.txt 2>&1
+          APKSIGNER=$(find "$ANDROID_HOME" -name "apksigner" -type f 2>/dev/null | sort -V | tail -1)
+          echo "Using apksigner at: $APKSIGNER" > /tmp/cert_info.txt
+          "$APKSIGNER" verify --print-certs android-app/app/build/outputs/apk/debug/app-debug.apk >> /tmp/cert_info.txt 2>&1
           jq -Rs --arg title "signing-cert-check run ${{ github.run_id }}" \
             '{title: $title, body: ("```\n" + . + "\n```")}' \
             /tmp/cert_info.txt > /tmp/cert_issue.json
