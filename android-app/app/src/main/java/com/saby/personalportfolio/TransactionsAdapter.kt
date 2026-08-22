@@ -29,10 +29,10 @@ class TransactionsAdapter(
         holder.assetName.text = assetNameById[txn.assetId]?.let { FundNameFormatter.shorten(it) } ?: "(unknown asset)"
         holder.detail.text = String.format(
             Locale.getDefault(),
-            "%s | %s | ₹%.2f | %s units",
+            "%s | %s | %s | %s units",
             txn.date,
             txn.type,
-            txn.amount,
+            IndianCurrencyFormatter.format(txn.amount),
             txn.units?.let { String.format(Locale.getDefault(), "%.3f", it) } ?: "—"
         )
         holder.itemView.setOnClickListener { onClick(txn) }
