@@ -4,7 +4,13 @@ import android.app.AlertDialog
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.text.Editable
+import android.text.TextWatcher
+import android.view.View
+import android.widget.AdapterView
+import android.widget.ArrayAdapter
 import android.widget.EditText
+import android.widget.Spinner
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.recyclerview.widget.LinearLayoutManager
@@ -19,6 +25,16 @@ class TransactionsActivity : AppCompatActivity() {
     private val backgroundExecutor = Executors.newSingleThreadExecutor()
     private val mainThread = Handler(Looper.getMainLooper())
     private lateinit var recyclerView: RecyclerView
+    private lateinit var searchInput: EditText
+    private lateinit var sortSpinner: Spinner
+
+    private var allTransactions: List<StoredTransactionEntry> = emptyList()
+    private var assetNameById: Map<String, String> = emptyMap()
+
+    private val sortOptions = listOf(
+        "Date (newest first)", "Date (oldest first)",
+        "Amount (high to low)", "Amount (low to high)"
+    )
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -26,7 +42,25 @@ class TransactionsActivity : AppCompatActivity() {
 
         recyclerView = findViewById(R.id.transactionsRecyclerView)
         recyclerView.layoutManager = LinearLayoutManager(this)
+        searchInput = findViewById(R.id.transactionsSearchInput)
+        sortSpinner = findViewById(R.id.transactionsSortSpinner)
         BottomNavHelper.setup(this, findViewById(R.id.bottomNav), BottomNavDestination.TRANSACTIONS)
+
+        sortSpinner.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, sortOptions)
+        sortSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                applyFilterAndSort()
+            }
+            override fun onNothingSelected(parent: AdapterView<*>?) {}
+        }
+
+        searchInput.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: Editable?) {
+                applyFilterAndSort()
+            }
+        })
     }
 
     override fun onResume() {
@@ -52,12 +86,32 @@ class TransactionsActivity : AppCompatActivity() {
             PortfolioAssetsSnapshot(emptyList(), emptyList(), emptyList())
         }
 
-        val assetNameById = snapshot.assets.orEmpty().associate { it.id to it.name }
-        // Most recent first - that's what someone checking "did I fat-finger
-        // something" wants to see.
-        val sorted = snapshot.transactions.orEmpty().sortedByDescending { it.date }
+        assetNameById = snapshot.assets.orEmpty().associate { it.id to it.name }
+        allTransactions = snapshot.transactions.orEmpty()
 
-        recyclerView.adapter = TransactionsAdapter(sorted, assetNameById) { txn ->
+        applyFilterAndSort()
+    }
+
+    private fun applyFilterAndSort() {
+        val query = searchInput.text?.toString()?.trim().orEmpty()
+        var result = if (query.isBlank()) {
+            allTransactions
+        } else {
+            allTransactions.filter { txn ->
+                val name = assetNameById[txn.assetId] ?: ""
+                name.contains(query, ignoreCase = true)
+            }
+        }
+
+        result = when (sortSpinner.selectedItemPosition) {
+            0 -> result.sortedByDescending { it.date }
+            1 -> result.sortedBy { it.date }
+            2 -> result.sortedByDescending { it.amount }
+            3 -> result.sortedBy { it.amount }
+            else -> result.sortedByDescending { it.date }
+        }
+
+        recyclerView.adapter = TransactionsAdapter(result, assetNameById) { txn ->
             showEditDialog(txn, assetNameById[txn.assetId] ?: "(unknown asset)")
         }
     }
