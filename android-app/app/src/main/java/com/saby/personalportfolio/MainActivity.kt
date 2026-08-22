@@ -2,6 +2,10 @@ package com.saby.personalportfolio
 
 import android.content.Intent
 import android.os.Bundle
+import android.view.View
+import android.widget.AdapterView
+import android.widget.ArrayAdapter
+import android.widget.Spinner
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import com.google.android.material.floatingactionbutton.FloatingActionButton
@@ -19,6 +23,12 @@ class MainActivity : AppCompatActivity() {
     private lateinit var holdingsCountLine: TextView
     private lateinit var donutChart: DonutChartView
     private lateinit var donutLegend: DonutLegendView
+    private lateinit var memberSpinner: Spinner
+    private var donutToast: android.widget.Toast? = null
+
+    // Index 0 is always "All (family)" (empty memberID); indices 1.. map
+    // 1:1 with memberIds - same convention as HoldingsActivity's spinner.
+    private var memberIds: List<String> = emptyList()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -30,12 +40,23 @@ class MainActivity : AppCompatActivity() {
         holdingsCountLine = findViewById(R.id.dashboardHoldingsCountLine)
         donutChart = findViewById(R.id.dashboardDonut)
         donutLegend = findViewById(R.id.dashboardDonutLegend)
+        memberSpinner = findViewById(R.id.dashboardMemberSpinner)
         donutChart.onSliceTapped = { label, percent ->
-            android.widget.Toast.makeText(
+            donutToast?.cancel()
+            val toast = android.widget.Toast.makeText(
                 this,
                 String.format(Locale.getDefault(), "%s: %.1f%%", label, percent),
                 android.widget.Toast.LENGTH_SHORT
-            ).show()
+            )
+            donutToast = toast
+            toast.show()
+        }
+
+        memberSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                loadDashboard()
+            }
+            override fun onNothingSelected(parent: AdapterView<*>?) {}
         }
 
         findViewById<FloatingActionButton>(R.id.importFab).setOnClickListener {
@@ -55,16 +76,46 @@ class MainActivity : AppCompatActivity() {
         // from another tab) never re-runs onCreate, so without this
         // its nav bar could keep showing a stale selection.
         BottomNavHelper.setup(this, findViewById(R.id.bottomNav), BottomNavDestination.DASHBOARD)
-        // Refresh every time the Dashboard becomes visible, so coming
-        // back from Import or Settings always reflects the latest state.
+        // Refresh the member list every time the Dashboard becomes
+        // visible (in particular after a new CAS import may have added a
+        // new member), then show the dashboard for whichever member is
+        // selected - same pattern as HoldingsActivity's loadMemberSpinner.
+        loadMemberSpinner()
+    }
+
+    private fun loadMemberSpinner() {
+        val portfolioPath = PortfolioStorage.filePath(this)
+        val portfolioJson = Bridge.loadPortfolio(portfolioPath)
+        val membersJson = Bridge.listMembers(portfolioJson)
+
+        val memberType = object : TypeToken<List<Member>>() {}.type
+        val members: List<Member> = try {
+            gson.fromJson(membersJson, memberType) ?: emptyList()
+        } catch (e: Exception) {
+            emptyList()
+        }
+
+        val previousSelection = memberSpinner.selectedItemPosition.takeIf { it >= 0 } ?: 0
+
+        memberIds = listOf("") + members.map { it.id }
+        val labels = listOf("All (family)") + members.map { it.name }
+        memberSpinner.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, labels)
+
+        // Keep the same selection if it's still valid, rather than always
+        // resetting to "All" on every refresh.
+        memberSpinner.setSelection(previousSelection.coerceAtMost(memberIds.size - 1))
+
         loadDashboard()
     }
 
     private fun loadDashboard() {
+        val selectedIndex = memberSpinner.selectedItemPosition
+        val memberId = memberIds.getOrElse(selectedIndex) { "" }
+
         val portfolioPath = PortfolioStorage.filePath(this)
         val portfolioJson = Bridge.loadPortfolio(portfolioPath)
 
-        val holdingsJson = Bridge.computeHoldingsForMember(portfolioJson, "")
+        val holdingsJson = Bridge.computeHoldingsForMember(portfolioJson, memberId)
         val holdingsType = object : TypeToken<List<Holding>>() {}.type
         val holdings: List<Holding> = try {
             gson.fromJson(holdingsJson, holdingsType) ?: emptyList()
@@ -106,7 +157,7 @@ class MainActivity : AppCompatActivity() {
             gainLine.text = "Go to Holdings and tap Refresh Prices"
         }
 
-        val xirrJson = Bridge.computePortfolioXIRR(portfolioJson)
+        val xirrJson = Bridge.computePortfolioXIRR(portfolioJson, memberId)
         val xirrResult = try {
             gson.fromJson(xirrJson, PortfolioXirrResult::class.java)
         } catch (e: Exception) {
@@ -120,7 +171,7 @@ class MainActivity : AppCompatActivity() {
 
         holdingsCountLine.text = "${holdings.size} holding(s)"
 
-        val allocationJson = Bridge.computeAllocationByMarketCap(portfolioJson)
+        val allocationJson = Bridge.computeAllocationByMarketCap(portfolioJson, memberId)
         val sliceType = object : TypeToken<List<AllocationSlice>>() {}.type
         val slices: List<AllocationSlice> = try {
             gson.fromJson(allocationJson, sliceType) ?: emptyList()
