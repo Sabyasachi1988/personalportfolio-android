@@ -11,11 +11,8 @@ android {
         applicationId = "com.saby.personalportfolio"
         minSdk = 24
         targetSdk = 34
-        versionCode = 1
-        // This "0.1-prototype" name is intentional: this build's only job
-        // is to prove the Go -> gomobile bind -> Kotlin -> APK toolchain
-        // works at all (see MainActivity.kt). It is not the real app yet.
-        versionName = "0.1-prototype"
+        versionCode = 2
+        versionName = "0.2"
     }
 
     buildTypes {
