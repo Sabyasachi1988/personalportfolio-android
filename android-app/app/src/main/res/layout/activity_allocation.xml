@@ -20,6 +20,13 @@
         android:layout_marginTop="8dp"
         android:text="Edit Fund Cap Composition" />
 
+    <Button
+        android:id="@+id/setTargetButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:text="Set Target Allocation" />
+
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/allocationRecyclerView"
         android:layout_width="match_parent"
