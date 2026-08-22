@@ -219,7 +219,7 @@ private data class RefreshPricesResult(
     val portfolio: com.google.gson.JsonObject
 )
 
-private data class PortfolioXirrResult(
+data class PortfolioXirrResult(
     val xirr: Double,
     val hasXIRR: Boolean
 )
