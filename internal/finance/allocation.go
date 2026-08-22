@@ -208,3 +208,45 @@ func AllocationDrift(actual []AllocationSlice, target store.TargetAllocation) []
 	}
 	return out
 }
+
+// HoldingsInSegment returns the subset of holdings that contribute any
+// nonzero amount to the given market-cap segment label (Large Cap/Mid
+// Cap/Small Cap/Cash, or a heuristic fallback label like "Multi Cap"),
+// using the EXACT same per-holding classification as
+// AllocationByMarketCapSegment - composition-split where a real
+// CapComposition has been entered, the fund-name heuristic otherwise.
+// Deliberately not reimplemented in Kotlin: keeping this in one place
+// means the donut, the drift bars, and this filter can never disagree
+// about which segment a fund belongs to.
+func HoldingsInSegment(holdings []Holding, compositionByAsset map[string]store.CapComposition, segmentLabel string) []Holding {
+	var out []Holding
+	for _, h := range holdings {
+		if !h.HasPrice {
+			continue
+		}
+		if comp, ok := compositionByAsset[h.AssetID]; ok {
+			sum := comp.Large + comp.Mid + comp.Small + comp.Cash
+			if sum > 0 {
+				var segPct float64
+				switch segmentLabel {
+				case "Large Cap":
+					segPct = comp.Large
+				case "Mid Cap":
+					segPct = comp.Mid
+				case "Small Cap":
+					segPct = comp.Small
+				case "Cash":
+					segPct = comp.Cash
+				}
+				if segPct > 0 {
+					out = append(out, h)
+				}
+				continue
+			}
+		}
+		if GuessMarketCapSegment(h.AssetName) == segmentLabel {
+			out = append(out, h)
+		}
+	}
+	return out
+}
