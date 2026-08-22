@@ -39,3 +39,18 @@ data class PortfolioAssetsSnapshot(
     @SerializedName("CapCompositions") val capCompositions: List<CapCompositionEntry>?,
     @SerializedName("Transactions") val transactions: List<StoredTransactionEntry>?
 )
+
+data class EquityOriginEntry(
+    @SerializedName("AssetID") val assetId: String,
+    @SerializedName("Indian") val indian: Double,
+    @SerializedName("International") val international: Double,
+    @SerializedName("AsOf") val asOf: String,
+    @SerializedName("Source") val source: String
+)
+
+// Just enough of the full Portfolio JSON for the equity-origin entry
+// screen: the asset list plus any existing entries.
+data class PortfolioEquityOriginSnapshot(
+    @SerializedName("Assets") val assets: List<AssetSummary>?,
+    @SerializedName("EquityOriginCompositions") val equityOriginCompositions: List<EquityOriginEntry>?
+)
