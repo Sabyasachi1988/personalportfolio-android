@@ -164,3 +164,47 @@ func containsAny(haystack string, needles ...string) bool {
 	}
 	return false
 }
+
+// AllocationDriftSlice compares one market-cap bucket's actual weight
+// against the person's own chosen target.
+type AllocationDriftSlice struct {
+	Label  string
+	Actual float64
+	Target float64
+	Drift  float64 // Actual - Target: positive means overweight, negative underweight
+}
+
+// AllocationDrift compares AllocationByMarketCapSegment's output against
+// a TargetAllocation, across the four buckets a target can be set for
+// (Large/Mid/Small/Cash). Any actual allocation in a bucket outside those
+// four (e.g. "Multi Cap" from the heuristic fallback, or "Debt") isn't
+// covered by a target and isn't included here - CapComposition entry is
+// what resolves those into the four measured buckets in the first place.
+func AllocationDrift(actual []AllocationSlice, target store.TargetAllocation) []AllocationDriftSlice {
+	actualByLabel := make(map[string]float64, len(actual))
+	for _, a := range actual {
+		actualByLabel[a.Label] = a.Percent
+	}
+
+	buckets := []struct {
+		label     string
+		targetPct float64
+	}{
+		{"Large Cap", target.Large},
+		{"Mid Cap", target.Mid},
+		{"Small Cap", target.Small},
+		{"Cash", target.Cash},
+	}
+
+	out := make([]AllocationDriftSlice, 0, len(buckets))
+	for _, b := range buckets {
+		actualPct := actualByLabel[b.label]
+		out = append(out, AllocationDriftSlice{
+			Label:  b.label,
+			Actual: round2(actualPct),
+			Target: round2(b.targetPct),
+			Drift:  round2(actualPct - b.targetPct),
+		})
+	}
+	return out
+}
