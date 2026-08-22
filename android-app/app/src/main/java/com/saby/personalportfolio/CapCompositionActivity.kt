@@ -35,7 +35,7 @@ class CapCompositionActivity : AppCompatActivity() {
             gson.fromJson(portfolioJson, PortfolioAssetsSnapshot::class.java)
         } catch (e: Exception) {
             Toast.makeText(this, "Could not read portfolio: ${e.message}", Toast.LENGTH_LONG).show()
-            PortfolioAssetsSnapshot(emptyList(), emptyList())
+            PortfolioAssetsSnapshot(emptyList(), emptyList(), emptyList())
         }
 
         val assets = snapshot.assets.orEmpty()
