@@ -223,9 +223,9 @@ class HoldingsActivity : AppCompatActivity() {
 
             // Portfolio XIRR is computed for whichever holdings are
             // currently shown, so switching the member filter also scopes
-            // the XIRR - matches PortfolioXIRR's own filtering behavior.
+            // the XIRR.
             xirrSummary.text = if (anyPriced) {
-                val xirrJson = Bridge.computePortfolioXIRR(portfolioJson)
+                val xirrJson = Bridge.computePortfolioXIRR(portfolioJson, memberId)
                 val xirrResult = try {
                     gson.fromJson(xirrJson, PortfolioXirrResult::class.java)
                 } catch (e: Exception) {
