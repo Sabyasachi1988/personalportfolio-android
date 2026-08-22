@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="24dp">
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textSize="14sp"
+        android:text="Enter Indian/International % from each equity fund's factsheet (e.g. a fund-of-fund tracking a US index). Leave blank for a fund that's fully Indian - that's the default. Numbers don't need to sum to exactly 100." />
+
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/equityOriginRecyclerView"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:layout_marginTop="16dp" />
+
+</LinearLayout>
