@@ -204,3 +204,73 @@ func TestEffectiveAssetClass_NoSignalAtAllIsUnclassified(t *testing.T) {
 		t.Errorf("expected the unrecognised category to pass through, got %q", got)
 	}
 }
+
+func TestAllocationDrift_ComputesActualMinusTarget(t *testing.T) {
+	actual := []AllocationSlice{
+		{Label: "Large Cap", Percent: 45},
+		{Label: "Mid Cap", Percent: 25},
+		{Label: "Small Cap", Percent: 20},
+		{Label: "Cash", Percent: 10},
+	}
+	target := store.TargetAllocation{Large: 40, Mid: 33, Small: 24, Cash: 3}
+
+	drift := AllocationDrift(actual, target)
+
+	if len(drift) != 4 {
+		t.Fatalf("expected 4 buckets, got %d", len(drift))
+	}
+	byLabel := make(map[string]AllocationDriftSlice)
+	for _, d := range drift {
+		byLabel[d.Label] = d
+	}
+
+	if got := byLabel["Large Cap"].Drift; got != 5 {
+		t.Errorf("Large Cap drift = %v, want 5 (overweight)", got)
+	}
+	if got := byLabel["Mid Cap"].Drift; got != -8 {
+		t.Errorf("Mid Cap drift = %v, want -8 (underweight)", got)
+	}
+	if got := byLabel["Small Cap"].Drift; got != -4 {
+		t.Errorf("Small Cap drift = %v, want -4 (underweight)", got)
+	}
+	if got := byLabel["Cash"].Drift; got != 7 {
+		t.Errorf("Cash drift = %v, want 7 (overweight)", got)
+	}
+}
+
+func TestAllocationDrift_MissingActualBucketTreatedAsZero(t *testing.T) {
+	// No Small Cap holdings at all yet - should show as 0% actual, not
+	// be silently dropped from the comparison.
+	actual := []AllocationSlice{
+		{Label: "Large Cap", Percent: 70},
+		{Label: "Mid Cap", Percent: 30},
+	}
+	target := store.TargetAllocation{Large: 40, Mid: 33, Small: 24, Cash: 3}
+
+	drift := AllocationDrift(actual, target)
+
+	var smallCapDrift *AllocationDriftSlice
+	for i := range drift {
+		if drift[i].Label == "Small Cap" {
+			smallCapDrift = &drift[i]
+		}
+	}
+	if smallCapDrift == nil {
+		t.Fatalf("expected a Small Cap entry even with zero actual holdings")
+	}
+	if smallCapDrift.Actual != 0 {
+		t.Errorf("Small Cap actual = %v, want 0", smallCapDrift.Actual)
+	}
+	if smallCapDrift.Drift != -24 {
+		t.Errorf("Small Cap drift = %v, want -24 (fully underweight vs target)", smallCapDrift.Drift)
+	}
+}
+
+func TestTargetAllocation_HasTargetDetection(t *testing.T) {
+	if (store.TargetAllocation{}).HasTarget() {
+		t.Errorf("zero-value TargetAllocation should report HasTarget() = false")
+	}
+	if !(store.TargetAllocation{Cash: 3}).HasTarget() {
+		t.Errorf("a target with even one nonzero field should report HasTarget() = true")
+	}
+}
