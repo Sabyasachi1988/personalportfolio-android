@@ -36,8 +36,18 @@ object BottomNavHelper {
                 val intent = Intent(activity, target)
                 intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
                 activity.startActivity(intent)
+                // Returning false here is deliberate: this screen's own
+                // nav bar should never visually select the tab being
+                // navigated AWAY to - it represents [current] and
+                // nothing else. Returning true here was the actual bug:
+                // it left this screen's bottomNav believing the OTHER
+                // tab was selected, which only surfaced later when this
+                // same instance got reused via CLEAR_TOP (no onCreate,
+                // so nothing re-synced it) coming back from elsewhere.
+                false
+            } else {
+                true
             }
-            true
         }
     }
 }
