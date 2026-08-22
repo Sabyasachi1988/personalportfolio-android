@@ -57,7 +57,7 @@ class AllocationActivity : AppCompatActivity() {
         }
 
         if (driftResult?.hasTarget == true && !driftResult.drift.isNullOrEmpty()) {
-            summary.text = "Actual vs. target allocation"
+            summary.text = "Actual vs. target — bar fill = actual, red line = target"
             recyclerView.adapter = AllocationDriftAdapter(driftResult.drift)
             donutChart.setSlices(driftResult.drift.map { DonutChartView.Slice(it.label, it.actual.toFloat()) })
             return
