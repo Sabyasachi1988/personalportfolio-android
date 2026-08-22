@@ -1,6 +1,7 @@
 package com.saby.personalportfolio
 
 import android.app.AlertDialog
+import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -12,11 +13,15 @@ import android.widget.ArrayAdapter
 import android.widget.EditText
 import android.widget.Spinner
 import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.google.gson.Gson
 import com.ledger.bridge.Bridge
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import java.util.concurrent.Executors
 
 class TransactionsActivity : AppCompatActivity() {
@@ -30,6 +35,11 @@ class TransactionsActivity : AppCompatActivity() {
 
     private var allTransactions: List<StoredTransactionEntry> = emptyList()
     private var assetNameById: Map<String, String> = emptyMap()
+    private var assetIsinById: Map<String, String> = emptyMap()
+
+    private val createCsvFile = registerForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { uri ->
+        if (uri != null) exportCsvTo(uri)
+    }
 
     private val sortOptions = listOf(
         "Date (newest first)", "Date (oldest first)",
@@ -45,6 +55,13 @@ class TransactionsActivity : AppCompatActivity() {
         searchInput = findViewById(R.id.transactionsSearchInput)
         sortSpinner = findViewById(R.id.transactionsSortSpinner)
         BottomNavHelper.setup(this, findViewById(R.id.bottomNav), BottomNavDestination.TRANSACTIONS)
+
+        BottomNavHelper.setup(this, findViewById(R.id.bottomNav), BottomNavDestination.TRANSACTIONS)
+
+        findViewById<android.widget.Button>(R.id.exportCsvButton).setOnClickListener {
+            val stamp = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
+            createCsvFile.launch("personalportfolio-transactions-$stamp.csv")
+        }
 
         sortSpinner.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, sortOptions)
         sortSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
@@ -87,6 +104,7 @@ class TransactionsActivity : AppCompatActivity() {
         }
 
         assetNameById = snapshot.assets.orEmpty().associate { it.id to it.name }
+        assetIsinById = snapshot.assets.orEmpty().associate { it.id to it.isin }
         allTransactions = snapshot.transactions.orEmpty()
 
         applyFilterAndSort()
@@ -216,6 +234,50 @@ class TransactionsActivity : AppCompatActivity() {
             } catch (e: Exception) {
                 mainThread.post { showError("Failed: ${e.message}") }
             }
+        }
+    }
+
+    private fun exportCsvTo(uri: Uri) {
+        try {
+            val csv = buildTransactionsCsv()
+            contentResolver.openOutputStream(uri)?.use { out ->
+                out.write(csv.toByteArray(Charsets.UTF_8))
+            }
+            Toast.makeText(this, "Exported ${allTransactions.size} transaction(s)", Toast.LENGTH_SHORT).show()
+        } catch (e: Exception) {
+            Toast.makeText(this, "Export failed: ${e.message}", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    // Always exports the FULL list in chronological order, regardless of
+    // whatever search/sort is currently applied to the on-screen list -
+    // this is meant to be a complete record (e.g. for tax filing), not
+    // just a dump of whatever happens to be visible at export time.
+    private fun buildTransactionsCsv(): String {
+        val header = listOf("Date", "Fund Name", "ISIN", "Type", "Amount", "Units")
+        val rows = allTransactions.sortedBy { it.date }.map { txn ->
+            listOf(
+                txn.date,
+                FundNameFormatter.shorten(assetNameById[txn.assetId] ?: ""),
+                assetIsinById[txn.assetId] ?: "",
+                txn.type,
+                txn.amount.toString(),
+                txn.units?.toString() ?: ""
+            )
+        }
+        val sb = StringBuilder()
+        sb.append(header.joinToString(",") { csvEscape(it) }).append("\n")
+        for (row in rows) {
+            sb.append(row.joinToString(",") { csvEscape(it) }).append("\n")
+        }
+        return sb.toString()
+    }
+
+    private fun csvEscape(value: String): String {
+        return if (value.contains(",") || value.contains("\"") || value.contains("\n")) {
+            "\"" + value.replace("\"", "\"\"") + "\""
+        } else {
+            value
         }
     }
 
