@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+    <item
+        android:id="@+id/nav_holdings"
+        android:icon="@drawable/ic_nav_holdings"
+        android:title="Holdings" />
+    <item
+        android:id="@+id/nav_allocation"
+        android:icon="@drawable/ic_nav_allocation"
+        android:title="Allocation" />
+    <item
+        android:id="@+id/nav_transactions"
+        android:icon="@drawable/ic_nav_transactions"
+        android:title="Transactions" />
+</menu>
