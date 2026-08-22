@@ -75,7 +75,7 @@ class HoldingsAdapter(private val holdings: List<Holding>) :
         rowHolder.name.text = FundNameFormatter.shorten(h.assetName).ifBlank { "(unnamed asset)" }
 
         if (h.hasPrice) {
-            rowHolder.currentValue.text = String.format(Locale.getDefault(), "₹%,.0f", h.currentValue)
+            rowHolder.currentValue.text = IndianCurrencyFormatter.format(h.currentValue, decimals = 0)
 
             val gainColor = if (h.gain >= 0) Color.parseColor("#2E7D32") else Color.parseColor("#C62828")
             val gainSign = if (h.gain >= 0) "+" else ""
@@ -85,14 +85,14 @@ class HoldingsAdapter(private val holdings: List<Holding>) :
             val xirrPart = if (h.hasXirr) String.format(Locale.getDefault(), " · XIRR %.1f%%", h.xirr) else ""
             rowHolder.secondaryLine.text = String.format(
                 Locale.getDefault(),
-                "%.3f units · Invested ₹%,.0f%s",
-                h.unitsHeld, h.netInvested, xirrPart
+                "%.3f units · Invested %s%s",
+                h.unitsHeld, IndianCurrencyFormatter.format(h.netInvested, decimals = 0), xirrPart
             )
         } else {
             rowHolder.currentValue.text = "Price not available"
             rowHolder.gainBadge.text = ""
             rowHolder.secondaryLine.text = String.format(
-                Locale.getDefault(), "%.3f units · Invested ₹%,.0f", h.unitsHeld, h.netInvested
+                Locale.getDefault(), "%.3f units · Invested %s", h.unitsHeld, IndianCurrencyFormatter.format(h.netInvested, decimals = 0)
             )
         }
     }
