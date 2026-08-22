@@ -24,6 +24,10 @@ import java.util.concurrent.Executors
 
 class HoldingsActivity : AppCompatActivity() {
 
+    companion object {
+        const val EXTRA_SEGMENT_FILTER = "segment_filter"
+    }
+
     private val gson = Gson()
     private val backgroundExecutor = Executors.newSingleThreadExecutor()
     private val mainThread = Handler(Looper.getMainLooper())
@@ -35,6 +39,13 @@ class HoldingsActivity : AppCompatActivity() {
     private lateinit var memberSpinner: Spinner
     private lateinit var searchInput: EditText
     private lateinit var sortSpinner: Spinner
+    private lateinit var segmentFilterBar: View
+    private lateinit var segmentFilterLabel: TextView
+
+    // Set when arriving from a tapped segment slice on the Allocation
+    // screen (see AllocationActivity). Null means "no segment filter -
+    // show everything for the selected member", the normal case.
+    private var segmentFilter: String? = null
 
     // Index 0 is always "All (family)" (empty memberID); indices 1.. map
     // 1:1 with memberIds.
@@ -63,6 +74,16 @@ class HoldingsActivity : AppCompatActivity() {
         memberSpinner = findViewById(R.id.memberFilterSpinner)
         searchInput = findViewById(R.id.holdingsSearchInput)
         sortSpinner = findViewById(R.id.holdingsSortSpinner)
+        segmentFilterBar = findViewById(R.id.segmentFilterBar)
+        segmentFilterLabel = findViewById(R.id.segmentFilterLabel)
+
+        segmentFilter = intent.getStringExtra(EXTRA_SEGMENT_FILTER)
+        updateSegmentFilterBar()
+        findViewById<Button>(R.id.segmentFilterClearButton).setOnClickListener {
+            segmentFilter = null
+            updateSegmentFilterBar()
+            showHoldingsForSelectedMember()
+        }
 
         refreshButton.setOnClickListener { refreshPrices() }
         BottomNavHelper.setup(this, findViewById(R.id.bottomNav), BottomNavDestination.HOLDINGS)
@@ -89,6 +110,17 @@ class HoldingsActivity : AppCompatActivity() {
                 applyFilterAndSort()
             }
         })
+    }
+
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        // Reused via CLEAR_TOP (e.g. tapping a different segment slice
+        // while Holdings is already open) - onCreate does NOT run again
+        // here, so the new segment filter has to be picked up explicitly.
+        segmentFilter = intent.getStringExtra(EXTRA_SEGMENT_FILTER)
+        updateSegmentFilterBar()
+        showHoldingsForSelectedMember()
     }
 
     override fun onResume() {
@@ -137,10 +169,25 @@ class HoldingsActivity : AppCompatActivity() {
         loadAndShowHoldings(memberId)
     }
 
+    private fun updateSegmentFilterBar() {
+        val filter = segmentFilter
+        if (filter == null) {
+            segmentFilterBar.visibility = View.GONE
+        } else {
+            segmentFilterBar.visibility = View.VISIBLE
+            segmentFilterLabel.text = "Showing: $filter"
+        }
+    }
+
     private fun loadAndShowHoldings(memberId: String) {
         val portfolioPath = PortfolioStorage.filePath(this)
         val portfolioJson = Bridge.loadPortfolio(portfolioPath)
-        val holdingsJson = Bridge.computeHoldingsForMember(portfolioJson, memberId)
+        val filter = segmentFilter
+        val holdingsJson = if (filter != null) {
+            Bridge.computeHoldingsInSegment(portfolioJson, memberId, filter)
+        } else {
+            Bridge.computeHoldingsForMember(portfolioJson, memberId)
+        }
 
         val holdingsType = object : TypeToken<List<Holding>>() {}.type
         val holdings: List<Holding> = try {
