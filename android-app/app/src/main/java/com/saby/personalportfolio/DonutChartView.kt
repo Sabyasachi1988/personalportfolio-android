@@ -42,6 +42,14 @@ class DonutChartView @JvmOverloads constructor(
 
     private var currentStrokeWidth = 0f
 
+    init {
+        // Required for onTouchEvent to receive ACTION_UP at all: Android
+        // only continues delivering a touch gesture to this view if the
+        // initial ACTION_DOWN was consumed, which the base View only does
+        // when it's marked clickable.
+        isClickable = true
+    }
+
     fun setSlices(newSlices: List<Slice>) {
         // Only positive-percent slices are drawable; anything at 0%
         // would just be an invisible zero-length arc anyway.
@@ -85,6 +93,12 @@ class DonutChartView @JvmOverloads constructor(
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        if (event.action == MotionEvent.ACTION_DOWN) {
+            // Must consume DOWN or Android won't deliver the subsequent
+            // UP (where the actual slice hit-test happens) to this view.
+            return true
+        }
+
         if (event.action != MotionEvent.ACTION_UP || slices.isEmpty()) {
             return super.onTouchEvent(event)
         }
