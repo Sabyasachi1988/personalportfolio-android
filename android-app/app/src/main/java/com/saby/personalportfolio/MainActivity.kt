@@ -50,6 +50,11 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        // Re-sync every time this screen resumes, not just once in
+        // onCreate - a screen reused via CLEAR_TOP (coming back to it
+        // from another tab) never re-runs onCreate, so without this
+        // its nav bar could keep showing a stale selection.
+        BottomNavHelper.setup(this, findViewById(R.id.bottomNav), BottomNavDestination.DASHBOARD)
         // Refresh every time the Dashboard becomes visible, so coming
         // back from Import or Settings always reflects the latest state.
         loadDashboard()
