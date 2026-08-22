@@ -47,6 +47,12 @@
             android:name=".TargetAllocationActivity"
             android:exported="false" />
         <activity
+            android:name=".EquityOriginCompositionActivity"
+            android:exported="false" />
+        <activity
+            android:name=".PortfolioClassTargetActivity"
+            android:exported="false" />
+        <activity
             android:name=".MembersActivity"
             android:exported="false" />
     </application>
