@@ -611,6 +611,130 @@ func ComputeAllocationDrift(portfolioJSON string) string {
 	return fmt.Sprintf(`{"hasTarget":true,"drift":%s}`, string(driftJSON))
 }
 
+// AddAccount creates a new Account for a given member, e.g. a foreign
+// brokerage account that has no CAS-equivalent import (a Canadian
+// brokerage account for CAD-denominated ETFs, unlike Indian mutual funds
+// which arrive via ImportCAS). Returns the updated portfolio as JSON.
+func AddAccount(portfolioJSON string, memberID string, name string, currency string) string {
+	var p store.Portfolio
+	if portfolioJSON != "" {
+		if err := json.Unmarshal([]byte(portfolioJSON), &p); err != nil {
+			return fmt.Sprintf(`{"error":%q}`, "invalid portfolio JSON: "+err.Error())
+		}
+	}
+	if name == "" {
+		return `{"error":"name cannot be empty"}`
+	}
+	if currency == "" {
+		return `{"error":"currency cannot be empty"}`
+	}
+	memberFound := false
+	for _, m := range p.Members {
+		if m.ID == memberID {
+			memberFound = true
+			break
+		}
+	}
+	if !memberFound {
+		return `{"error":"no member with that ID exists"}`
+	}
+	if _, ok := p.FindAccountByName(memberID, name); ok {
+		return `{"error":"an account with that name already exists for this member"}`
+	}
+	p.Accounts = append(p.Accounts, store.Account{
+		ID: store.NewID("account"), MemberID: memberID, Name: name, Currency: currency,
+	})
+
+	out, err := json.Marshal(p)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+	return string(out)
+}
+
+// AddAsset creates a new Asset (e.g. a Yahoo-ticker ETF) under a given
+// Account. ISIN is deliberately not required here - manually-entered
+// non-Indian holdings identify by Symbol instead (e.g. "VFV.TO"), the
+// same field CommitStagedRows leaves blank for these. Returns the
+// updated portfolio as JSON.
+func AddAsset(portfolioJSON string, accountID string, name string, symbol string, assetType string) string {
+	var p store.Portfolio
+	if portfolioJSON != "" {
+		if err := json.Unmarshal([]byte(portfolioJSON), &p); err != nil {
+			return fmt.Sprintf(`{"error":%q}`, "invalid portfolio JSON: "+err.Error())
+		}
+	}
+	if name == "" {
+		return `{"error":"name cannot be empty"}`
+	}
+	accountFound := false
+	for _, a := range p.Accounts {
+		if a.ID == accountID {
+			accountFound = true
+			break
+		}
+	}
+	if !accountFound {
+		return `{"error":"no account with that ID exists"}`
+	}
+	p.Assets = append(p.Assets, store.Asset{
+		ID: store.NewID("asset"), AccountID: accountID, Name: name, Symbol: symbol, Type: assetType,
+	})
+
+	out, err := json.Marshal(p)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+	return string(out)
+}
+
+// AddManualTransaction creates a new StoredTransaction directly (Source
+// "MANUAL"), for holdings with no CAS-equivalent import - a Buy or Sell
+// of a Canadian ETF, or a reinvested distribution (same underlying
+// mechanics as an Indian fund's dividend reinvestment, just a different
+// market). txnType must be "PURCHASE", "REDEMPTION", or
+// "DIVIDEND_REINVEST" - any other value is rejected rather than silently
+// accepted, since an unrecognised type would corrupt XIRR/holdings math
+// downstream. Returns the updated portfolio as JSON.
+func AddManualTransaction(portfolioJSON string, accountID string, assetID string, date string, txnType string, amount float64, units float64) string {
+	var p store.Portfolio
+	if portfolioJSON != "" {
+		if err := json.Unmarshal([]byte(portfolioJSON), &p); err != nil {
+			return fmt.Sprintf(`{"error":%q}`, "invalid portfolio JSON: "+err.Error())
+		}
+	}
+	switch store.TransactionType(txnType) {
+	case store.Purchase, store.Redemption, store.DividendReinvest:
+		// allowed
+	default:
+		return fmt.Sprintf(`{"error":%q}`, "unsupported transaction type for manual entry: "+txnType)
+	}
+	assetFound := false
+	for _, a := range p.Assets {
+		if a.ID == assetID && a.AccountID == accountID {
+			assetFound = true
+			break
+		}
+	}
+	if !assetFound {
+		return `{"error":"no matching asset found in that account"}`
+	}
+	if date == "" {
+		return `{"error":"date cannot be empty"}`
+	}
+
+	p.Transactions = append(p.Transactions, store.StoredTransaction{
+		ID: store.NewID("txn"), AccountID: accountID, AssetID: assetID, Date: date,
+		Type: store.TransactionType(txnType), Amount: amount, Units: &units, Source: "MANUAL",
+	})
+
+	out, err := json.Marshal(p)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+	return string(out)
+}
+
 // AddMember creates a new Member with the given name, if one with that
 // exact name doesn't already exist (matches CommitStagedRows' own
 // member-matching rule, so a member added here and one created later via
