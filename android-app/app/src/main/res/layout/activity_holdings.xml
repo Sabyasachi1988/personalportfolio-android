@@ -9,7 +9,7 @@
         android:layout_height="0dp"
         android:layout_weight="1"
         android:orientation="vertical"
-        android:padding="16dp">
+        android:padding="24dp">
 
         <Button
             android:id="@+id/refreshPricesButton"
@@ -21,13 +21,13 @@
             android:id="@+id/memberFilterSpinner"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="8dp" />
+            android:layout_marginTop="12dp" />
 
         <EditText
             android:id="@+id/holdingsSearchInput"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
+            android:layout_marginTop="12dp"
             android:hint="Search holdings by name"
             android:inputType="text" />
 
@@ -35,7 +35,7 @@
             android:id="@+id/holdingsSortSpinner"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="8dp" />
+            android:layout_marginTop="12dp" />
 
         <LinearLayout
             android:id="@+id/segmentFilterBar"
@@ -43,7 +43,7 @@
             android:layout_height="wrap_content"
             android:orientation="horizontal"
             android:gravity="center_vertical"
-            android:layout_marginTop="8dp"
+            android:layout_marginTop="12dp"
             android:visibility="gone">
 
             <TextView
@@ -66,7 +66,7 @@
             android:id="@+id/holdingsSummary"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
+            android:layout_marginTop="20dp"
             android:textSize="15sp"
             android:textStyle="bold" />
 
@@ -81,7 +81,7 @@
             android:layout_width="match_parent"
             android:layout_height="0dp"
             android:layout_weight="1"
-            android:layout_marginTop="12dp" />
+            android:layout_marginTop="20dp" />
 
     </LinearLayout>
 
