@@ -32,6 +32,13 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp" />
 
+        <Button
+            android:id="@+id/exportCsvButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="Export as CSV" />
+
         <androidx.recyclerview.widget.RecyclerView
             android:id="@+id/transactionsRecyclerView"
             android:layout_width="match_parent"
