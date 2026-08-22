@@ -26,6 +26,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var transactionsList: RecyclerView
     private lateinit var commitButton: Button
     private lateinit var viewHoldingsButton: Button
+    private lateinit var memberNameInput: android.widget.EditText
 
     // The most recently imported rows, kept in memory so the "Add to
     // Portfolio" button has something to commit without re-parsing the PDF.
@@ -46,6 +47,7 @@ class MainActivity : AppCompatActivity() {
         transactionsList.layoutManager = LinearLayoutManager(this)
         commitButton = findViewById(R.id.commitButton)
         viewHoldingsButton = findViewById(R.id.viewHoldingsButton)
+        memberNameInput = findViewById(R.id.memberNameInput)
 
         findViewById<Button>(R.id.importButton).setOnClickListener {
             pickPdf.launch(arrayOf("application/pdf"))
@@ -126,7 +128,8 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 val rowsJson = gson.toJson(newRows)
-                val updatedPortfolioJson = Bridge.commitStagedRows(currentPortfolioJson, rowsJson)
+                val memberName = memberNameInput.text.toString().trim().ifBlank { "Me" }
+                val updatedPortfolioJson = Bridge.commitStagedRows(currentPortfolioJson, rowsJson, memberName)
                 if (isBridgeError(updatedPortfolioJson)) {
                     mainThread.post { failCommit("Failed to link transactions: $updatedPortfolioJson") }
                     return@execute
