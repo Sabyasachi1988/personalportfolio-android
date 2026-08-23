@@ -3,7 +3,7 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
-    android:paddingBottom="20dp">
+    android:paddingBottom="24dp">
 
     <TextView
         android:layout_width="match_parent"
@@ -15,15 +15,28 @@
 
     <com.saby.personalportfolio.DonutChartView
         android:id="@+id/perFundDonut"
-        android:layout_width="150dp"
-        android:layout_height="150dp"
+        android:layout_width="130dp"
+        android:layout_height="130dp"
         android:layout_gravity="center_horizontal"
         android:layout_marginTop="10dp" />
 
-    <com.saby.personalportfolio.DonutLegendView
-        android:id="@+id/perFundLegend"
+    <!-- Horizontally-scrollable chips rather than a full vertical list -
+         with up to 9+ holdings this could otherwise push the actual
+         holding cards well below the fold before you even reach them. -->
+    <HorizontalScrollView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="10dp" />
+        android:layout_marginTop="14dp"
+        android:scrollbars="none"
+        android:clipToPadding="false"
+        android:paddingStart="2dp"
+        android:paddingEnd="16dp">
+
+        <com.saby.personalportfolio.DonutLegendView
+            android:id="@+id/perFundLegend"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content" />
+
+    </HorizontalScrollView>
 
 </LinearLayout>
