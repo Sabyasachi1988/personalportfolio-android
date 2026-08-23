@@ -14,7 +14,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:textSize="14sp"
-            android:text="For holdings with no CAS-equivalent import - e.g. Canadian brokerage ETFs. Manually-entered transactions can also be edited or deleted from the Transactions tab." />
+            android:text="For anything with no CAS or CSV import available - e.g. an NSE-listed ETF, individual stocks, or a foreign brokerage account. Manually-entered transactions can also be edited or deleted from the Transactions tab." />
 
         <!-- Section 1: Add Account -->
         <TextView
@@ -36,7 +36,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="10dp"
-            android:hint="Account name, e.g. Questrade CAD" />
+            android:hint="Account name, e.g. Zerodha Equity or Questrade CAD" />
 
         <Spinner
             android:id="@+id/accountCurrencySpinner"
@@ -84,14 +84,14 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="10dp"
-            android:hint="Fund/ETF name, e.g. Vanguard S&amp;P 500 Index ETF" />
+            android:hint="Fund/ETF name, e.g. Nippon India ETF Nifty 50 BeES" />
 
         <EditText
             android:id="@+id/assetSymbolInput"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="10dp"
-            android:hint="Yahoo ticker, e.g. VFV.TO" />
+            android:hint="Yahoo ticker, e.g. NIFTYBEES.NS or VFV.TO" />
 
         <Spinner
             android:id="@+id/assetTypeSpinner"
