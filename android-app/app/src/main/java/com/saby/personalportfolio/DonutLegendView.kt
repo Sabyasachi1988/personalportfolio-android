@@ -27,6 +27,16 @@ class DonutLegendView @JvmOverloads constructor(
      */
     var chipMode: Boolean = false
 
+    /**
+     * If set, each legend row becomes tappable and invokes this with the
+     * row's label - used by the expanded donut dialog (see
+     * DonutExpansionDialog) to let a full-width vertical legend act as
+     * an alternate hit target for "select this segment", alongside
+     * tapping the donut ring itself. Null (the default) leaves rows
+     * non-interactive, as before.
+     */
+    var onRowTapped: ((label: String) -> Unit)? = null
+
     init {
         orientation = VERTICAL
     }
@@ -97,6 +107,15 @@ class DonutLegendView @JvmOverloads constructor(
                     }
                 } else {
                     setPadding(0, 8, 0, 8)
+                }
+                val tapHandler = onRowTapped
+                if (tapHandler != null) {
+                    isClickable = true
+                    isFocusable = true
+                    val outValue = android.util.TypedValue()
+                    context.theme.resolveAttribute(android.R.attr.selectableItemBackground, outValue, true)
+                    foreground = ContextCompat.getDrawable(context, outValue.resourceId)
+                    setOnClickListener { tapHandler(slice.label) }
                 }
             }
 
