@@ -991,3 +991,41 @@ func ComputeHoldingsInSegment(portfolioJSON string, memberID string, segmentLabe
 	}
 	return string(out)
 }
+
+// ComputeProgression takes a JSON-serialized store.Portfolio and returns
+// a JSON array of finance.ProgressionPoint — one point per weekly
+// checkpoint (see finance.WeeklyDates) — for the requested axis, scoped
+// to a member (empty memberID = whole family).
+//
+// axis must be one of "WholePortfolio", "IndianEquity",
+// "InternationalEquity", "CombinedEquity" (see finance.ProgressionAxis);
+// an unrecognized axis silently produces all-zero points rather than an
+// error, since every case in the underlying switch is exhaustive over
+// the four constants and there's no natural "invalid axis" value to
+// distinguish from "WholePortfolio" without adding a fifth sentinel -
+// callers should restrict the value they pass to the four constants
+// above.
+//
+// today is the caller's own current local date as "YYYY-MM-DD" (not
+// necessarily UTC "now") — passed in rather than computed inside Go so
+// the weekly-checkpoint boundary (and the "append today" rule) matches
+// what the person actually sees on their phone, not the build server's
+// clock.
+func ComputeProgression(portfolioJSON string, memberID string, axis string, today string) string {
+	var p store.Portfolio
+	if portfolioJSON != "" {
+		if err := json.Unmarshal([]byte(portfolioJSON), &p); err != nil {
+			return fmt.Sprintf(`{"error":%q}`, "invalid portfolio JSON: "+err.Error())
+		}
+	}
+	t, err := time.Parse("2006-01-02", today)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, "invalid today date: "+err.Error())
+	}
+	points := finance.ComputeProgression(&p, memberID, finance.ProgressionAxis(axis), t)
+	out, err := json.Marshal(points)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+	return string(out)
+}
