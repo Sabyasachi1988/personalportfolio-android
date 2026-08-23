@@ -11,6 +11,13 @@ import java.util.Locale
 class AllocationDriftAdapter(private val slices: List<AllocationDriftSlice>) :
     RecyclerView.Adapter<AllocationDriftAdapter.RowHolder>() {
 
+    // One scale for the whole table, not one per row (see
+    // TargetProgressBarView.setValues doc comment for why per-row scaling
+    // was wrong). +15% headroom so the largest bar doesn't touch the very
+    // edge of its row.
+    private val sharedMaxVal: Float = (slices.flatMap { listOf(it.actual, it.target) }
+        .maxOrNull()?.toFloat() ?: 1f).coerceAtLeast(1f) * 1.15f
+
     class RowHolder(view: View) : RecyclerView.ViewHolder(view) {
         val label: TextView = view.findViewById(R.id.driftLabel)
         val values: TextView = view.findViewById(R.id.driftValues)
@@ -39,6 +46,7 @@ class AllocationDriftAdapter(private val slices: List<AllocationDriftSlice>) :
         holder.bar.setValues(
             actual = slice.actual.toFloat(),
             target = slice.target.toFloat(),
+            sharedMaxVal = sharedMaxVal,
             // Same fixed color as the donut uses for this exact label -
             // previously this used a generic amber/teal over/under
             // scheme that had nothing to do with the donut's colors,
