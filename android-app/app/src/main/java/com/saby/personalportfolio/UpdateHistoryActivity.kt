@@ -19,10 +19,10 @@ class UpdateHistoryActivity : AppCompatActivity() {
     private lateinit var runButton: Button
     private lateinit var statusText: TextView
 
-    // Fixed lower bound for FX history - comfortably before any
-    // realistic transaction date in this portfolio. NAV history has no
-    // such bound: UpdateHistoricalNav always fetches a fund's entire
-    // available history.
+    // Fixed lower bound for FX and symbol-based (ETF/stock) price
+    // history - comfortably before any realistic transaction date in
+    // this portfolio. NAV history has no such bound: UpdateHistoricalNav
+    // always fetches a fund's entire available history.
     private val fxHistorySince = "2015-01-01"
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -58,6 +58,14 @@ class UpdateHistoryActivity : AppCompatActivity() {
                 }
 
                 val indianAssets = snapshot.assets.orEmpty().filter { it.isin.isNotBlank() }
+                // Anything without an ISIN falls outside the mutual-fund
+                // NAV path entirely (ETFs, stocks - identified by a
+                // Yahoo-style symbol instead, whether NSE-listed like
+                // NIFTYBEES.NS or a foreign brokerage holding). This used
+                // to be silently skipped altogether - no NAV, no price,
+                // ever - which is why manually-entered ETFs never showed
+                // a real Value in Portfolio Progression.
+                val symbolAssets = snapshot.assets.orEmpty().filter { it.isin.isBlank() && it.symbol.isNotBlank() }
                 val foreignCurrencies = snapshot.accounts.orEmpty()
                     .map { it.currency }
                     .filter { it.isNotBlank() && it != "INR" }
@@ -75,6 +83,21 @@ class UpdateHistoryActivity : AppCompatActivity() {
                     } else {
                         portfolioJson = result
                         navSucceeded++
+                    }
+                }
+
+                var priceSucceeded = 0
+                val priceFailures = mutableListOf<String>()
+                for ((index, asset) in symbolAssets.withIndex()) {
+                    mainThread.post {
+                        statusText.text = "Fetching ETF/stock prices: ${index + 1} of ${symbolAssets.size}…"
+                    }
+                    val result = Bridge.updateHistoricalPrice(portfolioJson, asset.id, asset.symbol, fxHistorySince)
+                    if (isBridgeError(result)) {
+                        priceFailures.add("${FundNameFormatter.shorten(asset.name)} (${asset.symbol}): $result")
+                    } else {
+                        portfolioJson = result
+                        priceSucceeded++
                     }
                 }
 
@@ -103,10 +126,11 @@ class UpdateHistoryActivity : AppCompatActivity() {
                     runButton.isEnabled = true
                     val summary = StringBuilder()
                     summary.append("NAV history: $navSucceeded of ${indianAssets.size} fund(s) updated.\n")
+                    summary.append("ETF/stock prices: $priceSucceeded of ${symbolAssets.size} updated.\n")
                     summary.append("FX history: $fxSucceeded of ${foreignCurrencies.size} currenc${if (foreignCurrencies.size == 1) "y" else "ies"} updated.")
-                    if (navFailures.isNotEmpty() || fxFailures.isNotEmpty()) {
+                    if (navFailures.isNotEmpty() || priceFailures.isNotEmpty() || fxFailures.isNotEmpty()) {
                         summary.append("\n\nFailures:\n")
-                        (navFailures + fxFailures).forEach { summary.append("• $it\n") }
+                        (navFailures + priceFailures + fxFailures).forEach { summary.append("• $it\n") }
                     }
                     statusText.text = summary.toString()
                 }
