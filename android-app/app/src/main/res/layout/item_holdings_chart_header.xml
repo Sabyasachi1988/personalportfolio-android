@@ -1,9 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Tap anywhere in this header to see the full per-fund breakdown in an
+     enlarged dialog (see DonutExpansionDialog) - replaces the old
+     always-visible horizontally-scrolling chip legend, which truncated
+     most fund names and left most chips off-screen at a glance. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/holdingsChartHeaderContainer"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
-    android:paddingBottom="24dp">
+    android:paddingBottom="24dp"
+    android:clickable="true"
+    android:focusable="true"
+    android:background="?attr/selectableItemBackground">
 
     <TextView
         android:layout_width="match_parent"
@@ -20,23 +28,13 @@
         android:layout_gravity="center_horizontal"
         android:layout_marginTop="10dp" />
 
-    <!-- Horizontally-scrollable chips rather than a full vertical list -
-         with up to 9+ holdings this could otherwise push the actual
-         holding cards well below the fold before you even reach them. -->
-    <HorizontalScrollView
+    <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="14dp"
-        android:scrollbars="none"
-        android:clipToPadding="false"
-        android:paddingStart="2dp"
-        android:paddingEnd="16dp">
-
-        <com.saby.personalportfolio.DonutLegendView
-            android:id="@+id/perFundLegend"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content" />
-
-    </HorizontalScrollView>
+        android:layout_marginTop="8dp"
+        android:text="Tap to see full breakdown"
+        android:textSize="12sp"
+        android:textColor="@color/colorNeutral"
+        android:gravity="center" />
 
 </LinearLayout>
