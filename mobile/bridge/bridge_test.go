@@ -127,6 +127,51 @@ func TestCommitStagedRows_GenuinelyDifferentTransactionsAreNotTreatedAsDuplicate
 	}
 }
 
+func TestRemoveDuplicateTransactions_RemovesExactDuplicatesKeepsGenuineOnes(t *testing.T) {
+	unitsA := 1741.77
+	unitsB := 6.1
+	p := &store.Portfolio{
+		Assets: []store.Asset{{ID: "asset-1", ISIN: "INF959L01GR6"}},
+		Transactions: []store.StoredTransaction{
+			{ID: "t1", AssetID: "asset-1", Date: "2025-01-03", Type: store.Purchase, Amount: 24998.75, Units: &unitsA},
+			// Exact duplicate of t1 (e.g. the CSV was imported twice
+			// before commit-time dedup existed, or before the person
+			// updated to a build that had it).
+			{ID: "t2", AssetID: "asset-1", Date: "2025-01-03", Type: store.Purchase, Amount: 24998.75, Units: &unitsA},
+			// A genuinely different transaction (different date) for the
+			// same asset - must survive.
+			{ID: "t3", AssetID: "asset-1", Date: "2025-01-10", Type: store.Purchase, Amount: 30000, Units: &unitsB},
+		},
+	}
+	pJSON, _ := json.Marshal(p)
+
+	result := RemoveDuplicateTransactions(string(pJSON))
+	if isBridgeErrorForTest(result) {
+		t.Fatalf("expected success, got: %s", result)
+	}
+
+	var wrapped struct {
+		Removed   int            `json:"removed"`
+		Portfolio store.Portfolio `json:"portfolio"`
+	}
+	if err := json.Unmarshal([]byte(result), &wrapped); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if wrapped.Removed != 1 {
+		t.Errorf("removed = %d, want 1", wrapped.Removed)
+	}
+	if len(wrapped.Portfolio.Transactions) != 2 {
+		t.Fatalf("expected 2 transactions remaining, got %d: %+v", len(wrapped.Portfolio.Transactions), wrapped.Portfolio.Transactions)
+	}
+	dates := map[string]bool{}
+	for _, txn := range wrapped.Portfolio.Transactions {
+		dates[txn.Date] = true
+	}
+	if !dates["2025-01-03"] || !dates["2025-01-10"] {
+		t.Errorf("expected both distinct dates to survive, got transactions: %+v", wrapped.Portfolio.Transactions)
+	}
+}
+
 func TestCommitStagedRows_CreatesLinkedTransactions(t *testing.T) {
 	units := 5.386
 	rows := []casimport.StagedRow{
