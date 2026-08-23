@@ -19,9 +19,11 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"math"
 	"time"
 
 	"ledger/internal/casimport"
+	"ledger/internal/csvimport"
 	"ledger/internal/finance"
 	"ledger/internal/priceapi"
 	"ledger/internal/store"
@@ -52,6 +54,30 @@ func ImportCAS(pdfBytes []byte) string {
 	if err != nil {
 		// Marshal of our own struct should never fail, but never return
 		// an unhandled error across the JNI boundary either way.
+		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+	return string(out)
+}
+
+// ImportCSV parses a mutual-fund transaction CSV export (raw bytes, e.g.
+// read from a content:// URI on Android) and returns an ImportCASResult
+// as a JSON string - deliberately the SAME result shape ImportCAS
+// returns, so the CSV-sourced staged rows flow through the exact same
+// review/commit UI on the Kotlin side (TransactionAdapter,
+// CommitStagedRows) with no separate code path needed there.
+//
+// See internal/csvimport's package doc comment for the column-matching
+// approach (name/alias-based, not position-based) that makes this work
+// across different platforms' CSV layouts rather than one hardcoded
+// format.
+func ImportCSV(csvBytes []byte) string {
+	result := csvimport.ParseCSV(csvBytes)
+	out, err := json.Marshal(ImportCASResult{
+		Format:       result.Format,
+		Staged:       result.Staged,
+		ManualReview: result.ManualReview,
+	})
+	if err != nil {
 		return fmt.Sprintf(`{"error":%q}`, err.Error())
 	}
 	return string(out)
@@ -352,14 +378,6 @@ func SavePortfolio(path string, portfolioJSON string) string {
 // CommitStagedRows links the raw StagedRow output of ImportCAS into a
 // real Portfolio: only rows with Status "NEW" are committed (DUPLICATE
 // and UNMATCHED rows are left for the user to resolve, same principle as
-// the desktop Import tab). A single default Member ("Me") and Account
-// ("CAS Import") are created if they don't already exist; Assets are
-// matched by ISIN via the same FindAssetByISIN the desktop app uses, so
-// re-importing an overlapping statement won't create duplicate assets.
-// Returns the updated portfolio as JSON.
-// CommitStagedRows links the raw StagedRow output of ImportCAS into a
-// real Portfolio: only rows with Status "NEW" are committed (DUPLICATE
-// and UNMATCHED rows are left for the user to resolve, same principle as
 // the desktop Import tab). A Member with the given name is created if one
 // doesn't already exist (case-sensitive exact match), along with a
 // default "CAS Import" Account under that member. An empty memberName
@@ -371,7 +389,19 @@ func SavePortfolio(path string, portfolioJSON string) string {
 // happened to create the Asset first - store.Portfolio.FindAssetByISIN
 // is deliberately not used here for that reason.
 //
-// Returns the updated portfolio as JSON.
+// Before appending, each row is also checked against transactions
+// ALREADY in the portfolio for the same asset (see isDuplicateTransaction)
+// and skipped if a matching one already exists. This is what makes
+// re-importing an overlapping or identical CAS statement safe - without
+// it, every re-import silently doubled every transaction it re-parsed,
+// since the staged-row "NEW" status only reflects that the PARSE step
+// found nothing wrong with the row, not that it's actually new relative
+// to what's already stored.
+//
+// Returns a JSON object {"committed": N, "skippedDuplicates": N,
+// "portfolio": {...}} rather than the bare portfolio, so the caller can
+// tell the person how many rows were actually added versus recognized
+// as already present.
 func CommitStagedRows(portfolioJSON string, stagedRowsJSON string, memberName string) string {
 	var p store.Portfolio
 	if portfolioJSON != "" {
@@ -408,6 +438,7 @@ func CommitStagedRows(portfolioJSON string, stagedRowsJSON string, memberName st
 	}
 
 	committed := 0
+	skippedDuplicates := 0
 	for _, row := range rows {
 		if row.Status != "NEW" {
 			continue
@@ -426,6 +457,11 @@ func CommitStagedRows(portfolioJSON string, stagedRowsJSON string, memberName st
 			p.Assets = append(p.Assets, asset)
 		}
 
+		if isDuplicateTransaction(p.Transactions, asset.ID, txn) {
+			skippedDuplicates++
+			continue
+		}
+
 		p.Transactions = append(p.Transactions, store.StoredTransaction{
 			ID:          store.NewID("txn"),
 			AccountID:   account.ID,
@@ -441,11 +477,50 @@ func CommitStagedRows(portfolioJSON string, stagedRowsJSON string, memberName st
 		committed++
 	}
 
-	out, err := json.Marshal(p)
+	portfolioBytes, err := json.Marshal(p)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+	out, err := json.Marshal(struct {
+		Committed         int             `json:"committed"`
+		SkippedDuplicates int             `json:"skippedDuplicates"`
+		Portfolio         json.RawMessage `json:"portfolio"`
+	}{
+		Committed:         committed,
+		SkippedDuplicates: skippedDuplicates,
+		Portfolio:         portfolioBytes,
+	})
 	if err != nil {
 		return fmt.Sprintf(`{"error":%q}`, err.Error())
 	}
 	return string(out)
+}
+
+// isDuplicateTransaction reports whether a staged transaction being
+// committed already exists among a portfolio's stored transactions for
+// the same asset. Matched on Date + Type + Amount (within a small
+// epsilon for floating-point rounding from repeated JSON round-trips),
+// plus Units when BOTH sides have a value - CAS statements don't always
+// print units for every row (e.g. tax/STT lines), so units is used as a
+// tie-breaker when available rather than a hard requirement that would
+// let genuinely-duplicate rows slip through whenever units happens to be
+// missing on one side.
+func isDuplicateTransaction(existing []store.StoredTransaction, assetID string, txn store.Transaction) bool {
+	const amountEpsilon = 0.01
+	const unitsEpsilon = 0.0005
+	for _, e := range existing {
+		if e.AssetID != assetID || e.Date != txn.Date || e.Type != txn.Type {
+			continue
+		}
+		if math.Abs(e.Amount-txn.Amount) > amountEpsilon {
+			continue
+		}
+		if e.Units != nil && txn.Units != nil && math.Abs(*e.Units-*txn.Units) > unitsEpsilon {
+			continue
+		}
+		return true
+	}
+	return false
 }
 
 // findAssetByISINInAccount matches an Asset by ISIN scoped to a specific
