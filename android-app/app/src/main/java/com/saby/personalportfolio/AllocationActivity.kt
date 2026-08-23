@@ -2,11 +2,13 @@ package com.saby.personalportfolio
 
 import android.content.Intent
 import android.os.Bundle
+import android.view.View
 import android.widget.Button
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import com.google.android.material.tabs.TabLayout
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import com.ledger.bridge.Bridge
@@ -15,58 +17,79 @@ class AllocationActivity : AppCompatActivity() {
 
     private val gson = Gson()
 
-    // Section 1: Market cap (Large/Mid/Small/Cash) - unchanged from before.
+    private lateinit var tabLayout: TabLayout
+    private lateinit var marketCapSection: View
+    private lateinit var equityOriginSection: View
+    private lateinit var portfolioClassSection: View
+
+    // Section 1: Market cap (Large/Mid/Small/Cash)
     private lateinit var summary: TextView
+    private lateinit var subCaption: TextView
     private lateinit var recyclerView: RecyclerView
     private lateinit var donutChart: DonutChartView
-    private lateinit var donutLegend: DonutLegendView
 
     // Section 2: Equity origin (Indian vs. International) - actual only,
     // no target/drift (not asked for on this axis).
     private lateinit var summaryOrigin: TextView
     private lateinit var recyclerViewOrigin: RecyclerView
     private lateinit var donutChartOrigin: DonutChartView
-    private lateinit var donutLegendOrigin: DonutLegendView
 
     // Section 3: Portfolio class (Equity/Debt/Commodity/Others) - full
     // target/drift, same treatment as the market-cap section.
     private lateinit var summaryClass: TextView
+    private lateinit var subCaptionClass: TextView
     private lateinit var recyclerViewClass: RecyclerView
     private lateinit var donutChartClass: DonutChartView
-    private lateinit var donutLegendClass: DonutLegendView
+
+    private var lastMarketCapSlices: List<DonutChartView.Slice> = emptyList()
+    private var lastOriginSlices: List<DonutChartView.Slice> = emptyList()
+    private var lastClassSlices: List<DonutChartView.Slice> = emptyList()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_allocation)
 
+        tabLayout = findViewById(R.id.allocationTabLayout)
+        marketCapSection = findViewById(R.id.marketCapSection)
+        equityOriginSection = findViewById(R.id.equityOriginSection)
+        portfolioClassSection = findViewById(R.id.portfolioClassSection)
+        tabLayout.addTab(tabLayout.newTab().setText("Market Cap"))
+        tabLayout.addTab(tabLayout.newTab().setText("Equity Origin"))
+        tabLayout.addTab(tabLayout.newTab().setText("Portfolio Class"))
+        tabLayout.addOnTabSelectedListener(object : TabLayout.OnTabSelectedListener {
+            override fun onTabSelected(tab: TabLayout.Tab) = showSection(tab.position)
+            override fun onTabUnselected(tab: TabLayout.Tab) {}
+            override fun onTabReselected(tab: TabLayout.Tab) {}
+        })
+
         summary = findViewById(R.id.allocationSummary)
+        subCaption = findViewById(R.id.allocationSubCaption)
         recyclerView = findViewById(R.id.allocationRecyclerView)
-        recyclerView.layoutManager = LinearLayoutManager(this)
+        recyclerView.layoutManager = LinearLayoutManager(this, RecyclerView.HORIZONTAL, false)
         donutChart = findViewById(R.id.donutChart)
-        donutLegend = findViewById(R.id.donutLegend)
-        donutChart.onSliceTapped = { label, _ ->
-            val intent = Intent(this, HoldingsActivity::class.java)
-            intent.putExtra(HoldingsActivity.EXTRA_SEGMENT_FILTER, label)
-            intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
-            startActivity(intent)
-        }
+        donutChart.onSliceTapped = { _, _ -> openMarketCapExpanded() }
+        findViewById<TextView>(R.id.marketCapTapHint).setOnClickListener { openMarketCapExpanded() }
 
         summaryOrigin = findViewById(R.id.allocationSummaryOrigin)
         recyclerViewOrigin = findViewById(R.id.allocationRecyclerViewOrigin)
-        recyclerViewOrigin.layoutManager = LinearLayoutManager(this)
+        recyclerViewOrigin.layoutManager = LinearLayoutManager(this, RecyclerView.HORIZONTAL, false)
         donutChartOrigin = findViewById(R.id.donutChartOrigin)
-        donutLegendOrigin = findViewById(R.id.donutLegendOrigin)
-        // Deliberately not wired to tap-to-filter yet: HoldingsInSegment
-        // (Go) only understands cap-size segment labels today. Wiring
-        // this donut the same way would either silently show nothing or
-        // require duplicating filter logic here in Kotlin - both worse
-        // than just not offering the tap yet.
+        donutChartOrigin.onSliceTapped = { _, _ -> openOriginExpanded() }
+        findViewById<TextView>(R.id.equityOriginTapHint).setOnClickListener { openOriginExpanded() }
+        // Deliberately no jump-to-Holdings on this section's slices even
+        // inside the expanded dialog: HoldingsInSegment (Go) only
+        // understands cap-size segment labels today. Wiring this the
+        // same way would either silently show nothing or require
+        // duplicating filter logic here in Kotlin - both worse than
+        // just not offering it yet.
 
         summaryClass = findViewById(R.id.allocationSummaryClass)
+        subCaptionClass = findViewById(R.id.allocationSubCaptionClass)
         recyclerViewClass = findViewById(R.id.allocationRecyclerViewClass)
-        recyclerViewClass.layoutManager = LinearLayoutManager(this)
+        recyclerViewClass.layoutManager = LinearLayoutManager(this, RecyclerView.HORIZONTAL, false)
         donutChartClass = findViewById(R.id.donutChartClass)
-        donutLegendClass = findViewById(R.id.donutLegendClass)
+        donutChartClass.onSliceTapped = { _, _ -> openClassExpanded() }
+        findViewById<TextView>(R.id.portfolioClassTapHint).setOnClickListener { openClassExpanded() }
 
         findViewById<Button>(R.id.editCompositionButton).setOnClickListener {
             startActivity(Intent(this, CapCompositionActivity::class.java))
@@ -99,6 +122,37 @@ class AllocationActivity : AppCompatActivity() {
         loadAndShowPortfolioClassSection()
     }
 
+    private fun showSection(tabPosition: Int) {
+        marketCapSection.visibility = if (tabPosition == 0) View.VISIBLE else View.GONE
+        equityOriginSection.visibility = if (tabPosition == 1) View.VISIBLE else View.GONE
+        portfolioClassSection.visibility = if (tabPosition == 2) View.VISIBLE else View.GONE
+    }
+
+    private fun openMarketCapExpanded() {
+        DonutExpansionDialog.show(
+            this, "Market Cap", lastMarketCapSlices,
+            navigationHint = "Tap a segment to view its holdings"
+        ) { label -> navigateToHoldingsSegment(label) }
+    }
+
+    private fun openOriginExpanded() {
+        DonutExpansionDialog.show(this, "Equity Origin", lastOriginSlices)
+    }
+
+    private fun openClassExpanded() {
+        DonutExpansionDialog.show(
+            this, "Portfolio Class", lastClassSlices,
+            navigationHint = "Tap a segment to view its holdings"
+        ) { label -> navigateToHoldingsSegment(label) }
+    }
+
+    private fun navigateToHoldingsSegment(label: String) {
+        val intent = Intent(this, HoldingsActivity::class.java)
+        intent.putExtra(HoldingsActivity.EXTRA_SEGMENT_FILTER, label)
+        intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        startActivity(intent)
+    }
+
     private fun loadAndShowMarketCapSection() {
         val portfolioPath = PortfolioStorage.filePath(this)
         val portfolioJson = Bridge.loadPortfolio(portfolioPath)
@@ -111,13 +165,15 @@ class AllocationActivity : AppCompatActivity() {
         }
 
         if (driftResult?.hasTarget == true && !driftResult.drift.isNullOrEmpty()) {
-            summary.text = "Actual vs. target — bar fill = actual, red line = target"
+            summary.text = "Actual vs. target"
+            subCaption.visibility = View.VISIBLE
+            subCaption.text = "Bar = actual · red line = target"
             recyclerView.adapter = AllocationDriftAdapter(driftResult.drift)
             val chartSlices = driftResult.drift.map {
                 DonutChartView.Slice(it.label, it.actual.toFloat(), CapSegmentColors.forLabel(this, it.label))
             }
             donutChart.setSlices(chartSlices)
-            donutLegend.setSlices(chartSlices)
+            lastMarketCapSlices = chartSlices
             return
         }
 
@@ -129,12 +185,14 @@ class AllocationActivity : AppCompatActivity() {
             gson.fromJson(allocationJson, sliceType) ?: emptyList()
         } catch (e: Exception) {
             summary.text = "Could not read allocation: ${e.message}"
+            subCaption.visibility = View.GONE
             recyclerView.adapter = AllocationAdapter(emptyList())
             donutChart.setSlices(emptyList())
-            donutLegend.setSlices(emptyList())
+            lastMarketCapSlices = emptyList()
             return
         }
 
+        subCaption.visibility = View.GONE
         summary.text = if (slices.isEmpty()) {
             "No allocation data yet — this needs holdings with a current price. Refresh prices from the Holdings screen first."
         } else {
@@ -147,7 +205,7 @@ class AllocationActivity : AppCompatActivity() {
             DonutChartView.Slice(it.label, it.percent.toFloat(), CapSegmentColors.forLabel(this, it.label))
         }
         donutChart.setSlices(chartSlices)
-        donutLegend.setSlices(chartSlices)
+        lastMarketCapSlices = chartSlices
     }
 
     private fun loadAndShowEquityOriginSection() {
@@ -162,7 +220,7 @@ class AllocationActivity : AppCompatActivity() {
             summaryOrigin.text = "Could not read equity origin: ${e.message}"
             recyclerViewOrigin.adapter = AllocationAdapter(emptyList())
             donutChartOrigin.setSlices(emptyList())
-            donutLegendOrigin.setSlices(emptyList())
+            lastOriginSlices = emptyList()
             return
         }
 
@@ -178,7 +236,7 @@ class AllocationActivity : AppCompatActivity() {
             DonutChartView.Slice(it.label, it.percent.toFloat(), CapSegmentColors.forLabel(this, it.label))
         }
         donutChartOrigin.setSlices(chartSlices)
-        donutLegendOrigin.setSlices(chartSlices)
+        lastOriginSlices = chartSlices
     }
 
     private fun loadAndShowPortfolioClassSection() {
@@ -193,13 +251,15 @@ class AllocationActivity : AppCompatActivity() {
         }
 
         if (driftResult?.hasTarget == true && !driftResult.drift.isNullOrEmpty()) {
-            summaryClass.text = "Actual vs. target — bar fill = actual, red line = target"
+            summaryClass.text = "Actual vs. target"
+            subCaptionClass.visibility = View.VISIBLE
+            subCaptionClass.text = "Bar = actual · red line = target"
             recyclerViewClass.adapter = AllocationDriftAdapter(driftResult.drift)
             val chartSlices = driftResult.drift.map {
                 DonutChartView.Slice(it.label, it.actual.toFloat(), CapSegmentColors.forLabel(this, it.label))
             }
             donutChartClass.setSlices(chartSlices)
-            donutLegendClass.setSlices(chartSlices)
+            lastClassSlices = chartSlices
             return
         }
 
@@ -209,12 +269,14 @@ class AllocationActivity : AppCompatActivity() {
             gson.fromJson(allocationJson, sliceType) ?: emptyList()
         } catch (e: Exception) {
             summaryClass.text = "Could not read portfolio class: ${e.message}"
+            subCaptionClass.visibility = View.GONE
             recyclerViewClass.adapter = AllocationAdapter(emptyList())
             donutChartClass.setSlices(emptyList())
-            donutLegendClass.setSlices(emptyList())
+            lastClassSlices = emptyList()
             return
         }
 
+        subCaptionClass.visibility = View.GONE
         summaryClass.text = if (slices.isEmpty()) {
             "No holdings with a current price yet."
         } else {
@@ -227,6 +289,6 @@ class AllocationActivity : AppCompatActivity() {
             DonutChartView.Slice(it.label, it.percent.toFloat(), CapSegmentColors.forLabel(this, it.label))
         }
         donutChartClass.setSlices(chartSlices)
-        donutLegendClass.setSlices(chartSlices)
+        lastClassSlices = chartSlices
     }
 }
