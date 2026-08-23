@@ -836,3 +836,47 @@ func TestComputeAllocationByMarketCap_ScopesToMember(t *testing.T) {
 		t.Errorf("expected whole-family allocation to include both members' funds, got: %s", wholeFamily)
 	}
 }
+
+func TestComputeProgression_ReturnsWeeklyPointsAsJSON(t *testing.T) {
+	unitsA := 100.0
+	p := &store.Portfolio{
+		Accounts: []store.Account{{ID: "acc1", MemberID: "m1", Currency: "INR"}},
+		Assets:   []store.Asset{{ID: "a1", AccountID: "acc1", Name: "SOME NIFTY 50 INDEX FUND"}},
+		Transactions: []store.StoredTransaction{
+			{AssetID: "a1", AccountID: "acc1", Date: "2024-01-16", Amount: 10000, Units: &unitsA, Type: store.Purchase},
+		},
+		Prices: []store.PriceRecord{
+			{AssetID: "a1", Date: "2024-01-22", Price: 110},
+		},
+	}
+	pJSON, _ := json.Marshal(p)
+
+	result := ComputeProgression(string(pJSON), "", "WholePortfolio", "2024-01-22")
+	if isBridgeErrorForTest(result) {
+		t.Fatalf("unexpected error: %s", result)
+	}
+
+	var points []map[string]any
+	if err := json.Unmarshal([]byte(result), &points); err != nil {
+		t.Fatalf("result is not valid JSON array: %v\nresult: %s", err, result)
+	}
+	if len(points) != 1 {
+		t.Fatalf("expected 1 weekly point, got %d: %s", len(points), result)
+	}
+	if points[0]["Date"] != "2024-01-22" {
+		t.Errorf("Date = %v, want 2024-01-22", points[0]["Date"])
+	}
+	if points[0]["Invested"].(float64) != 10000 {
+		t.Errorf("Invested = %v, want 10000", points[0]["Invested"])
+	}
+	if points[0]["Value"].(float64) != 11000 {
+		t.Errorf("Value = %v, want 11000", points[0]["Value"])
+	}
+}
+
+func TestComputeProgression_InvalidTodayDateReturnsError(t *testing.T) {
+	result := ComputeProgression("{}", "", "WholePortfolio", "not-a-date")
+	if !isBridgeErrorForTest(result) {
+		t.Errorf("expected an error for an invalid today date, got: %s", result)
+	}
+}
