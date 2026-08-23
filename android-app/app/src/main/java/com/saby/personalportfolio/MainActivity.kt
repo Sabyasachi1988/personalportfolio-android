@@ -38,10 +38,15 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        totalValue = findViewById(R.id.dashboardTotalValue)
-        gainLine = findViewById(R.id.dashboardGainLine)
-        xirrLine = findViewById(R.id.dashboardXirrLine)
-        holdingsCountLine = findViewById(R.id.dashboardHoldingsCountLine)
+        totalValue = findViewById(R.id.statsCardValue)
+        gainLine = findViewById(R.id.statsCardGain)
+        xirrLine = findViewById(R.id.statsCardXirr)
+        holdingsCountLine = findViewById(R.id.statsCardCount)
+        // Dashboard's card shows count but not the Invested line (kept
+        // terse here since Holdings already covers the detailed
+        // breakdown) - Count is otherwise hidden by default in the
+        // shared card layout.
+        holdingsCountLine.visibility = View.VISIBLE
         donutMarketCap = findViewById(R.id.dashboardDonutMarketCap)
         donutLegendMarketCap = findViewById(R.id.dashboardDonutLegendMarketCap)
         donutOrigin = findViewById(R.id.dashboardDonutOrigin)
@@ -138,6 +143,7 @@ class MainActivity : AppCompatActivity() {
         if (holdings.isEmpty()) {
             totalValue.text = "No holdings yet"
             gainLine.text = "Tap + below to import your first CAS statement"
+            gainLine.setTextColor(androidx.core.content.ContextCompat.getColor(this, R.color.colorNeutral))
             xirrLine.text = ""
             holdingsCountLine.text = ""
             donutMarketCap.setSlices(emptyList())
@@ -168,9 +174,15 @@ class MainActivity : AppCompatActivity() {
                 Locale.getDefault(), "%s (%.1f%%) overall",
                 IndianCurrencyFormatter.formatSigned(gain), gainPct
             )
+            gainLine.setTextColor(
+                androidx.core.content.ContextCompat.getColor(
+                    this, if (gain >= 0) R.color.colorGain else R.color.colorLoss
+                )
+            )
         } else {
             totalValue.text = "Prices not refreshed yet"
             gainLine.text = "Go to Holdings and tap Refresh Prices"
+            gainLine.setTextColor(androidx.core.content.ContextCompat.getColor(this, R.color.colorNeutral))
         }
 
         val xirrJson = Bridge.computePortfolioXIRR(portfolioJson, memberId)
