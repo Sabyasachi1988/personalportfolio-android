@@ -49,6 +49,47 @@ func TestGuessMarketCapSegment_UnknownReturnsUnclassifiedNotAGuess(t *testing.T)
 	}
 }
 
+func TestGuessMarketCapSplit_BlendedNamesSplitEvenly(t *testing.T) {
+	cases := map[string]map[string]float64{
+		"HDFC Large & Mid Cap Fund - Direct Growth Plan":   {"Large Cap": 0.5, "Mid Cap": 0.5},
+		"Kotak Large and Midcap Fund - Direct Growth Plan": {"Large Cap": 0.5, "Mid Cap": 0.5},
+		"Axis Mid & Small Cap Fund - Direct Growth Plan":   {"Mid Cap": 0.5, "Small Cap": 0.5},
+	}
+	for name, want := range cases {
+		got := GuessMarketCapSplit(name)
+		if len(got) != len(want) {
+			t.Fatalf("GuessMarketCapSplit(%q) = %v, want %v", name, got, want)
+		}
+		for label, weight := range want {
+			if got[label] != weight {
+				t.Errorf("GuessMarketCapSplit(%q)[%q] = %v, want %v", name, label, got[label], weight)
+			}
+		}
+	}
+}
+
+func TestGuessMarketCapSplit_SingleBucketUnaffected(t *testing.T) {
+	got := GuessMarketCapSplit("Nippon India Small Cap Fund - Direct Growth Plan")
+	want := map[string]float64{"Small Cap": 1.0}
+	if len(got) != 1 || got["Small Cap"] != 1.0 {
+		t.Errorf("GuessMarketCapSplit(single-bucket name) = %v, want %v", got, want)
+	}
+}
+
+func TestAllocationByMarketCapSegment_BlendedFundSplitsAcrossTwoBuckets(t *testing.T) {
+	holdings := []Holding{
+		{AssetID: "a1", AssetName: "HDFC Large & Mid Cap Fund", HasPrice: true, CurrentValue: 1000},
+	}
+	slices := AllocationByMarketCapSegment(holdings, nil)
+	byLabel := make(map[string]float64)
+	for _, s := range slices {
+		byLabel[s.Label] = s.Percent
+	}
+	if byLabel["Large Cap"] != 50 || byLabel["Mid Cap"] != 50 {
+		t.Errorf("expected a 50/50 Large/Mid split for a blended fund, got %v", byLabel)
+	}
+}
+
 func TestAllocationByMarketCapSegment(t *testing.T) {
 	holdings := []Holding{
 		{AssetName: "NIPPON INDIA NIFTY SMALLCAP 250 INDEX FUND", HasPrice: true, CurrentValue: 100},
