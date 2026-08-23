@@ -5,179 +5,273 @@
     android:layout_height="match_parent"
     android:orientation="vertical">
 
+    <!-- Three tabs replace what used to be three long vertically-stacked
+         sections you had to scroll through end to end - now each is its
+         own screen, switched instantly. -->
+    <com.google.android.material.tabs.TabLayout
+        android:id="@+id/allocationTabLayout"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        app:tabMode="fixed"
+        app:tabGravity="fill" />
+
     <androidx.core.widget.NestedScrollView
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
         android:fillViewport="true">
 
-        <LinearLayout
+        <FrameLayout
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:padding="24dp">
+            android:layout_height="wrap_content">
 
             <!-- Section 1: Market cap (Large/Mid/Small/Cash) -->
-            <com.saby.personalportfolio.DonutChartView
-                android:id="@+id/donutChart"
-                android:layout_width="180dp"
-                android:layout_height="180dp"
-                android:layout_gravity="center_horizontal"
-                android:layout_marginBottom="12dp" />
-
-            <com.saby.personalportfolio.DonutLegendView
-                android:id="@+id/donutLegend"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginBottom="12dp" />
-
-            <TextView
-                android:id="@+id/allocationSummary"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:textSize="15sp"
-                android:textStyle="bold"
-                android:gravity="center"
-                android:text="Allocation by market cap segment" />
-
             <LinearLayout
+                android:id="@+id/marketCapSection"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:layout_marginTop="12dp">
+                android:orientation="vertical"
+                android:padding="24dp">
 
-                <Button
-                    android:id="@+id/editCompositionButton"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:layout_marginEnd="8dp"
-                    android:text="Edit Composition" />
+                <FrameLayout
+                    android:layout_width="180dp"
+                    android:layout_height="180dp"
+                    android:layout_gravity="center_horizontal"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:background="?attr/selectableItemBackgroundBorderless">
 
-                <Button
-                    android:id="@+id/setTargetButton"
-                    android:layout_width="0dp"
+                    <com.saby.personalportfolio.DonutChartView
+                        android:id="@+id/donutChart"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent" />
+
+                </FrameLayout>
+
+                <TextView
+                    android:id="@+id/marketCapTapHint"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:layout_marginStart="8dp"
-                    android:text="Set Target" />
+                    android:layout_marginTop="8dp"
+                    android:text="Tap chart to see full breakdown"
+                    android:textSize="12sp"
+                    android:textColor="@color/colorNeutral"
+                    android:gravity="center"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:background="?attr/selectableItemBackground" />
+
+                <TextView
+                    android:id="@+id/allocationSummary"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="14dp"
+                    android:textSize="15sp"
+                    android:textStyle="bold"
+                    android:gravity="center"
+                    android:text="Allocation by market cap segment" />
+
+                <TextView
+                    android:id="@+id/allocationSubCaption"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textSize="11sp"
+                    android:textColor="@color/colorNeutral"
+                    android:gravity="center"
+                    android:visibility="gone" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:layout_marginTop="12dp">
+
+                    <Button
+                        android:id="@+id/editCompositionButton"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:layout_marginEnd="8dp"
+                        android:text="Edit Composition" />
+
+                    <Button
+                        android:id="@+id/setTargetButton"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:layout_marginStart="8dp"
+                        android:text="Set Target" />
+
+                </LinearLayout>
+
+                <!-- Horizontally-scrolling fund/segment detail cards
+                     instead of one long vertical list. -->
+                <HorizontalScrollView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="20dp"
+                    android:clipToPadding="false"
+                    android:scrollbars="none">
+
+                    <androidx.recyclerview.widget.RecyclerView
+                        android:id="@+id/allocationRecyclerView"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content" />
+
+                </HorizontalScrollView>
 
             </LinearLayout>
 
-            <androidx.recyclerview.widget.RecyclerView
-                android:id="@+id/allocationRecyclerView"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="20dp"
-                android:nestedScrollingEnabled="false" />
-
-            <View
-                android:layout_width="match_parent"
-                android:layout_height="1dp"
-                android:background="#22000000"
-                android:layout_marginTop="32dp"
-                android:layout_marginBottom="32dp" />
-
             <!-- Section 2: Equity origin (Indian vs. International) -->
-            <TextView
+            <LinearLayout
+                android:id="@+id/equityOriginSection"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:textSize="17sp"
-                android:textStyle="bold"
-                android:gravity="center"
-                android:text="Equity Origin" />
+                android:orientation="vertical"
+                android:padding="24dp"
+                android:visibility="gone">
 
-            <com.saby.personalportfolio.DonutChartView
-                android:id="@+id/donutChartOrigin"
-                android:layout_width="180dp"
-                android:layout_height="180dp"
-                android:layout_gravity="center_horizontal"
-                android:layout_marginTop="12dp"
-                android:layout_marginBottom="12dp" />
+                <FrameLayout
+                    android:layout_width="180dp"
+                    android:layout_height="180dp"
+                    android:layout_gravity="center_horizontal"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:background="?attr/selectableItemBackgroundBorderless">
 
-            <com.saby.personalportfolio.DonutLegendView
-                android:id="@+id/donutLegendOrigin"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginBottom="12dp" />
+                    <com.saby.personalportfolio.DonutChartView
+                        android:id="@+id/donutChartOrigin"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent" />
 
-            <TextView
-                android:id="@+id/allocationSummaryOrigin"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:textSize="15sp"
-                android:textStyle="bold"
-                android:gravity="center"
-                android:text="Of your equity holdings, Indian vs. International" />
+                </FrameLayout>
 
-            <Button
-                android:id="@+id/editOriginCompositionButton"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                android:text="Edit Equity Origin" />
+                <TextView
+                    android:id="@+id/equityOriginTapHint"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="Tap chart to see full breakdown"
+                    android:textSize="12sp"
+                    android:textColor="@color/colorNeutral"
+                    android:gravity="center"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:background="?attr/selectableItemBackground" />
 
-            <androidx.recyclerview.widget.RecyclerView
-                android:id="@+id/allocationRecyclerViewOrigin"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="20dp"
-                android:nestedScrollingEnabled="false" />
+                <TextView
+                    android:id="@+id/allocationSummaryOrigin"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="14dp"
+                    android:textSize="15sp"
+                    android:textStyle="bold"
+                    android:gravity="center"
+                    android:text="Of your equity holdings, Indian vs. International" />
 
-            <View
-                android:layout_width="match_parent"
-                android:layout_height="1dp"
-                android:background="#22000000"
-                android:layout_marginTop="32dp"
-                android:layout_marginBottom="32dp" />
+                <Button
+                    android:id="@+id/editOriginCompositionButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:text="Edit Equity Origin" />
+
+                <HorizontalScrollView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="20dp"
+                    android:clipToPadding="false"
+                    android:scrollbars="none">
+
+                    <androidx.recyclerview.widget.RecyclerView
+                        android:id="@+id/allocationRecyclerViewOrigin"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content" />
+
+                </HorizontalScrollView>
+
+            </LinearLayout>
 
             <!-- Section 3: Portfolio class (Equity/Debt/Commodity/Others) -->
-            <TextView
+            <LinearLayout
+                android:id="@+id/portfolioClassSection"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:textSize="17sp"
-                android:textStyle="bold"
-                android:gravity="center"
-                android:text="Portfolio Class" />
+                android:orientation="vertical"
+                android:padding="24dp"
+                android:visibility="gone">
 
-            <com.saby.personalportfolio.DonutChartView
-                android:id="@+id/donutChartClass"
-                android:layout_width="180dp"
-                android:layout_height="180dp"
-                android:layout_gravity="center_horizontal"
-                android:layout_marginTop="12dp"
-                android:layout_marginBottom="12dp" />
+                <FrameLayout
+                    android:layout_width="180dp"
+                    android:layout_height="180dp"
+                    android:layout_gravity="center_horizontal"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:background="?attr/selectableItemBackgroundBorderless">
 
-            <com.saby.personalportfolio.DonutLegendView
-                android:id="@+id/donutLegendClass"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginBottom="12dp" />
+                    <com.saby.personalportfolio.DonutChartView
+                        android:id="@+id/donutChartClass"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent" />
 
-            <TextView
-                android:id="@+id/allocationSummaryClass"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:textSize="15sp"
-                android:textStyle="bold"
-                android:gravity="center"
-                android:text="Whole portfolio by class" />
+                </FrameLayout>
 
-            <Button
-                android:id="@+id/setClassTargetButton"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                android:text="Set Class Target" />
+                <TextView
+                    android:id="@+id/portfolioClassTapHint"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="Tap chart to see full breakdown"
+                    android:textSize="12sp"
+                    android:textColor="@color/colorNeutral"
+                    android:gravity="center"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:background="?attr/selectableItemBackground" />
 
-            <androidx.recyclerview.widget.RecyclerView
-                android:id="@+id/allocationRecyclerViewClass"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="20dp"
-                android:nestedScrollingEnabled="false" />
+                <TextView
+                    android:id="@+id/allocationSummaryClass"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="14dp"
+                    android:textSize="15sp"
+                    android:textStyle="bold"
+                    android:gravity="center"
+                    android:text="Whole portfolio by class" />
 
-        </LinearLayout>
+                <TextView
+                    android:id="@+id/allocationSubCaptionClass"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textSize="11sp"
+                    android:textColor="@color/colorNeutral"
+                    android:gravity="center"
+                    android:visibility="gone" />
+
+                <Button
+                    android:id="@+id/setClassTargetButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:text="Set Class Target" />
+
+                <HorizontalScrollView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="20dp"
+                    android:clipToPadding="false"
+                    android:scrollbars="none">
+
+                    <androidx.recyclerview.widget.RecyclerView
+                        android:id="@+id/allocationRecyclerViewClass"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content" />
+
+                </HorizontalScrollView>
+
+            </LinearLayout>
+
+        </FrameLayout>
 
     </androidx.core.widget.NestedScrollView>
 
