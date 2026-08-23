@@ -272,9 +272,22 @@ class TransactionsActivity : AppCompatActivity() {
                     if (scanResult.removed == 0) {
                         Toast.makeText(this, "No duplicate transactions found.", Toast.LENGTH_SHORT).show()
                     } else {
+                        val groups = scanResult.groups.orEmpty()
+                        val groupLines = groups.take(12).joinToString("\n") { g ->
+                            val fundName = FundNameFormatter.shorten(g.assetName.ifBlank { "(unknown fund)" })
+                            val amountStr = IndianCurrencyFormatter.format(g.amount)
+                            "• $fundName — ${g.date}, $amountStr (${g.extraCopies} extra cop${if (g.extraCopies == 1) "y" else "ies"})"
+                        }
+                        val moreLine = if (groups.size > 12) "\n…and ${groups.size - 12} more group(s)" else ""
+
                         AlertDialog.Builder(this)
                             .setTitle("Remove ${scanResult.removed} duplicate transaction(s)?")
-                            .setMessage("Found ${scanResult.removed} exact duplicate(s) - same fund, date, type, amount, and units. Removing them can't be undone; consider exporting a backup first if you want to keep a copy.")
+                            .setMessage(
+                                "These look like duplicates - same fund, date, amount, and units:\n\n$groupLines$moreLine\n\n" +
+                                    "Heads up: a genuine second purchase of the same fund for the same amount on the same day looks identical to a duplicate " +
+                                    "(mutual fund NAV is fixed per day, so the units match too either way) - CAS statements don't carry anything to tell them apart. " +
+                                    "Check the list above against what you actually did before removing. This can't be undone; export a backup first if unsure."
+                            )
                             .setPositiveButton("Remove") { _, _ -> removeDuplicates() }
                             .setNegativeButton("Cancel", null)
                             .show()
@@ -374,7 +387,16 @@ class TransactionsActivity : AppCompatActivity() {
     }
 }
 
+private data class DuplicateGroup(
+    val assetId: String,
+    val assetName: String,
+    val date: String,
+    val amount: Double,
+    val extraCopies: Int
+)
+
 private data class RemoveDuplicatesResult(
     val removed: Int,
+    val groups: List<DuplicateGroup>?,
     val portfolio: com.google.gson.JsonObject
 )
