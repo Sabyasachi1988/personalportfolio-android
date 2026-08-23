@@ -53,6 +53,17 @@ type StoredTransaction struct {
 	Source      string // "MANUAL", "CAS_IMPORT", "CSV_IMPORT"
 }
 
+// FXRate is one historical exchange rate point: on Date, 1 unit of
+// Currency equals INRPerUnit rupees. INR itself is never stored here -
+// it's the implicit base and is always 1.0 by definition. This lets any
+// two currencies convert pairwise through INR without needing every
+// currency-pair combination fetched or stored.
+type FXRate struct {
+	Date       string
+	Currency   string
+	INRPerUnit float64
+}
+
 // PriceRecord is a manually entered or fetched price point for an Asset.
 type PriceRecord struct {
 	AssetID string
@@ -141,6 +152,7 @@ type Portfolio struct {
 	TargetAllocation         TargetAllocation
 	EquityOriginCompositions []EquityOriginComposition
 	PortfolioClassTarget     PortfolioClassTarget
+	FXRates                  []FXRate
 }
 
 // idCounter guarantees NewID is unique even when called many times within
@@ -235,6 +247,97 @@ func (p *Portfolio) FindAccountByName(memberID, name string) (Account, bool) {
 
 // GetCapComposition returns the saved cap-wise breakdown for an asset, if
 // one has been entered.
+
+// UpsertPrices merges new price records into Prices, replacing any
+// existing record for the same (AssetID, Date) pair rather than
+// duplicating it. Used when caching fetched NAV/price history, where
+// re-running "Update History" should refresh existing dates, not pile
+// up duplicates every time.
+func (p *Portfolio) UpsertPrices(records []PriceRecord) {
+	index := make(map[string]int, len(p.Prices))
+	for i, r := range p.Prices {
+		index[r.AssetID+"|"+r.Date] = i
+	}
+	for _, r := range records {
+		key := r.AssetID + "|" + r.Date
+		if i, exists := index[key]; exists {
+			p.Prices[i] = r
+		} else {
+			p.Prices = append(p.Prices, r)
+			index[key] = len(p.Prices) - 1
+		}
+	}
+}
+
+// UpsertFXRates merges new FX rate records the same way, keyed by
+// (Currency, Date).
+func (p *Portfolio) UpsertFXRates(rates []FXRate) {
+	index := make(map[string]int, len(p.FXRates))
+	for i, r := range p.FXRates {
+		index[r.Currency+"|"+r.Date] = i
+	}
+	for _, r := range rates {
+		key := r.Currency + "|" + r.Date
+		if i, exists := index[key]; exists {
+			p.FXRates[i] = r
+		} else {
+			p.FXRates = append(p.FXRates, r)
+			index[key] = len(p.FXRates) - 1
+		}
+	}
+}
+
+// PriceAsOf returns the latest price on or before the given date for an
+// asset, from whatever mix of manual entries and fetched history
+// (AMFI/TigZig/YAHOO) exists in Prices. Unlike ComputeHoldings' "latest
+// price overall" logic, this deliberately ignores anything AFTER the
+// given date - it answers "what was this worth on this date", not
+// "what is it worth now", which is the whole point of a historical
+// progression view. Returns ok=false if no price exists on or before
+// the date at all (e.g. before the asset's first NAV).
+func (p *Portfolio) PriceAsOf(assetID, date string) (price float64, ok bool) {
+	bestDate := ""
+	for _, rec := range p.Prices {
+		if rec.AssetID != assetID {
+			continue
+		}
+		if rec.Date > date {
+			continue
+		}
+		if rec.Date > bestDate {
+			bestDate = rec.Date
+			price = rec.Price
+			ok = true
+		}
+	}
+	return price, ok
+}
+
+// FXRateAsOf returns the latest known INR-per-unit rate for a currency
+// on or before the given date. For INR itself this is always 1.0,
+// trivially, without needing any stored rate. Returns ok=false if no
+// rate exists on or before the date (e.g. before the earliest fetched
+// FX history).
+func (p *Portfolio) FXRateAsOf(currency, date string) (rate float64, ok bool) {
+	if currency == "INR" {
+		return 1.0, true
+	}
+	bestDate := ""
+	for _, fx := range p.FXRates {
+		if fx.Currency != currency {
+			continue
+		}
+		if fx.Date > date {
+			continue
+		}
+		if fx.Date > bestDate {
+			bestDate = fx.Date
+			rate = fx.INRPerUnit
+			ok = true
+		}
+	}
+	return rate, ok
+}
 func (p *Portfolio) GetCapComposition(assetID string) (CapComposition, bool) {
 	for _, c := range p.CapCompositions {
 		if c.AssetID == assetID {
