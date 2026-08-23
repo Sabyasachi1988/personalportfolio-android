@@ -734,6 +734,54 @@ func UpdateHistoricalNav(portfolioJSON string, assetID string, isin string) stri
 	return string(out)
 }
 
+// UpdateHistoricalPrice fetches full price history for a symbol-based
+// asset (an ETF or stock - anything identified by a Yahoo Finance
+// ticker rather than an AMFI ISIN, e.g. a manually-entered NIFTYBEES.NS
+// or a foreign brokerage holding) and merges it into the portfolio's
+// cached Prices, same "Update History" manual-action pattern as
+// UpdateHistoricalNav. See priceapi.FetchYahooAdjClose's doc comment
+// for the one honesty caveat on this data source. Returns the updated
+// portfolio JSON, or a bridge error string if the fetch/parse fails.
+func UpdateHistoricalPrice(portfolioJSON string, assetID string, symbol string, since string) string {
+	var p store.Portfolio
+	if portfolioJSON != "" {
+		if err := json.Unmarshal([]byte(portfolioJSON), &p); err != nil {
+			return fmt.Sprintf(`{"error":%q}`, "invalid portfolio JSON: "+err.Error())
+		}
+	}
+	assetFound := false
+	for _, a := range p.Assets {
+		if a.ID == assetID {
+			assetFound = true
+			break
+		}
+	}
+	if !assetFound {
+		return `{"error":"no asset with that ID exists"}`
+	}
+	if symbol == "" {
+		return `{"error":"symbol cannot be empty"}`
+	}
+
+	points, err := priceapi.FetchYahooAdjClose(symbol, since)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+	records := make([]store.PriceRecord, 0, len(points))
+	for _, pt := range points {
+		records = append(records, store.PriceRecord{
+			AssetID: assetID, Date: pt.Date, Price: pt.Price, Source: "YAHOO_HISTORY",
+		})
+	}
+	p.UpsertPrices(records)
+
+	out, err := json.Marshal(p)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+	return string(out)
+}
+
 // UpdateHistoricalFX fetches daily INR exchange rates for a currency
 // from Frankfurter (ECB-sourced, from the given date to today) and
 // merges them into the portfolio's cached FXRates. Manual action, same
