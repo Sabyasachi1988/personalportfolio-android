@@ -2,13 +2,16 @@ package com.saby.personalportfolio
 
 import android.content.Intent
 import android.os.Bundle
+import android.view.LayoutInflater
 import android.view.View
 import android.widget.Button
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import androidx.viewpager2.widget.ViewPager2
 import com.google.android.material.tabs.TabLayout
+import com.google.android.material.tabs.TabLayoutMediator
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import com.ledger.bridge.Bridge
@@ -16,11 +19,6 @@ import com.ledger.bridge.Bridge
 class AllocationActivity : AppCompatActivity() {
 
     private val gson = Gson()
-
-    private lateinit var tabLayout: TabLayout
-    private lateinit var marketCapSection: View
-    private lateinit var equityOriginSection: View
-    private lateinit var portfolioClassSection: View
 
     // Section 1: Market cap (Large/Mid/Small/Cash)
     private lateinit var summary: TextView
@@ -49,33 +47,34 @@ class AllocationActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_allocation)
 
-        tabLayout = findViewById(R.id.allocationTabLayout)
-        marketCapSection = findViewById(R.id.marketCapSection)
-        equityOriginSection = findViewById(R.id.equityOriginSection)
-        portfolioClassSection = findViewById(R.id.portfolioClassSection)
-        tabLayout.addTab(tabLayout.newTab().setText("Market Cap"))
-        tabLayout.addTab(tabLayout.newTab().setText("Equity Origin"))
-        tabLayout.addTab(tabLayout.newTab().setText("Portfolio Class"))
-        tabLayout.addOnTabSelectedListener(object : TabLayout.OnTabSelectedListener {
-            override fun onTabSelected(tab: TabLayout.Tab) = showSection(tab.position)
-            override fun onTabUnselected(tab: TabLayout.Tab) {}
-            override fun onTabReselected(tab: TabLayout.Tab) {}
-        })
+        val inflater = LayoutInflater.from(this)
+        val marketCapPage = inflater.inflate(R.layout.page_allocation_market_cap, null)
+        val equityOriginPage = inflater.inflate(R.layout.page_allocation_equity_origin, null)
+        val portfolioClassPage = inflater.inflate(R.layout.page_allocation_portfolio_class, null)
 
-        summary = findViewById(R.id.allocationSummary)
-        subCaption = findViewById(R.id.allocationSubCaption)
-        recyclerView = findViewById(R.id.allocationRecyclerView)
+        summary = marketCapPage.findViewById(R.id.allocationSummary)
+        subCaption = marketCapPage.findViewById(R.id.allocationSubCaption)
+        recyclerView = marketCapPage.findViewById(R.id.allocationRecyclerView)
         recyclerView.layoutManager = LinearLayoutManager(this, RecyclerView.HORIZONTAL, false)
-        donutChart = findViewById(R.id.donutChart)
+        donutChart = marketCapPage.findViewById(R.id.donutChart)
         donutChart.onSliceTapped = { _, _ -> openMarketCapExpanded() }
-        findViewById<TextView>(R.id.marketCapTapHint).setOnClickListener { openMarketCapExpanded() }
+        marketCapPage.findViewById<TextView>(R.id.marketCapTapHint).setOnClickListener { openMarketCapExpanded() }
+        marketCapPage.findViewById<Button>(R.id.editCompositionButton).setOnClickListener {
+            startActivity(Intent(this, CapCompositionActivity::class.java))
+        }
+        marketCapPage.findViewById<Button>(R.id.setTargetButton).setOnClickListener {
+            startActivity(Intent(this, TargetAllocationActivity::class.java))
+        }
 
-        summaryOrigin = findViewById(R.id.allocationSummaryOrigin)
-        recyclerViewOrigin = findViewById(R.id.allocationRecyclerViewOrigin)
+        summaryOrigin = equityOriginPage.findViewById(R.id.allocationSummaryOrigin)
+        recyclerViewOrigin = equityOriginPage.findViewById(R.id.allocationRecyclerViewOrigin)
         recyclerViewOrigin.layoutManager = LinearLayoutManager(this, RecyclerView.HORIZONTAL, false)
-        donutChartOrigin = findViewById(R.id.donutChartOrigin)
+        donutChartOrigin = equityOriginPage.findViewById(R.id.donutChartOrigin)
         donutChartOrigin.onSliceTapped = { _, _ -> openOriginExpanded() }
-        findViewById<TextView>(R.id.equityOriginTapHint).setOnClickListener { openOriginExpanded() }
+        equityOriginPage.findViewById<TextView>(R.id.equityOriginTapHint).setOnClickListener { openOriginExpanded() }
+        equityOriginPage.findViewById<Button>(R.id.editOriginCompositionButton).setOnClickListener {
+            startActivity(Intent(this, EquityOriginCompositionActivity::class.java))
+        }
         // Deliberately no jump-to-Holdings on this section's slices even
         // inside the expanded dialog: HoldingsInSegment (Go) only
         // understands cap-size segment labels today. Wiring this the
@@ -83,26 +82,33 @@ class AllocationActivity : AppCompatActivity() {
         // duplicating filter logic here in Kotlin - both worse than
         // just not offering it yet.
 
-        summaryClass = findViewById(R.id.allocationSummaryClass)
-        subCaptionClass = findViewById(R.id.allocationSubCaptionClass)
-        recyclerViewClass = findViewById(R.id.allocationRecyclerViewClass)
+        summaryClass = portfolioClassPage.findViewById(R.id.allocationSummaryClass)
+        subCaptionClass = portfolioClassPage.findViewById(R.id.allocationSubCaptionClass)
+        recyclerViewClass = portfolioClassPage.findViewById(R.id.allocationRecyclerViewClass)
         recyclerViewClass.layoutManager = LinearLayoutManager(this, RecyclerView.HORIZONTAL, false)
-        donutChartClass = findViewById(R.id.donutChartClass)
+        donutChartClass = portfolioClassPage.findViewById(R.id.donutChartClass)
         donutChartClass.onSliceTapped = { _, _ -> openClassExpanded() }
-        findViewById<TextView>(R.id.portfolioClassTapHint).setOnClickListener { openClassExpanded() }
-
-        findViewById<Button>(R.id.editCompositionButton).setOnClickListener {
-            startActivity(Intent(this, CapCompositionActivity::class.java))
-        }
-        findViewById<Button>(R.id.setTargetButton).setOnClickListener {
-            startActivity(Intent(this, TargetAllocationActivity::class.java))
-        }
-        findViewById<Button>(R.id.editOriginCompositionButton).setOnClickListener {
-            startActivity(Intent(this, EquityOriginCompositionActivity::class.java))
-        }
-        findViewById<Button>(R.id.setClassTargetButton).setOnClickListener {
+        portfolioClassPage.findViewById<TextView>(R.id.portfolioClassTapHint).setOnClickListener { openClassExpanded() }
+        portfolioClassPage.findViewById<Button>(R.id.setClassTargetButton).setOnClickListener {
             startActivity(Intent(this, PortfolioClassTargetActivity::class.java))
         }
+
+        val viewPager = findViewById<ViewPager2>(R.id.allocationViewPager)
+        viewPager.adapter = AllocationPagerAdapter(listOf(marketCapPage, equityOriginPage, portfolioClassPage))
+        // offscreenPageLimit keeps all 3 pages' Views alive simultaneously
+        // rather than only the current + immediate neighbor - with just
+        // 3 total pages this is cheap, and it means data bound to a page
+        // that isn't currently visible (e.g. Portfolio Class while
+        // showing Market Cap) is never lost or needs re-fetching on swipe.
+        viewPager.offscreenPageLimit = 2
+
+        val tabLayout = findViewById<TabLayout>(R.id.allocationTabLayout)
+        val tabTitles = listOf("Market Cap", "Equity Origin", "Portfolio Class")
+        val tabIcons = listOf(R.drawable.ic_tab_pie, R.drawable.ic_tab_globe, R.drawable.ic_tab_layers)
+        TabLayoutMediator(tabLayout, viewPager) { tab, position ->
+            tab.text = tabTitles[position]
+            tab.setIcon(tabIcons[position])
+        }.attach()
 
         BottomNavHelper.setup(this, findViewById(R.id.bottomNav), BottomNavDestination.ALLOCATION)
     }
@@ -120,12 +126,6 @@ class AllocationActivity : AppCompatActivity() {
         loadAndShowMarketCapSection()
         loadAndShowEquityOriginSection()
         loadAndShowPortfolioClassSection()
-    }
-
-    private fun showSection(tabPosition: Int) {
-        marketCapSection.visibility = if (tabPosition == 0) View.VISIBLE else View.GONE
-        equityOriginSection.visibility = if (tabPosition == 1) View.VISIBLE else View.GONE
-        portfolioClassSection.visibility = if (tabPosition == 2) View.VISIBLE else View.GONE
     }
 
     private fun openMarketCapExpanded() {
