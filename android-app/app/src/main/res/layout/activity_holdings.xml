@@ -96,16 +96,25 @@
                     android:id="@+id/holdingsGainText"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
+                    android:layout_marginTop="6dp"
                     android:textSize="15sp"
                     android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/holdingsInvestedText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:textSize="13sp"
+                    android:textColor="@color/colorNeutral" />
 
                 <TextView
                     android:id="@+id/holdingsXirrText"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:textSize="14sp" />
+                    android:layout_marginTop="4dp"
+                    android:textSize="13sp"
+                    android:textColor="@color/colorNeutral" />
 
                 <TextView
                     android:id="@+id/holdingsCountText"
