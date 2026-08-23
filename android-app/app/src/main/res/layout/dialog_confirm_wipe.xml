@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="24dp">
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textSize="14sp"
+        android:text="This permanently deletes every holding, transaction, target, and composition entry in this app on this device. A backup of the current state is kept automatically, but there is no in-app undo for this action." />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:textSize="14sp"
+        android:textStyle="bold"
+        android:text="Type DELETE to confirm:" />
+
+    <EditText
+        android:id="@+id/wipeConfirmInput"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:inputType="textCapCharacters"
+        android:maxLines="1"
+        android:hint="DELETE" />
+
+</LinearLayout>
