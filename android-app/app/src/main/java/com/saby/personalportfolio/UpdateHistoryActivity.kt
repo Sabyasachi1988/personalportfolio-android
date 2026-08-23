@@ -84,7 +84,7 @@ class UpdateHistoryActivity : AppCompatActivity() {
                     mainThread.post {
                         statusText.text = "Fetching FX rates: ${index + 1} of ${foreignCurrencies.size}…"
                     }
-                    val result = Bridge.updateHistoricalFx(portfolioJson, currency, fxHistorySince)
+                    val result = Bridge.updateHistoricalFX(portfolioJson, currency, fxHistorySince)
                     if (isBridgeError(result)) {
                         fxFailures.add("$currency: $result")
                     } else {
