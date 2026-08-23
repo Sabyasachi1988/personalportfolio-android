@@ -276,17 +276,27 @@ class TransactionsActivity : AppCompatActivity() {
                         val groupLines = groups.take(12).joinToString("\n") { g ->
                             val fundName = FundNameFormatter.shorten(g.assetName.ifBlank { "(unknown fund)" })
                             val amountStr = IndianCurrencyFormatter.format(g.amount)
-                            "• $fundName — ${g.date}, $amountStr (${g.extraCopies} extra cop${if (g.extraCopies == 1) "y" else "ies"})"
+                            val confidenceTag = when (g.confidence) {
+                                "reference" -> " [confirmed: same bank reference]"
+                                "balance" -> " [confirmed: same running balance]"
+                                else -> " [unconfirmed - date/amount/units only]"
+                            }
+                            "• $fundName — ${g.date}, $amountStr (${g.extraCopies} extra cop${if (g.extraCopies == 1) "y" else "ies"})$confidenceTag"
                         }
                         val moreLine = if (groups.size > 12) "\n…and ${groups.size - 12} more group(s)" else ""
+                        val anyUnconfirmed = groups.any { it.confidence == "heuristic" }
+
+                        val warning = if (anyUnconfirmed) {
+                            "Rows tagged [confirmed] were verified against the bank reference or the statement's own running balance - as certain as the data allows. " +
+                                "Rows tagged [unconfirmed] only match on date/amount/units, which a genuine second same-day purchase can also produce - check those against what you actually did."
+                        } else {
+                            "All groups above were confirmed via the bank reference or the statement's own running balance, not just amount/date matching."
+                        }
 
                         AlertDialog.Builder(this)
                             .setTitle("Remove ${scanResult.removed} duplicate transaction(s)?")
                             .setMessage(
-                                "These look like duplicates - same fund, date, amount, and units:\n\n$groupLines$moreLine\n\n" +
-                                    "Heads up: a genuine second purchase of the same fund for the same amount on the same day looks identical to a duplicate " +
-                                    "(mutual fund NAV is fixed per day, so the units match too either way) - CAS statements don't carry anything to tell them apart. " +
-                                    "Check the list above against what you actually did before removing. This can't be undone; export a backup first if unsure."
+                                "$groupLines$moreLine\n\n$warning\n\nThis can't be undone; export a backup first if unsure."
                             )
                             .setPositiveButton("Remove") { _, _ -> removeDuplicates() }
                             .setNegativeButton("Cancel", null)
@@ -392,7 +402,8 @@ private data class DuplicateGroup(
     val assetName: String,
     val date: String,
     val amount: Double,
-    val extraCopies: Int
+    val extraCopies: Int,
+    val confidence: String
 )
 
 private data class RemoveDuplicatesResult(
