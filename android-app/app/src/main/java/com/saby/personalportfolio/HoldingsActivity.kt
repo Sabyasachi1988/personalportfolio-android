@@ -36,6 +36,7 @@ class HoldingsActivity : AppCompatActivity() {
     private lateinit var statsCard: View
     private lateinit var valueText: TextView
     private lateinit var gainText: TextView
+    private lateinit var investedText: TextView
     private lateinit var xirrText: TextView
     private lateinit var countText: TextView
     private lateinit var recyclerView: RecyclerView
@@ -74,6 +75,7 @@ class HoldingsActivity : AppCompatActivity() {
         statsCard = findViewById(R.id.holdingsStatsCard)
         valueText = findViewById(R.id.holdingsValueText)
         gainText = findViewById(R.id.holdingsGainText)
+        investedText = findViewById(R.id.holdingsInvestedText)
         xirrText = findViewById(R.id.holdingsXirrText)
         countText = findViewById(R.id.holdingsCountText)
         recyclerView = findViewById(R.id.holdingsRecyclerView)
@@ -232,14 +234,15 @@ class HoldingsActivity : AppCompatActivity() {
                 val totalGain = totalValue - totalInvested
                 val gainPct = if (totalInvested != 0.0) (totalGain / totalInvested) * 100 else 0.0
                 gainText.text = String.format(
-                    Locale.getDefault(), "%s (%.1f%%) · Invested %s",
-                    IndianCurrencyFormatter.formatSigned(totalGain), gainPct, IndianCurrencyFormatter.format(totalInvested)
+                    Locale.getDefault(), "%s  (%.1f%%)",
+                    IndianCurrencyFormatter.formatSigned(totalGain), gainPct
                 )
                 gainText.setTextColor(
                     androidx.core.content.ContextCompat.getColor(
                         this, if (totalGain >= 0) R.color.colorGain else R.color.colorLoss
                     )
                 )
+                investedText.text = "Invested: ${IndianCurrencyFormatter.format(totalInvested)}"
 
                 // Portfolio XIRR is computed for whichever holdings are
                 // currently shown, so switching the member filter also
