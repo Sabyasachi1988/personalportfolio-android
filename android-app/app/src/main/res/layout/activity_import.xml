@@ -12,6 +12,13 @@
         android:text="Import CAS PDF" />
 
     <Button
+        android:id="@+id/importCsvButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:text="Import CSV" />
+
+    <Button
         android:id="@+id/commitButton"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -32,7 +39,7 @@
         android:layout_height="wrap_content"
         android:layout_marginTop="20dp"
         android:textSize="14sp"
-        android:text="Pick an MFCentral CAS PDF to import." />
+        android:text="Pick an MFCentral CAS PDF, or a CSV export (e.g. a Zerodha tradebook), to import." />
 
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/transactionsList"
