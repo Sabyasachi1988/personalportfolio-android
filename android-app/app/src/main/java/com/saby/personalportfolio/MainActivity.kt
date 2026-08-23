@@ -21,8 +21,12 @@ class MainActivity : AppCompatActivity() {
     private lateinit var gainLine: TextView
     private lateinit var xirrLine: TextView
     private lateinit var holdingsCountLine: TextView
-    private lateinit var donutChart: DonutChartView
-    private lateinit var donutLegend: DonutLegendView
+    private lateinit var donutMarketCap: DonutChartView
+    private lateinit var donutLegendMarketCap: DonutLegendView
+    private lateinit var donutOrigin: DonutChartView
+    private lateinit var donutLegendOrigin: DonutLegendView
+    private lateinit var donutClass: DonutChartView
+    private lateinit var donutLegendClass: DonutLegendView
     private lateinit var memberSpinner: Spinner
     private var donutToast: android.widget.Toast? = null
 
@@ -38,19 +42,16 @@ class MainActivity : AppCompatActivity() {
         gainLine = findViewById(R.id.dashboardGainLine)
         xirrLine = findViewById(R.id.dashboardXirrLine)
         holdingsCountLine = findViewById(R.id.dashboardHoldingsCountLine)
-        donutChart = findViewById(R.id.dashboardDonut)
-        donutLegend = findViewById(R.id.dashboardDonutLegend)
+        donutMarketCap = findViewById(R.id.dashboardDonutMarketCap)
+        donutLegendMarketCap = findViewById(R.id.dashboardDonutLegendMarketCap)
+        donutOrigin = findViewById(R.id.dashboardDonutOrigin)
+        donutLegendOrigin = findViewById(R.id.dashboardDonutLegendOrigin)
+        donutClass = findViewById(R.id.dashboardDonutClass)
+        donutLegendClass = findViewById(R.id.dashboardDonutLegendClass)
         memberSpinner = findViewById(R.id.dashboardMemberSpinner)
-        donutChart.onSliceTapped = { label, percent ->
-            donutToast?.cancel()
-            val toast = android.widget.Toast.makeText(
-                this,
-                String.format(Locale.getDefault(), "%s: %.1f%%", label, percent),
-                android.widget.Toast.LENGTH_SHORT
-            )
-            donutToast = toast
-            toast.show()
-        }
+        donutMarketCap.onSliceTapped = { label, percent -> showSliceToast(label, percent) }
+        donutOrigin.onSliceTapped = { label, percent -> showSliceToast(label, percent) }
+        donutClass.onSliceTapped = { label, percent -> showSliceToast(label, percent) }
 
         memberSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
@@ -81,6 +82,17 @@ class MainActivity : AppCompatActivity() {
         // new member), then show the dashboard for whichever member is
         // selected - same pattern as HoldingsActivity's loadMemberSpinner.
         loadMemberSpinner()
+    }
+
+    private fun showSliceToast(label: String, percent: Float) {
+        donutToast?.cancel()
+        val toast = android.widget.Toast.makeText(
+            this,
+            String.format(Locale.getDefault(), "%s: %.1f%%", label, percent),
+            android.widget.Toast.LENGTH_SHORT
+        )
+        donutToast = toast
+        toast.show()
     }
 
     private fun loadMemberSpinner() {
@@ -128,8 +140,12 @@ class MainActivity : AppCompatActivity() {
             gainLine.text = "Tap + below to import your first CAS statement"
             xirrLine.text = ""
             holdingsCountLine.text = ""
-            donutChart.setSlices(emptyList())
-            donutLegend.setSlices(emptyList())
+            donutMarketCap.setSlices(emptyList())
+            donutLegendMarketCap.setSlices(emptyList())
+            donutOrigin.setSlices(emptyList())
+            donutLegendOrigin.setSlices(emptyList())
+            donutClass.setSlices(emptyList())
+            donutLegendClass.setSlices(emptyList())
             return
         }
 
@@ -171,15 +187,27 @@ class MainActivity : AppCompatActivity() {
 
         holdingsCountLine.text = "${holdings.size} holding(s)"
 
-        val allocationJson = Bridge.computeAllocationByMarketCap(portfolioJson, memberId)
+        val marketCapJson = Bridge.computeAllocationByMarketCap(portfolioJson, memberId)
+        setDonut(donutMarketCap, donutLegendMarketCap, marketCapJson)
+
+        val originJson = Bridge.computeAllocationByEquityOrigin(portfolioJson)
+        setDonut(donutOrigin, donutLegendOrigin, originJson)
+
+        val classJson = Bridge.computeAllocationByPortfolioClass(portfolioJson)
+        setDonut(donutClass, donutLegendClass, classJson)
+    }
+
+    private fun setDonut(chart: DonutChartView, legend: DonutLegendView, allocationJson: String) {
         val sliceType = object : TypeToken<List<AllocationSlice>>() {}.type
         val slices: List<AllocationSlice> = try {
             gson.fromJson(allocationJson, sliceType) ?: emptyList()
         } catch (e: Exception) {
             emptyList()
         }
-        val chartSlices = slices.map { DonutChartView.Slice(it.label, it.percent.toFloat()) }
-        donutChart.setSlices(chartSlices)
-        donutLegend.setSlices(chartSlices)
+        val chartSlices = slices.map {
+            DonutChartView.Slice(it.label, it.percent.toFloat(), CapSegmentColors.forLabel(this, it.label))
+        }
+        chart.setSlices(chartSlices)
+        legend.setSlices(chartSlices)
     }
 }
