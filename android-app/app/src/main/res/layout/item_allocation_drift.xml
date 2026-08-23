@@ -1,34 +1,43 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="match_parent"
+<!-- Fixed-width card for a horizontally-scrolling row (feature: allocation
+     fund-detail cards scroll sideways instead of stacking one long vertical
+     list) - each RecyclerView row is now one card, not one full-width line. -->
+<com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="220dp"
     android:layout_height="wrap_content"
-    android:orientation="vertical"
-    android:padding="16dp">
+    android:layout_marginEnd="12dp"
+    app:cardCornerRadius="14dp"
+    app:cardElevation="1dp">
 
-    <TextView
-        android:id="@+id/driftLabel"
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:textStyle="bold"
-        android:textSize="15sp" />
+        android:orientation="vertical"
+        android:padding="16dp">
 
-    <com.saby.personalportfolio.TargetProgressBarView
-        android:id="@+id/driftBar"
-        android:layout_width="match_parent"
-        android:layout_height="26dp"
-        android:layout_marginTop="12dp" />
+        <TextView
+            android:id="@+id/driftLabel"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textStyle="bold"
+            android:textSize="14sp"
+            android:maxLines="2"
+            android:ellipsize="end" />
 
-    <TextView
-        android:id="@+id/driftValues"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:textSize="12sp"
-        android:layout_marginTop="8dp" />
+        <com.saby.personalportfolio.TargetProgressBarView
+            android:id="@+id/driftBar"
+            android:layout_width="match_parent"
+            android:layout_height="26dp"
+            android:layout_marginTop="12dp" />
 
-    <View
-        android:layout_width="match_parent"
-        android:layout_height="1dp"
-        android:background="#22000000"
-        android:layout_marginTop="16dp" />
+        <TextView
+            android:id="@+id/driftValues"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textSize="12sp"
+            android:layout_marginTop="8dp" />
 
-</LinearLayout>
+    </LinearLayout>
+
+</com.google.android.material.card.MaterialCardView>
