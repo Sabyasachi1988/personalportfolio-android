@@ -80,52 +80,154 @@
 
                 </com.google.android.material.card.MaterialCardView>
 
-                <com.google.android.material.card.MaterialCardView
+                <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="24dp"
-                    app:cardCornerRadius="16dp"
-                    app:cardElevation="3dp">
+                    android:text="Allocation"
+                    android:textSize="15sp"
+                    android:textStyle="bold" />
+
+                <!-- Three compact donuts, side by side, swipeable - sized
+                     so about 1.3 cards show at once as a hint that more
+                     are off to the right, rather than three cramped tiny
+                     donuts squeezed to fit the full screen width. -->
+                <HorizontalScrollView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:clipToPadding="false"
+                    android:paddingEnd="12dp"
+                    android:scrollbars="none">
 
                     <LinearLayout
-                        android:layout_width="match_parent"
+                        android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:orientation="vertical"
-                        android:gravity="center_horizontal"
-                        android:padding="24dp">
+                        android:orientation="horizontal">
 
-                        <TextView
-                            android:layout_width="match_parent"
+                        <com.google.android.material.card.MaterialCardView
+                            android:layout_width="240dp"
                             android:layout_height="wrap_content"
-                            android:text="Allocation"
-                            android:textSize="15sp"
-                            android:textStyle="bold" />
+                            app:cardCornerRadius="16dp"
+                            app:cardElevation="3dp">
 
-                        <com.saby.personalportfolio.DonutChartView
-                            android:id="@+id/dashboardDonut"
-                            android:layout_width="140dp"
-                            android:layout_height="140dp"
-                            android:layout_marginTop="12dp" />
+                            <LinearLayout
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:orientation="vertical"
+                                android:gravity="center_horizontal"
+                                android:padding="16dp">
 
-                        <com.saby.personalportfolio.DonutLegendView
-                            android:id="@+id/dashboardDonutLegend"
-                            android:layout_width="match_parent"
+                                <TextView
+                                    android:layout_width="match_parent"
+                                    android:layout_height="wrap_content"
+                                    android:text="Market Cap"
+                                    android:textSize="13sp"
+                                    android:textStyle="bold" />
+
+                                <com.saby.personalportfolio.DonutChartView
+                                    android:id="@+id/dashboardDonutMarketCap"
+                                    android:layout_width="110dp"
+                                    android:layout_height="110dp"
+                                    android:layout_marginTop="10dp" />
+
+                                <com.saby.personalportfolio.DonutLegendView
+                                    android:id="@+id/dashboardDonutLegendMarketCap"
+                                    android:layout_width="match_parent"
+                                    android:layout_height="wrap_content"
+                                    android:layout_marginTop="10dp" />
+
+                            </LinearLayout>
+
+                        </com.google.android.material.card.MaterialCardView>
+
+                        <com.google.android.material.card.MaterialCardView
+                            android:layout_width="240dp"
                             android:layout_height="wrap_content"
-                            android:layout_marginTop="12dp" />
+                            android:layout_marginStart="12dp"
+                            app:cardCornerRadius="16dp"
+                            app:cardElevation="3dp">
 
-                        <TextView
-                            android:id="@+id/dashboardAllocationHint"
-                            android:layout_width="match_parent"
+                            <LinearLayout
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:orientation="vertical"
+                                android:gravity="center_horizontal"
+                                android:padding="16dp">
+
+                                <TextView
+                                    android:layout_width="match_parent"
+                                    android:layout_height="wrap_content"
+                                    android:text="Indian vs. International"
+                                    android:textSize="13sp"
+                                    android:textStyle="bold" />
+
+                                <com.saby.personalportfolio.DonutChartView
+                                    android:id="@+id/dashboardDonutOrigin"
+                                    android:layout_width="110dp"
+                                    android:layout_height="110dp"
+                                    android:layout_marginTop="10dp" />
+
+                                <com.saby.personalportfolio.DonutLegendView
+                                    android:id="@+id/dashboardDonutLegendOrigin"
+                                    android:layout_width="match_parent"
+                                    android:layout_height="wrap_content"
+                                    android:layout_marginTop="10dp" />
+
+                            </LinearLayout>
+
+                        </com.google.android.material.card.MaterialCardView>
+
+                        <com.google.android.material.card.MaterialCardView
+                            android:layout_width="240dp"
                             android:layout_height="wrap_content"
-                            android:layout_marginTop="8dp"
-                            android:textSize="12sp"
-                            android:textColor="#757575"
-                            android:gravity="center"
-                            android:text="Tap Allocation below for target comparison and fund composition editing" />
+                            android:layout_marginStart="12dp"
+                            app:cardCornerRadius="16dp"
+                            app:cardElevation="3dp">
+
+                            <LinearLayout
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:orientation="vertical"
+                                android:gravity="center_horizontal"
+                                android:padding="16dp">
+
+                                <TextView
+                                    android:layout_width="match_parent"
+                                    android:layout_height="wrap_content"
+                                    android:text="Equity / Debt / Commodity"
+                                    android:textSize="13sp"
+                                    android:textStyle="bold" />
+
+                                <com.saby.personalportfolio.DonutChartView
+                                    android:id="@+id/dashboardDonutClass"
+                                    android:layout_width="110dp"
+                                    android:layout_height="110dp"
+                                    android:layout_marginTop="10dp" />
+
+                                <com.saby.personalportfolio.DonutLegendView
+                                    android:id="@+id/dashboardDonutLegendClass"
+                                    android:layout_width="match_parent"
+                                    android:layout_height="wrap_content"
+                                    android:layout_marginTop="10dp" />
+
+                            </LinearLayout>
+
+                        </com.google.android.material.card.MaterialCardView>
 
                     </LinearLayout>
 
-                </com.google.android.material.card.MaterialCardView>
+                </HorizontalScrollView>
+
+                <TextView
+                    android:id="@+id/dashboardAllocationHint"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:textSize="12sp"
+                    android:textColor="#757575"
+                    android:gravity="center"
+                    android:text="Swipe for more · tap Allocation below for target comparison and fund composition editing" />
 
                 <Button
                     android:id="@+id/settingsButton"
