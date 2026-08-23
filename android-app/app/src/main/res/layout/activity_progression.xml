@@ -62,50 +62,62 @@
                 android:textColor="?attr/colorPrimary" />
 
             <!-- Point-in-time detail card, driven by the scrubber below -->
-            <LinearLayout
+            <com.google.android.material.card.MaterialCardView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="16dp"
+                app:cardCornerRadius="16dp"
+                app:cardElevation="3dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
                 android:orientation="vertical"
-                android:background="@color/colorSurfaceVariant"
-                android:padding="16dp">
+                android:padding="20dp">
 
                 <TextView
                     android:id="@+id/progressionDateText"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:textSize="16sp"
+                    android:textSize="14sp"
+                    android:textColor="@color/colorNeutral"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/progressionValueText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:textSize="26sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/progressionGainText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:textSize="15sp"
                     android:textStyle="bold" />
 
                 <TextView
                     android:id="@+id/progressionInvestedText"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:textSize="14sp" />
-
-                <TextView
-                    android:id="@+id/progressionValueText"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
-                    android:textSize="14sp" />
-
-                <TextView
-                    android:id="@+id/progressionGainText"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
-                    android:textSize="14sp" />
+                    android:layout_marginTop="12dp"
+                    android:textSize="13sp"
+                    android:textColor="@color/colorNeutral" />
 
                 <TextView
                     android:id="@+id/progressionXirrText"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="4dp"
-                    android:textSize="14sp" />
+                    android:textSize="13sp"
+                    android:textColor="@color/colorNeutral" />
 
             </LinearLayout>
+
+            </com.google.android.material.card.MaterialCardView>
 
             <!-- Legend -->
             <LinearLayout
