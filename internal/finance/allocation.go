@@ -107,8 +107,9 @@ func AllocationByMarketCapSegment(holdings []Holding, compositionByAsset map[str
 				continue
 			}
 		}
-		seg := GuessMarketCapSegment(h.AssetName)
-		totals[seg] += h.CurrentValue
+		for label, weight := range GuessMarketCapSplit(h.AssetName) {
+			totals[label] += h.CurrentValue * weight
+		}
 		total += h.CurrentValue
 	}
 	return toSlices(totals, total)
@@ -163,6 +164,38 @@ func containsAny(haystack string, needles ...string) bool {
 		}
 	}
 	return false
+}
+
+// GuessMarketCapSplit generalizes GuessMarketCapSegment for fund names
+// that describe a BLEND of two segments (e.g. "Large & Mid Cap Fund" -
+// a real, common SEBI category) rather than one clean bucket.
+// GuessMarketCapSegment alone would dump such a fund entirely into
+// whichever single label matched first (in practice "Mid Cap", since
+// that check runs before "Large Cap"), meaningfully overstating that
+// one bucket and hiding the other half entirely - this was reported as
+// "only Large and Mid cards show" even when Small/Cash-heavy funds were
+// also held, because a blended fund's real Large-cap half was being
+// silently absorbed into Mid Cap.
+//
+// Returns a weight distribution summing to 1.0 (or nil for
+// "Unclassified", left for the caller to handle - see
+// AllocationByMarketCapSegment). This is still a heuristic 50/50 split
+// for blended names, not a verified fact - real CapComposition data
+// (manual entry or the ETMoney fetch) always takes precedence over this
+// and should be preferred wherever accuracy matters.
+func GuessMarketCapSplit(fundName string) map[string]float64 {
+	n := strings.ToLower(fundName)
+	switch {
+	case containsAny(n, "large & mid cap", "large and mid cap", "large & midcap", "large and midcap", "large/mid cap", "large-mid cap", "largemidcap"):
+		return map[string]float64{"Large Cap": 0.5, "Mid Cap": 0.5}
+	case containsAny(n, "mid & small cap", "mid and small cap", "mid & smallcap", "mid and smallcap", "mid/small cap", "mid-small cap", "midsmallcap"):
+		return map[string]float64{"Mid Cap": 0.5, "Small Cap": 0.5}
+	}
+	seg := GuessMarketCapSegment(fundName)
+	if seg == "Unclassified" {
+		return map[string]float64{"Unclassified": 1.0}
+	}
+	return map[string]float64{seg: 1.0}
 }
 
 // AllocationDriftSlice compares one market-cap bucket's actual weight
