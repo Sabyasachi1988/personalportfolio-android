@@ -366,33 +366,63 @@ class ProgressionChartView @JvmOverloads constructor(
     }
 
     private inner class ScaleListener : ScaleGestureDetector.SimpleOnScaleGestureListener() {
+        private var lastFocusXPixels = 0f
+        private var panWindowStartF = 0f
+        private var panWindowEndF = 0f
+
+        override fun onScaleBegin(detector: ScaleGestureDetector): Boolean {
+            panWindowStartF = windowStart.toFloat()
+            panWindowEndF = windowEnd.toFloat()
+            lastFocusXPixels = detector.focusX
+            return true
+        }
+
         override fun onScale(detector: ScaleGestureDetector): Boolean {
             if (points.size < 2) return true
             val wasZoomed = isZoomed()
-            val focusIndex = indexForX(detector.focusX)
-            val currentSpan = (windowEnd - windowStart).coerceAtLeast(1)
-            val maxSpan = points.size - 1
-            var newSpan = (currentSpan / detector.scaleFactor).roundToInt().coerceIn(minWindowSpan.coerceAtMost(maxSpan), maxSpan)
+            val maxSpan = (points.size - 1).toFloat()
+            val usableWidth = (width - 2 * edgeInset).coerceAtLeast(1f)
 
-            // Keep the pinch focus point at the same relative position
-            // within the new window, rather than always re-centering -
-            // this is what makes "pinch on the part you care about" feel
-            // like it's zooming into that spot rather than the middle.
-            val relPos = if (currentSpan > 0) (focusIndex - windowStart).toFloat() / currentSpan else 0.5f
-            var newStart = (focusIndex - relPos * newSpan).roundToInt()
-            var newEnd = newStart + newSpan
-            if (newStart < 0) {
-                newEnd -= newStart
-                newStart = 0
-            }
-            if (newEnd > maxSpan) {
-                newStart -= (newEnd - maxSpan)
-                newEnd = maxSpan
-            }
-            newStart = newStart.coerceAtLeast(0)
+            // Pan: translate the window by however far the two-finger
+            // focus point has moved since the last frame, in
+            // index-space - this is what lets a drag reposition an
+            // already-zoomed window (e.g. zoomed into Jan-Mar, then drag
+            // to see Apr-Jun at the same zoom level) rather than only
+            // ever being able to zoom back out to the full range.
+            val deltaXPixels = detector.focusX - lastFocusXPixels
+            lastFocusXPixels = detector.focusX
+            val currentSpanF = (panWindowEndF - panWindowStartF).coerceAtLeast(1f)
+            val indexPerPixel = currentSpanF / usableWidth
+            val panDelta = -deltaXPixels * indexPerPixel
+            panWindowStartF += panDelta
+            panWindowEndF += panDelta
 
-            windowStart = newStart
-            windowEnd = newEnd
+            // Zoom: rescale the span around the current focus point (a
+            // pinch with scaleFactor == 1.0, i.e. a pure two-finger drag
+            // with no pinching, leaves the span unchanged here - only
+            // the pan translation above applies).
+            val focusFraction = ((detector.focusX - edgeInset) / usableWidth).coerceIn(0f, 1f)
+            val focusIndexF = panWindowStartF + focusFraction * (panWindowEndF - panWindowStartF)
+            val newSpanF = (currentSpanF / detector.scaleFactor)
+                .coerceIn(minWindowSpan.toFloat().coerceAtMost(maxSpan), maxSpan)
+            panWindowStartF = focusIndexF - focusFraction * newSpanF
+            panWindowEndF = panWindowStartF + newSpanF
+
+            // Clamp to valid bounds, shifting the whole window rather
+            // than squashing its width when it hits an edge.
+            if (panWindowStartF < 0f) {
+                panWindowEndF -= panWindowStartF
+                panWindowStartF = 0f
+            }
+            if (panWindowEndF > maxSpan) {
+                panWindowStartF -= (panWindowEndF - maxSpan)
+                panWindowEndF = maxSpan
+            }
+            panWindowStartF = panWindowStartF.coerceAtLeast(0f)
+            panWindowEndF = panWindowEndF.coerceAtMost(maxSpan)
+
+            windowStart = panWindowStartF.roundToInt().coerceIn(0, maxSpan.toInt())
+            windowEnd = panWindowEndF.roundToInt().coerceIn(windowStart, maxSpan.toInt())
             scrubbedIndex = scrubbedIndex.coerceIn(windowStart, windowEnd)
             invalidate()
 
