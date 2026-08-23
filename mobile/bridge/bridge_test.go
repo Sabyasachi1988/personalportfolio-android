@@ -603,6 +603,23 @@ func TestAddMember_EmptyNameRejected(t *testing.T) {
 	}
 }
 
+func TestUpdateHistoricalNav_RejectsUnknownAssetAndEmptyISIN(t *testing.T) {
+	p := &store.Portfolio{
+		Assets: []store.Asset{{ID: "a1", Name: "Some Fund"}},
+	}
+	pJSON, _ := json.Marshal(p)
+
+	badAsset := UpdateHistoricalNav(string(pJSON), "a-nonexistent", "INF174K01LT0")
+	if !isBridgeErrorForTest(badAsset) {
+		t.Fatalf("expected an error for a nonexistent asset, got: %s", badAsset)
+	}
+
+	badISIN := UpdateHistoricalNav(string(pJSON), "a1", "")
+	if !isBridgeErrorForTest(badISIN) {
+		t.Fatalf("expected an error for an empty ISIN, got: %s", badISIN)
+	}
+}
+
 func TestAddAccount_CreatesAndValidatesMember(t *testing.T) {
 	p := &store.Portfolio{Members: []store.Member{{ID: "m1", Name: "Saby"}}}
 	pJSON, _ := json.Marshal(p)
