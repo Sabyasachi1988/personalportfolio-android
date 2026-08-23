@@ -201,6 +201,34 @@ func assetProgressionWeights(p *store.Portfolio, accountByID map[string]store.Ac
 	return weights
 }
 
+// ComputeAssetProgression computes a weekly (plus today) progression
+// series for exactly ONE asset (a single fund), letting someone browse
+// a specific holding's own growth story rather than only ever seeing it
+// blended into a whole-portfolio or whole-axis view. Unlike
+// ComputeProgression, this ignores axis/member scoping entirely - a
+// single fund is already fully scoped by definition - and always weighs
+// that one asset at 1.0.
+func ComputeAssetProgression(p *store.Portfolio, assetID string, today time.Time) []ProgressionPoint {
+	accountByID := make(map[string]store.Account, len(p.Accounts))
+	for _, a := range p.Accounts {
+		accountByID[a.ID] = a
+	}
+	assetByID := make(map[string]store.Asset, len(p.Assets))
+	for _, a := range p.Assets {
+		assetByID[a.ID] = a
+	}
+
+	included := map[string]bool{assetID: true}
+	weights := map[string]float64{assetID: 1.0}
+
+	dates := WeeklyDates(p, today)
+	points := make([]ProgressionPoint, 0, len(dates))
+	for _, date := range dates {
+		points = append(points, computeProgressionPoint(p, accountByID, assetByID, included, weights, date))
+	}
+	return points
+}
+
 // ComputeProgression computes a currency-aware weekly (plus today)
 // progression series for the given axis, scoped to a member (empty
 // memberID = whole family). Every point is computed in INR (see
