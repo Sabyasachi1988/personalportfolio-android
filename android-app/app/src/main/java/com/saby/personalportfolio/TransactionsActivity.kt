@@ -63,6 +63,10 @@ class TransactionsActivity : AppCompatActivity() {
             createCsvFile.launch("personalportfolio-transactions-$stamp.csv")
         }
 
+        findViewById<android.widget.Button>(R.id.removeDuplicatesButton).setOnClickListener {
+            confirmRemoveDuplicates()
+        }
+
         sortSpinner.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, sortOptions)
         sortSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
@@ -237,6 +241,90 @@ class TransactionsActivity : AppCompatActivity() {
         }
     }
 
+    // Scans first (read-only - RemoveDuplicateTransactions doesn't save
+    // anything by itself) so the confirmation dialog can show a real
+    // count rather than a generic "this might remove things" warning,
+    // and so a person with a clean portfolio gets a reassuring "nothing
+    // found" message instead of a pointless confirmation prompt.
+    private fun confirmRemoveDuplicates() {
+        backgroundExecutor.execute {
+            try {
+                val portfolioPath = PortfolioStorage.filePath(this)
+                val currentPortfolioJson = Bridge.loadPortfolio(portfolioPath)
+                if (isBridgeError(currentPortfolioJson)) {
+                    mainThread.post { showError("Failed to load portfolio: $currentPortfolioJson") }
+                    return@execute
+                }
+
+                val scanResultJson = Bridge.removeDuplicateTransactions(currentPortfolioJson)
+                if (isBridgeError(scanResultJson)) {
+                    mainThread.post { showError("Failed to scan for duplicates: $scanResultJson") }
+                    return@execute
+                }
+                val scanResult = try {
+                    gson.fromJson(scanResultJson, RemoveDuplicatesResult::class.java)
+                } catch (e: Exception) {
+                    mainThread.post { showError("Duplicate scan returned unexpected data: ${e.message}") }
+                    return@execute
+                }
+
+                mainThread.post {
+                    if (scanResult.removed == 0) {
+                        Toast.makeText(this, "No duplicate transactions found.", Toast.LENGTH_SHORT).show()
+                    } else {
+                        AlertDialog.Builder(this)
+                            .setTitle("Remove ${scanResult.removed} duplicate transaction(s)?")
+                            .setMessage("Found ${scanResult.removed} exact duplicate(s) - same fund, date, type, amount, and units. Removing them can't be undone; consider exporting a backup first if you want to keep a copy.")
+                            .setPositiveButton("Remove") { _, _ -> removeDuplicates() }
+                            .setNegativeButton("Cancel", null)
+                            .show()
+                    }
+                }
+            } catch (e: Exception) {
+                mainThread.post { showError("Failed: ${e.message}") }
+            }
+        }
+    }
+
+    private fun removeDuplicates() {
+        backgroundExecutor.execute {
+            try {
+                val portfolioPath = PortfolioStorage.filePath(this)
+                val currentPortfolioJson = Bridge.loadPortfolio(portfolioPath)
+                if (isBridgeError(currentPortfolioJson)) {
+                    mainThread.post { showError("Failed to load portfolio: $currentPortfolioJson") }
+                    return@execute
+                }
+
+                val resultJson = Bridge.removeDuplicateTransactions(currentPortfolioJson)
+                if (isBridgeError(resultJson)) {
+                    mainThread.post { showError("Failed to remove duplicates: $resultJson") }
+                    return@execute
+                }
+                val result = try {
+                    gson.fromJson(resultJson, RemoveDuplicatesResult::class.java)
+                } catch (e: Exception) {
+                    mainThread.post { showError("Duplicate removal returned unexpected data: ${e.message}") }
+                    return@execute
+                }
+                val updatedPortfolioJson = gson.toJson(result.portfolio)
+
+                val saveResult = Bridge.savePortfolio(portfolioPath, updatedPortfolioJson)
+                if (isBridgeError(saveResult)) {
+                    mainThread.post { showError("Failed to save: $saveResult") }
+                    return@execute
+                }
+
+                mainThread.post {
+                    Toast.makeText(this, "Removed ${result.removed} duplicate transaction(s).", Toast.LENGTH_LONG).show()
+                    loadTransactions()
+                }
+            } catch (e: Exception) {
+                mainThread.post { showError("Failed: ${e.message}") }
+            }
+        }
+    }
+
     private fun exportCsvTo(uri: Uri) {
         try {
             val csv = buildTransactionsCsv()
@@ -285,3 +373,8 @@ class TransactionsActivity : AppCompatActivity() {
         Toast.makeText(this, message, Toast.LENGTH_LONG).show()
     }
 }
+
+private data class RemoveDuplicatesResult(
+    val removed: Int,
+    val portfolio: com.google.gson.JsonObject
+)
