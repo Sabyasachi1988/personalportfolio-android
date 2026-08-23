@@ -225,15 +225,22 @@ class ProgressionActivity : AppCompatActivity() {
         val display = DisplayCurrency.entries[currencySpinner.selectedItemPosition.coerceIn(0, DisplayCurrency.entries.size - 1)]
 
         dateText.text = p.date
+        valueText.text = ProgressionCurrency.format(
+            ProgressionCurrency.convert(p.value, display, currentAxis, p)
+        )
+
+        val gainConverted = ProgressionCurrency.convert(p.gain, display, currentAxis, p)
+        gainText.text = ProgressionCurrency.formatSigned(gainConverted) +
+            String.format(Locale.getDefault(), "  (%.1f%%)", p.gainPercent)
+        gainText.setTextColor(
+            androidx.core.content.ContextCompat.getColor(
+                this, if (p.gain >= 0) R.color.colorGain else R.color.colorLoss
+            )
+        )
+
         investedText.text = "Invested: " + ProgressionCurrency.format(
             ProgressionCurrency.convert(p.invested, display, currentAxis, p)
         )
-        valueText.text = "Value: " + ProgressionCurrency.format(
-            ProgressionCurrency.convert(p.value, display, currentAxis, p)
-        )
-        val gainConverted = ProgressionCurrency.convert(p.gain, display, currentAxis, p)
-        gainText.text = "Gain: " + ProgressionCurrency.formatSigned(gainConverted) +
-            String.format(Locale.getDefault(), "  (%.1f%%)", p.gainPercent)
         xirrText.text = if (p.hasXIRR) {
             String.format(Locale.getDefault(), "XIRR: %.1f%%", p.xirr)
         } else {
