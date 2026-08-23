@@ -30,7 +30,13 @@ class ImportActivity : AppCompatActivity() {
 
     private val pickPdf = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
-            importCasFile(uri)
+            importFile(uri, isCsv = false)
+        }
+    }
+
+    private val pickCsv = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            importFile(uri, isCsv = true)
         }
     }
 
@@ -47,21 +53,31 @@ class ImportActivity : AppCompatActivity() {
         findViewById<Button>(R.id.importButton).setOnClickListener {
             pickPdf.launch(arrayOf("application/pdf"))
         }
+        findViewById<Button>(R.id.importCsvButton).setOnClickListener {
+            // "text/comma-separated-values" is included because some
+            // Android file providers (notably Google Drive's) report CSV
+            // files under that older MIME type instead of "text/csv",
+            // and a few report the generic "text/plain" or even
+            // "application/octet-stream" if the provider doesn't
+            // recognize the extension at all - without those, the
+            // system picker can grey out or hide an otherwise-valid CSV.
+            pickCsv.launch(arrayOf("text/csv", "text/comma-separated-values", "text/plain", "application/octet-stream"))
+        }
         commitButton.setOnClickListener { commitImportedRows() }
 
         commitButton.isEnabled = false
     }
 
-    private fun importCasFile(uri: Uri) {
-        statusText.text = "Reading and parsing PDF…"
+    private fun importFile(uri: Uri, isCsv: Boolean) {
+        statusText.text = if (isCsv) "Reading and parsing CSV…" else "Reading and parsing PDF…"
         commitButton.isEnabled = false
 
         backgroundExecutor.execute {
             try {
-                val pdfBytes = contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                val fileBytes = contentResolver.openInputStream(uri)?.use { it.readBytes() }
                     ?: throw IllegalStateException("Could not open the selected file")
 
-                val resultJson = Bridge.importCAS(pdfBytes)
+                val resultJson = if (isCsv) Bridge.importCSV(fileBytes) else Bridge.importCAS(fileBytes)
                 val result = gson.fromJson(resultJson, ImportCASResult::class.java)
 
                 mainThread.post { showResult(result) }
@@ -121,11 +137,19 @@ class ImportActivity : AppCompatActivity() {
 
                 val rowsJson = gson.toJson(newRows)
                 val memberName = memberNameInput.text.toString().trim().ifBlank { "Me" }
-                val updatedPortfolioJson = Bridge.commitStagedRows(currentPortfolioJson, rowsJson, memberName)
-                if (isBridgeError(updatedPortfolioJson)) {
-                    mainThread.post { failCommit("Failed to link transactions: $updatedPortfolioJson") }
+                val commitResultJson = Bridge.commitStagedRows(currentPortfolioJson, rowsJson, memberName)
+                if (isBridgeError(commitResultJson)) {
+                    mainThread.post { failCommit("Failed to link transactions: $commitResultJson") }
                     return@execute
                 }
+
+                val commitResult = try {
+                    gson.fromJson(commitResultJson, CommitStagedRowsResult::class.java)
+                } catch (e: Exception) {
+                    mainThread.post { failCommit("Commit returned unexpected data: ${e.message}") }
+                    return@execute
+                }
+                val updatedPortfolioJson = gson.toJson(commitResult.portfolio)
 
                 val saveResult = Bridge.savePortfolio(portfolioPath, updatedPortfolioJson)
                 if (isBridgeError(saveResult)) {
@@ -134,7 +158,11 @@ class ImportActivity : AppCompatActivity() {
                 }
 
                 mainThread.post {
-                    statusText.text = "Added ${newRows.size} transaction(s) to your portfolio."
+                    statusText.text = if (commitResult.skippedDuplicates > 0) {
+                        "Added ${commitResult.committed} transaction(s). Skipped ${commitResult.skippedDuplicates} already in your portfolio (this statement overlaps with a previous import)."
+                    } else {
+                        "Added ${commitResult.committed} transaction(s) to your portfolio."
+                    }
                     Toast.makeText(this, "Saved — go back to see it on your Dashboard.", Toast.LENGTH_LONG).show()
                 }
             } catch (e: Exception) {
@@ -152,3 +180,9 @@ class ImportActivity : AppCompatActivity() {
         commitButton.isEnabled = true
     }
 }
+
+private data class CommitStagedRowsResult(
+    val committed: Int,
+    val skippedDuplicates: Int,
+    val portfolio: com.google.gson.JsonObject
+)
