@@ -1,6 +1,5 @@
 package com.saby.personalportfolio
 
-import android.graphics.Color
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -77,6 +76,7 @@ class HoldingsAdapter(private val holdings: List<Holding>) :
                 .map { DonutChartView.Slice(FundNameFormatter.shorten(it.assetName), ((it.currentValue / totalValue) * 100).toFloat()) }
                 .sortedByDescending { it.percent }
             holder.donut.setSlices(slices)
+            holder.legend.chipMode = true
             holder.legend.setSlices(slices)
             holder.donut.onSliceTapped = { label, percent ->
                 holder.showSliceToast(label, percent)
@@ -92,7 +92,9 @@ class HoldingsAdapter(private val holdings: List<Holding>) :
         if (h.hasPrice) {
             rowHolder.currentValue.text = IndianCurrencyFormatter.format(h.currentValue, decimals = 0)
 
-            val gainColor = if (h.gain >= 0) Color.parseColor("#2E7D32") else Color.parseColor("#C62828")
+            val gainColor = androidx.core.content.ContextCompat.getColor(
+                rowHolder.itemView.context, if (h.gain >= 0) R.color.colorGain else R.color.colorLoss
+            )
             val gainSign = if (h.gain >= 0) "+" else ""
             rowHolder.gainBadge.text = String.format(Locale.getDefault(), "%s%.1f%%", gainSign, h.gainPercent)
             rowHolder.gainBadge.setTextColor(gainColor)
