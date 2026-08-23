@@ -149,7 +149,7 @@ func GuessMarketCapSegment(fundName string) string {
 		return "Multi Cap"
 	case containsAny(n, "flexicap", "flexi cap"):
 		return "Flexi Cap"
-	case containsAny(n, "next 50", "nifty 50", "nifty50", "sensex", "nifty 100", "nifty100", "bluechip", "blue chip", "large cap", "largecap"):
+	case containsAny(n, "next 50", "nifty 50", "nifty50", "nifty bees", "sensex", "nifty 100", "nifty100", "bluechip", "blue chip", "large cap", "largecap"):
 		return "Large Cap"
 	default:
 		return "Unclassified"
