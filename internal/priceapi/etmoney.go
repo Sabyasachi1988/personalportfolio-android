@@ -124,14 +124,22 @@ func FetchETMoneyCapComposition(url string) (CapCompositionResult, error) {
 	large, largeOK := firstPercentAfter(text, []string{"Large Cap", "Large-cap", "Largecap"}, window)
 	mid, midOK := firstPercentAfter(text, []string{"Mid Cap", "Mid-cap", "Midcap"}, window)
 	small, smallOK := firstPercentAfter(text, []string{"Small Cap", "Small-cap", "Smallcap"}, window)
-	// "Cash" alone is a common false-positive trigger word (appears in
-	// unrelated marketing copy), so it's tried last and is allowed to
-	// come back as 0/not-found without failing the whole fetch - unlike
-	// Large/Mid/Small, which are essential.
-	cash, _ := firstPercentAfter(text, []string{"Cash & Others", "Cash and Others", "Cash Equivalent", "Cash"}, window)
-
 	if !largeOK || !midOK || !smallOK {
 		return CapCompositionResult{}, fmt.Errorf("could not find Large/Mid/Small cap percentages on the page (large found=%v, mid found=%v, small found=%v) — page layout may not match what this was built against; enter manually instead", largeOK, midOK, smallOK)
+	}
+
+	// Cash/debt is deliberately NOT scraped from the page - "Cash" is a
+	// common false-positive trigger word in unrelated marketing copy
+	// (see firstPercentAfter's doc comment), making it the least
+	// reliable of the four to parse directly. Instead it's forced to
+	// make the four figures sum to exactly 100, which is both simpler
+	// and matches how a factsheet's own allocation table is
+	// constructed (Large+Mid+Small+Cash/Debt = the whole equity
+	// portfolio) - so this is a derived fact, not a fourth guess
+	// stacked on the first three.
+	cash := 100.0 - (large + mid + small)
+	if cash < 0 {
+		cash = 0
 	}
 
 	sum := large + mid + small + cash
