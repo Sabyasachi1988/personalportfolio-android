@@ -10,33 +10,57 @@
         android:layout_height="0dp"
         android:layout_weight="1"
         android:orientation="vertical"
-        android:padding="24dp">
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:paddingTop="12dp">
 
-        <Button
-            android:id="@+id/refreshPricesButton"
+        <!-- Compact control band: refresh (icon-only), member filter,
+             and sort, all in one row - replaces four stacked full-width
+             controls that used to push the actual holdings list well
+             below the fold. Search sits directly below in its own thin
+             row since a hint-only search field needs its full width to
+             stay usable. -->
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Refresh Prices" />
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
 
-        <Spinner
-            android:id="@+id/memberFilterSpinner"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp" />
+            <ImageButton
+                android:id="@+id/refreshPricesButton"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:padding="8dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:src="@drawable/ic_refresh"
+                android:contentDescription="Refresh prices" />
+
+            <Spinner
+                android:id="@+id/memberFilterSpinner"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="4dp" />
+
+            <Spinner
+                android:id="@+id/holdingsSortSpinner"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="4dp" />
+
+        </LinearLayout>
 
         <EditText
             android:id="@+id/holdingsSearchInput"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
+            android:layout_height="40dp"
+            android:layout_marginTop="6dp"
             android:hint="Search holdings by name"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:textSize="14sp"
             android:inputType="text" />
-
-        <Spinner
-            android:id="@+id/holdingsSortSpinner"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp" />
 
         <LinearLayout
             android:id="@+id/segmentFilterBar"
@@ -44,7 +68,7 @@
             android:layout_height="wrap_content"
             android:orientation="horizontal"
             android:gravity="center_vertical"
-            android:layout_marginTop="12dp"
+            android:layout_marginTop="8dp"
             android:visibility="gone">
 
             <TextView
@@ -67,73 +91,23 @@
             android:id="@+id/holdingsSummary"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="20dp"
+            android:layout_marginTop="10dp"
             android:textSize="14sp" />
 
-        <com.google.android.material.card.MaterialCardView
+        <include
             android:id="@+id/holdingsStatsCard"
+            layout="@layout/include_stats_card"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:visibility="gone"
-            app:cardCornerRadius="16dp"
-            app:cardElevation="3dp">
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:padding="20dp">
-
-                <TextView
-                    android:id="@+id/holdingsValueText"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:textSize="26sp"
-                    android:textStyle="bold" />
-
-                <TextView
-                    android:id="@+id/holdingsGainText"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="6dp"
-                    android:textSize="15sp"
-                    android:textStyle="bold" />
-
-                <TextView
-                    android:id="@+id/holdingsInvestedText"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="12dp"
-                    android:textSize="13sp"
-                    android:textColor="@color/colorNeutral" />
-
-                <TextView
-                    android:id="@+id/holdingsXirrText"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
-                    android:textSize="13sp"
-                    android:textColor="@color/colorNeutral" />
-
-                <TextView
-                    android:id="@+id/holdingsCountText"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="10dp"
-                    android:textSize="12sp"
-                    android:textColor="@color/colorNeutral" />
-
-            </LinearLayout>
-
-        </com.google.android.material.card.MaterialCardView>
+            android:layout_marginTop="8dp"
+            android:visibility="gone" />
 
         <androidx.recyclerview.widget.RecyclerView
             android:id="@+id/holdingsRecyclerView"
             android:layout_width="match_parent"
             android:layout_height="0dp"
             android:layout_weight="1"
-            android:layout_marginTop="20dp" />
+            android:layout_marginTop="12dp" />
 
     </LinearLayout>
 
