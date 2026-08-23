@@ -174,7 +174,7 @@ class CapCompositionActivity : AppCompatActivity() {
                         ""
                     }
                     rowHolder.etMoneyStatusLabel.visibility = android.view.View.VISIBLE
-                    rowHolder.etMoneyStatusLabel.text = "Fetched — review the numbers below, then tap Save.$sumWarning"
+                    rowHolder.etMoneyStatusLabel.text = "Fetched Large/Mid/Small — Cash set to 100 − their sum. Review below, then tap Save.$sumWarning"
                 }
             } catch (e: Exception) {
                 mainThread.post { failFetch(rowHolder, "Failed: ${e.message}") }
@@ -183,7 +183,7 @@ class CapCompositionActivity : AppCompatActivity() {
     }
 
     private fun formatPercent(value: Double): String =
-        if (value == 0.0) "" else String.format(Locale.getDefault(), "%.1f", value)
+        if (value == 0.0) "" else String.format(Locale.getDefault(), "%.2f", value)
 
     private fun failFetch(rowHolder: CapCompositionAdapter.RowHolder, message: String) {
         rowHolder.fetchButton.isEnabled = true
