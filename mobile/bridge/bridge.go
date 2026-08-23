@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"regexp"
 	"time"
 
 	"ledger/internal/casimport"
@@ -472,6 +473,7 @@ func CommitStagedRows(portfolioJSON string, stagedRowsJSON string, memberName st
 			Amount:      txn.Amount,
 			Units:       txn.Units,
 			Price:       txn.Price,
+			Balance:     txn.Balance,
 			Source:      "CAS_IMPORT",
 		})
 		committed++
@@ -521,20 +523,24 @@ func CommitStagedRows(portfolioJSON string, stagedRowsJSON string, memberName st
 // than just a bare count.
 // DuplicateGroup describes one set of matching transactions found by
 // RemoveDuplicateTransactions - shown to the person before they confirm
-// removal, since the underlying match rule (see transactionsMatch)
-// cannot distinguish a true duplicate from a genuine same-day,
-// same-amount second purchase of the same fund: mutual fund NAV is
-// fixed per calendar day, so two separate real purchases of the same
-// rupee amount on the same day produce identical units too, and CAS
-// statements carry no per-transaction reference number to tell them
-// apart. Showing the actual fund/date/amount lets a human catch that
-// case, which no amount of smarter automatic matching can.
+// removal. Confidence reflects which tier of transactionsMatch decided
+// the group: "reference" when both sides carried a matching genuine
+// per-transaction reference (as certain as the data allows), "balance"
+// when both sides had a running unit balance that also matched (CAS
+// statements print one on nearly every row - strong evidence, though
+// not absolutely as certain as a reference), or "heuristic" when
+// neither was available on both sides and the match rests only on
+// date/amount/units coinciding - see transactionsMatch's doc comment
+// for the full reasoning. Showing this lets a person trust "reference"
+// and "balance" groups readily and give "heuristic" groups a closer
+// look before confirming.
 type DuplicateGroup struct {
 	AssetID     string  `json:"assetId"`
 	AssetName   string  `json:"assetName"`
 	Date        string  `json:"date"`
 	Amount      float64 `json:"amount"`
 	ExtraCopies int     `json:"extraCopies"` // copies beyond the first that would be/were removed
+	Confidence  string  `json:"confidence"`  // "reference" or "heuristic"
 }
 
 func RemoveDuplicateTransactions(portfolioJSON string) string {
@@ -570,10 +576,20 @@ func RemoveDuplicateTransactions(portfolioJSON string) string {
 		if gi, ok := groupIndex[key]; ok {
 			groups[gi].ExtraCopies++
 		} else {
+			confidence := "heuristic"
+			refKept := extractTransactionReference(keep[matchedKeptIndex].Description)
+			refTxn := extractTransactionReference(txn.Description)
+			switch {
+			case refKept != "" && refTxn != "" && refKept == refTxn:
+				confidence = "reference"
+			case keep[matchedKeptIndex].Balance != nil && txn.Balance != nil:
+				confidence = "balance"
+			}
 			groupIndex[key] = len(groups)
 			groups = append(groups, DuplicateGroup{
 				AssetID: txn.AssetID, AssetName: assetNameByID[txn.AssetID],
 				Date: txn.Date, Amount: keep[matchedKeptIndex].Amount, ExtraCopies: 1,
+				Confidence: confidence,
 			})
 		}
 	}
@@ -598,28 +614,102 @@ func mustMarshal(v interface{}) json.RawMessage {
 	return b
 }
 
+// transactionReferencePattern and bareReferencePattern extract a
+// genuine per-transaction reference embedded in a Description, when the
+// source data actually carries one:
+//   - MFCentral CAS statements print "...Trxn.Ref.No.pay_XXXXXXXXX//..."
+//     for netbanking-initiated Purchase rows (a Razorpay-style payment
+//     ID) - transactionReferencePattern - though NOT for auto-debited
+//     SIP installments ("Sys. Investment ISIP (n/28)"), which have no
+//     such reference at all.
+//   - A small number of CAS rows carry a bare "pay_XXXXXXXXX" token
+//     without the "Trxn.Ref.No." prefix (a formatting quirk seen in
+//     real statements) - bareReferencePattern catches those too.
+//   - CSV imports (see csvimport.go) embed the broker's own trade ID
+//     (e.g. Zerodha's trade_id) as "[ref:XXXXXXXXX]" in Description.
+//
+// Verified against a real MFCentral CAS PDF's actual description text,
+// not just the parser's structural regexes.
+var (
+	transactionReferencePattern = regexp.MustCompile(`Trxn\.Ref\.No\.(\S+?)//`)
+	bareReferencePattern        = regexp.MustCompile(`\bpay_[A-Za-z0-9]+\b`)
+	csvReferencePattern         = regexp.MustCompile(`\[ref:([^\]]+)\]`)
+)
+
+func extractTransactionReference(description string) string {
+	if m := transactionReferencePattern.FindStringSubmatch(description); m != nil {
+		return m[1]
+	}
+	if m := bareReferencePattern.FindString(description); m != "" {
+		return m
+	}
+	if m := csvReferencePattern.FindStringSubmatch(description); m != nil {
+		return m[1]
+	}
+	return ""
+}
+
 // transactionsMatch is the shared "are these the same transaction"
 // rule, used both to keep new imports from duplicating existing rows
 // (isDuplicateTransaction) and to find duplicates that already exist
 // (RemoveDuplicateTransactions), so the two never disagree about what
 // counts as a duplicate.
+//
+// Three tiers, most authoritative first:
+//  1. Reference (see extractTransactionReference): when BOTH sides
+//     carry a genuine per-transaction reference, it's decisive either
+//     way - same reference means the same real-world transaction, no
+//     matter what amount/units say; different references means
+//     genuinely different transactions, even if amount/units coincide.
+//  2. Running unit balance (CAS statements print one on every row,
+//     unlike the reference, which only appears on netbanking Purchase
+//     rows - SIP installments never have one): when both sides have a
+//     Balance and it differs, they're never the same transaction,
+//     regardless of amount/units - a real distinct purchase always
+//     leaves the running total at a different point. This is what
+//     catches the case a reference alone can't: a manual Purchase
+//     landing on the same day, for the same amount, as a scheduled SIP
+//     installment (a real case, confirmed in this portfolio's own CAS
+//     statement, not hypothetical) - the SIP side has no reference, but
+//     both sides do have a balance, and it's different.
+//  3. Date + amount + units (the original heuristic): the fallback when
+//     neither of the above is available on both sides. This is the one
+//     genuine remaining ambiguity - mutual fund NAV is fixed per day,
+//     so two separate real purchases of the same amount on the same day
+//     produce identical units too, and if the source data carries
+//     neither a reference nor a balance for either row, there's no more
+//     signal left to tell them apart.
 func transactionsMatch(a, b store.StoredTransaction) bool {
 	const amountEpsilon = 0.01
 	const unitsEpsilon = 0.0005
+	const balanceEpsilon = 0.001
 	if a.AssetID != b.AssetID || a.Date != b.Date || a.Type != b.Type {
 		return false
 	}
+
+	refA := extractTransactionReference(a.Description)
+	refB := extractTransactionReference(b.Description)
+	if refA != "" && refB != "" {
+		return refA == refB
+	}
+
 	if math.Abs(a.Amount-b.Amount) > amountEpsilon {
 		return false
 	}
 	if a.Units != nil && b.Units != nil && math.Abs(*a.Units-*b.Units) > unitsEpsilon {
 		return false
 	}
+	if a.Balance != nil && b.Balance != nil && math.Abs(*a.Balance-*b.Balance) > balanceEpsilon {
+		return false
+	}
 	return true
 }
 
 func isDuplicateTransaction(existing []store.StoredTransaction, assetID string, txn store.Transaction) bool {
-	candidate := store.StoredTransaction{AssetID: assetID, Date: txn.Date, Type: txn.Type, Amount: txn.Amount, Units: txn.Units}
+	candidate := store.StoredTransaction{
+		AssetID: assetID, Date: txn.Date, Type: txn.Type, Amount: txn.Amount,
+		Units: txn.Units, Balance: txn.Balance, Description: txn.Description,
+	}
 	for _, e := range existing {
 		if transactionsMatch(e, candidate) {
 			return true
