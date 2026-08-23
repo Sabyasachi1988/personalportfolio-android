@@ -46,6 +46,10 @@ class SettingsActivity : AppCompatActivity() {
             startActivity(android.content.Intent(this, UpdateHistoryActivity::class.java))
         }
 
+        findViewById<android.widget.Button>(R.id.portfolioProgressionButton).setOnClickListener {
+            startActivity(android.content.Intent(this, ProgressionActivity::class.java))
+        }
+
         findViewById<android.widget.Button>(R.id.exportButton).setOnClickListener {
             val stamp = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
             createBackupFile.launch("personalportfolio-backup-$stamp.json")
