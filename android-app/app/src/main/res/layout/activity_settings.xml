@@ -98,6 +98,13 @@
         android:layout_marginTop="12dp"
         android:text="Update Price History" />
 
+    <Button
+        android:id="@+id/portfolioProgressionButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:text="Portfolio Progression" />
+
     <View
         android:layout_width="match_parent"
         android:layout_height="1dp"
