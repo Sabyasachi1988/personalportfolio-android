@@ -25,6 +25,7 @@ class AllocationAdapter(private val slices: List<AllocationSlice>) :
 
     override fun onBindViewHolder(holder: RowHolder, position: Int) {
         val slice = slices[position]
+        HorizontalCardWidth.apply(holder.itemView, isOnlyCard = slices.size == 1)
 
         holder.label.text = slice.label
         holder.valueLine.text = String.format(
