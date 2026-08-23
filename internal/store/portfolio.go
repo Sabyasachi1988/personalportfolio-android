@@ -35,6 +35,7 @@ type Asset struct {
 	Type       string // "MutualFund", "Stock", "ETF"
 	Symbol     string // Yahoo-style symbol for stocks/ETFs, e.g. "RELIANCE.NS"
 	AssetClass string // AMFI/SEBI category, e.g. "Equity", "Debt", "Other" (set on price refresh)
+	ETMoneyURL string `json:",omitempty"` // full ETMoney fund page URL (e.g. https://www.etmoney.com/mutual-funds/<slug>/<id>), entered once so cap composition can be auto-fetched from it; empty means "not linked, manual entry only"
 }
 
 // StoredTransaction is a confirmed transaction attached to a real
@@ -360,6 +361,19 @@ func (p *Portfolio) SetCapComposition(assetID string, large, mid, small, cash fl
 		}
 	}
 	p.CapCompositions = append(p.CapCompositions, CapComposition{AssetID: assetID, Large: large, Mid: mid, Small: small, Cash: cash, AsOf: asOf, Source: source})
+}
+
+// SetAssetETMoneyURL records the ETMoney fund page URL for an asset, so
+// its cap composition can later be auto-fetched from that URL. Passing
+// an empty url un-links the asset (falls back to manual-only entry).
+// No-op if the asset ID isn't found.
+func (p *Portfolio) SetAssetETMoneyURL(assetID, url string) {
+	for i := range p.Assets {
+		if p.Assets[i].ID == assetID {
+			p.Assets[i].ETMoneyURL = url
+			return
+		}
+	}
 }
 
 // GetEquityOriginComposition returns the saved Indian/International
