@@ -24,29 +24,44 @@
                 android:textSize="22sp"
                 android:textStyle="bold" />
 
-            <Spinner
-                android:id="@+id/progressionMemberSpinner"
+            <!-- Three compact dropdown "tabs" side by side, replacing
+                 three stacked full-width Spinners - each shows its
+                 current selection and opens a popup menu on tap, same
+                 information density as before in a fraction of the
+                 vertical space. -->
+            <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="16dp" />
+                android:orientation="horizontal"
+                android:layout_marginTop="14dp">
 
-            <Spinner
-                android:id="@+id/progressionAxisSpinner"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="12dp" />
+                <TextView
+                    android:id="@+id/progressionMemberTab"
+                    style="@style/ProgressionDropdownTab"
+                    android:layout_width="0dp"
+                    android:layout_weight="1" />
 
-            <Spinner
-                android:id="@+id/progressionCurrencySpinner"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="12dp" />
+                <TextView
+                    android:id="@+id/progressionAxisTab"
+                    style="@style/ProgressionDropdownTab"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_marginStart="8dp" />
+
+                <TextView
+                    android:id="@+id/progressionCurrencyTab"
+                    style="@style/ProgressionDropdownTab"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_marginStart="8dp" />
+
+            </LinearLayout>
 
             <TextView
                 android:id="@+id/progressionStatusText"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="16dp"
+                android:layout_marginTop="14dp"
                 android:textSize="14sp" />
 
             <!-- Answers "how much history am I even looking at" up front,
@@ -62,62 +77,12 @@
                 android:textColor="?attr/colorPrimary" />
 
             <!-- Point-in-time detail card, driven by the scrubber below -->
-            <com.google.android.material.card.MaterialCardView
+            <include
+                android:id="@+id/progressionStatsCard"
+                layout="@layout/include_stats_card"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="16dp"
-                app:cardCornerRadius="16dp"
-                app:cardElevation="3dp">
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:padding="20dp">
-
-                <TextView
-                    android:id="@+id/progressionDateText"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:textSize="14sp"
-                    android:textColor="@color/colorNeutral"
-                    android:textStyle="bold" />
-
-                <TextView
-                    android:id="@+id/progressionValueText"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="6dp"
-                    android:textSize="26sp"
-                    android:textStyle="bold" />
-
-                <TextView
-                    android:id="@+id/progressionGainText"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="6dp"
-                    android:textSize="15sp"
-                    android:textStyle="bold" />
-
-                <TextView
-                    android:id="@+id/progressionInvestedText"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="12dp"
-                    android:textSize="13sp"
-                    android:textColor="@color/colorNeutral" />
-
-                <TextView
-                    android:id="@+id/progressionXirrText"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
-                    android:textSize="13sp"
-                    android:textColor="@color/colorNeutral" />
-
-            </LinearLayout>
-
-            </com.google.android.material.card.MaterialCardView>
+                android:layout_marginTop="16dp" />
 
             <!-- Legend -->
             <LinearLayout
@@ -130,7 +95,7 @@
                 <View
                     android:layout_width="16dp"
                     android:layout_height="4dp"
-                    android:background="@color/colorNeutral" />
+                    android:background="@color/colorSecondary" />
 
                 <TextView
                     android:layout_width="wrap_content"
@@ -152,6 +117,20 @@
                     android:text="Value"
                     android:textSize="12sp" />
 
+                <TextView
+                    android:id="@+id/progressionResetZoomButton"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:gravity="end"
+                    android:text="Reset zoom ↺"
+                    android:textSize="12sp"
+                    android:textStyle="bold"
+                    android:textColor="?attr/colorPrimary"
+                    android:padding="4dp"
+                    android:visibility="gone"
+                    android:background="?attr/selectableItemBackground" />
+
             </LinearLayout>
 
             <com.saby.personalportfolio.ProgressionChartView
@@ -159,6 +138,15 @@
                 android:layout_width="match_parent"
                 android:layout_height="250dp"
                 android:layout_marginTop="12dp" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="Pinch to zoom into a stretch of the chart · double-tap to reset"
+                android:textSize="11sp"
+                android:gravity="center"
+                android:textColor="@color/colorNeutral" />
 
             <!-- Slider mirrors the chart's own drag-scrub, for finer/easier
                  control than dragging a thumb across a small chart area.
