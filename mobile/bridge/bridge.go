@@ -225,6 +225,46 @@ func SetCapComposition(portfolioJSON string, assetID string, large, mid, small, 
 	return string(out)
 }
 
+// SetAssetETMoneyURL records (or clears, if url is "") the ETMoney fund
+// page URL for an asset, so FetchCapCompositionFromETMoney can later be
+// pointed at it without re-typing the URL every time. Returns the
+// updated portfolio as JSON.
+func SetAssetETMoneyURL(portfolioJSON string, assetID string, url string) string {
+	var p store.Portfolio
+	if portfolioJSON != "" {
+		if err := json.Unmarshal([]byte(portfolioJSON), &p); err != nil {
+			return fmt.Sprintf(`{"error":%q}`, "invalid portfolio JSON: "+err.Error())
+		}
+	}
+	p.SetAssetETMoneyURL(assetID, url)
+
+	out, err := json.Marshal(p)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+	return string(out)
+}
+
+// FetchCapCompositionFromETMoney fetches and parses Large/Mid/Small/Cash
+// percentages from an ETMoney fund page URL (real HTTP call - requires
+// the Android app to hold the INTERNET permission). Does NOT save
+// anything - the caller reviews the result and calls SetCapComposition
+// separately, same two-step pattern as RefreshAmfiPrices/SavePortfolio.
+// See priceapi.FetchETMoneyCapComposition's doc comment: this path is
+// unverified against the live site and may need adjustment after a real
+// on-device test.
+func FetchCapCompositionFromETMoney(url string) string {
+	result, err := priceapi.FetchETMoneyCapComposition(url)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+	out, err := json.Marshal(result)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+	return string(out)
+}
+
 // RefreshAmfiPrices fetches the current AMFI NAV file over the network
 // (real HTTP call - requires the Android app to hold the INTERNET
 // permission) and updates the portfolio's PriceRecords for any Asset
