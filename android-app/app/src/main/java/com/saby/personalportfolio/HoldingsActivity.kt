@@ -10,6 +10,7 @@ import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.EditText
+import android.widget.ImageButton
 import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
@@ -40,7 +41,7 @@ class HoldingsActivity : AppCompatActivity() {
     private lateinit var xirrText: TextView
     private lateinit var countText: TextView
     private lateinit var recyclerView: RecyclerView
-    private lateinit var refreshButton: Button
+    private lateinit var refreshButton: ImageButton
     private lateinit var memberSpinner: Spinner
     private lateinit var searchInput: EditText
     private lateinit var sortSpinner: Spinner
@@ -73,11 +74,15 @@ class HoldingsActivity : AppCompatActivity() {
 
         summary = findViewById(R.id.holdingsSummary)
         statsCard = findViewById(R.id.holdingsStatsCard)
-        valueText = findViewById(R.id.holdingsValueText)
-        gainText = findViewById(R.id.holdingsGainText)
-        investedText = findViewById(R.id.holdingsInvestedText)
-        xirrText = findViewById(R.id.holdingsXirrText)
-        countText = findViewById(R.id.holdingsCountText)
+        valueText = findViewById(R.id.statsCardValue)
+        gainText = findViewById(R.id.statsCardGain)
+        investedText = findViewById(R.id.statsCardInvested)
+        xirrText = findViewById(R.id.statsCardXirr)
+        countText = findViewById(R.id.statsCardCount)
+        // Holdings shows the Invested and Count lines, which the shared
+        // card hides by default (Dashboard doesn't use them the same way).
+        investedText.visibility = View.VISIBLE
+        countText.visibility = View.VISIBLE
         recyclerView = findViewById(R.id.holdingsRecyclerView)
         recyclerView.layoutManager = LinearLayoutManager(this)
         refreshButton = findViewById(R.id.refreshPricesButton)
