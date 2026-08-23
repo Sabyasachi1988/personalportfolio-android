@@ -3,12 +3,16 @@ package com.saby.personalportfolio
 import android.app.AlertDialog
 import android.net.Uri
 import android.os.Bundle
+import android.widget.EditText
 import android.widget.RadioButton
 import android.widget.RadioGroup
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.biometric.BiometricManager
+import androidx.biometric.BiometricPrompt
+import androidx.core.content.ContextCompat
 import com.google.gson.JsonParser
 import java.io.File
 import java.text.SimpleDateFormat
@@ -53,6 +57,10 @@ class SettingsActivity : AppCompatActivity() {
 
         findViewById<android.widget.Button>(R.id.importButton).setOnClickListener {
             pickBackupFile.launch(arrayOf("application/json"))
+        }
+
+        findViewById<android.widget.Button>(R.id.wipeAllDataButton).setOnClickListener {
+            confirmWipeAllData()
         }
     }
 
@@ -133,5 +141,95 @@ class SettingsActivity : AppCompatActivity() {
         }
         statusText.text = "Restored from backup."
         Toast.makeText(this, "Restored", Toast.LENGTH_SHORT).show()
+    }
+
+    /**
+     * Two-step gate before anything destructive happens: type "DELETE"
+     * to prove this isn't an accidental tap, THEN a biometric/device
+     * credential check to prove it's actually the phone's owner acting
+     * (not, say, a child who picked up an unlocked phone). Either step
+     * alone would be weaker than the Restore-from-backup confirmation
+     * above deserves, given this has no in-app undo.
+     */
+    private fun confirmWipeAllData() {
+        val dialogView = layoutInflater.inflate(R.layout.dialog_confirm_wipe, null)
+        val confirmInput = dialogView.findViewById<EditText>(R.id.wipeConfirmInput)
+
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("Wipe all portfolio data?")
+            .setView(dialogView)
+            .setPositiveButton("Continue", null) // set below, after creation, so it can validate before dismissing
+            .setNegativeButton("Cancel", null)
+            .create()
+
+        dialog.setOnShowListener {
+            val positiveButton = dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+            positiveButton.setOnClickListener {
+                if (confirmInput.text.toString().trim() == "DELETE") {
+                    dialog.dismiss()
+                    verifyIdentityThenWipe()
+                } else {
+                    confirmInput.error = "Type DELETE exactly, in capitals"
+                }
+            }
+        }
+        dialog.show()
+    }
+
+    private fun verifyIdentityThenWipe() {
+        val biometricManager = BiometricManager.from(this)
+        val canAuthenticate = biometricManager.canAuthenticate(
+            BiometricManager.Authenticators.BIOMETRIC_STRONG or
+                BiometricManager.Authenticators.DEVICE_CREDENTIAL
+        )
+        if (canAuthenticate != BiometricManager.BIOMETRIC_SUCCESS) {
+            // No fingerprint/face AND no PIN/pattern/password enrolled -
+            // same situation LockActivity handles by skipping the check
+            // entirely rather than blocking on a credential that can't
+            // exist. The typed "DELETE" confirmation above still applies.
+            performWipe()
+            return
+        }
+
+        val executor = ContextCompat.getMainExecutor(this)
+        val prompt = BiometricPrompt(this, executor, object : BiometricPrompt.AuthenticationCallback() {
+            override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                performWipe()
+            }
+            override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
+                statusText.text = "Wipe cancelled - authentication not completed ($errString)"
+            }
+            override fun onAuthenticationFailed() {
+                // Keep prompting - BiometricPrompt itself stays open and
+                // lets the person retry, this is just a failed attempt,
+                // not a final cancellation.
+            }
+        })
+        val promptInfo = BiometricPrompt.PromptInfo.Builder()
+            .setTitle("Verify it's you")
+            .setSubtitle("Confirm to permanently wipe all portfolio data")
+            .setAllowedAuthenticators(
+                BiometricManager.Authenticators.BIOMETRIC_STRONG or
+                    BiometricManager.Authenticators.DEVICE_CREDENTIAL
+            )
+            .build()
+        prompt.authenticate(promptInfo)
+    }
+
+    private fun performWipe() {
+        val portfolioPath = PortfolioStorage.filePath(this)
+        // Passing an empty string (not "{}") to SavePortfolio leaves it
+        // at Go's zero-value store.Portfolio{} - see SavePortfolio's doc
+        // comment. Since the file currently exists, store.Save's own
+        // backupBeforeWrite runs first, so the pre-wipe state is kept in
+        // the app's backups/ folder even though there's no in-app UI to
+        // browse and restore from it today.
+        val saveResult = com.ledger.bridge.Bridge.savePortfolio(portfolioPath, "")
+        if (saveResult.trimStart().startsWith("{\"error\"")) {
+            statusText.text = "Wipe failed: $saveResult"
+            return
+        }
+        statusText.text = "All portfolio data wiped. Starting from scratch."
+        Toast.makeText(this, "Portfolio wiped", Toast.LENGTH_LONG).show()
     }
 }
