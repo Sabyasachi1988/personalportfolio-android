@@ -56,6 +56,9 @@
             android:name=".UpdateHistoryActivity"
             android:exported="false" />
         <activity
+            android:name=".ProgressionActivity"
+            android:exported="false" />
+        <activity
             android:name=".PortfolioClassTargetActivity"
             android:exported="false" />
         <activity
