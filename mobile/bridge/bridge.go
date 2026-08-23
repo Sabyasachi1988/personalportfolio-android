@@ -515,7 +515,28 @@ func CommitStagedRows(portfolioJSON string, stagedRowsJSON string, memberName st
 // replacement for that dedup, which prevents new duplicates at import
 // time. Which exact copy is kept within a duplicate group is arbitrary
 // (whichever appears first in Transactions) since the copies are
-// financially identical either way. Returns {"removed": N, "portfolio": {...}}.
+// financially identical either way. Returns
+// {"removed": N, "groups": [...], "portfolio": {...}} - see
+// DuplicateGroup's doc comment for why the groups are surfaced rather
+// than just a bare count.
+// DuplicateGroup describes one set of matching transactions found by
+// RemoveDuplicateTransactions - shown to the person before they confirm
+// removal, since the underlying match rule (see transactionsMatch)
+// cannot distinguish a true duplicate from a genuine same-day,
+// same-amount second purchase of the same fund: mutual fund NAV is
+// fixed per calendar day, so two separate real purchases of the same
+// rupee amount on the same day produce identical units too, and CAS
+// statements carry no per-transaction reference number to tell them
+// apart. Showing the actual fund/date/amount lets a human catch that
+// case, which no amount of smarter automatic matching can.
+type DuplicateGroup struct {
+	AssetID     string  `json:"assetId"`
+	AssetName   string  `json:"assetName"`
+	Date        string  `json:"date"`
+	Amount      float64 `json:"amount"`
+	ExtraCopies int     `json:"extraCopies"` // copies beyond the first that would be/were removed
+}
+
 func RemoveDuplicateTransactions(portfolioJSON string) string {
 	var p store.Portfolio
 	if portfolioJSON != "" {
@@ -523,29 +544,46 @@ func RemoveDuplicateTransactions(portfolioJSON string) string {
 			return fmt.Sprintf(`{"error":%q}`, "invalid portfolio JSON: "+err.Error())
 		}
 	}
+	assetNameByID := make(map[string]string, len(p.Assets))
+	for _, a := range p.Assets {
+		assetNameByID[a.ID] = a.Name
+	}
 
 	keep := make([]store.StoredTransaction, 0, len(p.Transactions))
+	var groups []DuplicateGroup
+	groupIndex := make(map[string]int) // AssetID+Date -> index into groups, only for txns that had at least one duplicate found
 	removed := 0
 	for _, txn := range p.Transactions {
-		isDup := false
-		for _, kept := range keep {
+		matchedKeptIndex := -1
+		for i, kept := range keep {
 			if transactionsMatch(kept, txn) {
-				isDup = true
+				matchedKeptIndex = i
 				break
 			}
 		}
-		if isDup {
-			removed++
-		} else {
+		if matchedKeptIndex == -1 {
 			keep = append(keep, txn)
+			continue
+		}
+		removed++
+		key := txn.AssetID + "|" + txn.Date
+		if gi, ok := groupIndex[key]; ok {
+			groups[gi].ExtraCopies++
+		} else {
+			groupIndex[key] = len(groups)
+			groups = append(groups, DuplicateGroup{
+				AssetID: txn.AssetID, AssetName: assetNameByID[txn.AssetID],
+				Date: txn.Date, Amount: keep[matchedKeptIndex].Amount, ExtraCopies: 1,
+			})
 		}
 	}
 	p.Transactions = keep
 
 	out, err := json.Marshal(struct {
-		Removed   int             `json:"removed"`
-		Portfolio json.RawMessage `json:"portfolio"`
-	}{Removed: removed, Portfolio: mustMarshal(p)})
+		Removed   int              `json:"removed"`
+		Groups    []DuplicateGroup `json:"groups"`
+		Portfolio json.RawMessage  `json:"portfolio"`
+	}{Removed: removed, Groups: groups, Portfolio: mustMarshal(p)})
 	if err != nil {
 		return fmt.Sprintf(`{"error":%q}`, err.Error())
 	}
