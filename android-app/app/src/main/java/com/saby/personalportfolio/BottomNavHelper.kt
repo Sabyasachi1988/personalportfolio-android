@@ -4,7 +4,7 @@ import android.app.Activity
 import android.content.Intent
 import com.google.android.material.bottomnavigation.BottomNavigationView
 
-enum class BottomNavDestination { DASHBOARD, HOLDINGS, ALLOCATION, TRANSACTIONS }
+enum class BottomNavDestination { DASHBOARD, HOLDINGS, ALLOCATION, PROGRESSION, TRANSACTIONS }
 
 object BottomNavHelper {
 
@@ -20,6 +20,7 @@ object BottomNavHelper {
             BottomNavDestination.DASHBOARD -> R.id.nav_dashboard
             BottomNavDestination.HOLDINGS -> R.id.nav_holdings
             BottomNavDestination.ALLOCATION -> R.id.nav_allocation
+            BottomNavDestination.PROGRESSION -> R.id.nav_progression
             BottomNavDestination.TRANSACTIONS -> R.id.nav_transactions
         }
         bottomNav.selectedItemId = selectedId
@@ -29,6 +30,7 @@ object BottomNavHelper {
                 R.id.nav_dashboard -> if (current != BottomNavDestination.DASHBOARD) MainActivity::class.java else null
                 R.id.nav_holdings -> if (current != BottomNavDestination.HOLDINGS) HoldingsActivity::class.java else null
                 R.id.nav_allocation -> if (current != BottomNavDestination.ALLOCATION) AllocationActivity::class.java else null
+                R.id.nav_progression -> if (current != BottomNavDestination.PROGRESSION) ProgressionActivity::class.java else null
                 R.id.nav_transactions -> if (current != BottomNavDestination.TRANSACTIONS) TransactionsActivity::class.java else null
                 else -> null
             }
