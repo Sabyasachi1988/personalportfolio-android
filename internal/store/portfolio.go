@@ -50,6 +50,7 @@ type StoredTransaction struct {
 	Amount      float64
 	Units       *float64
 	Price       *float64
+	Balance     *float64 // running unit balance as printed on the CAS statement, when available - see transactionsMatch in mobile/bridge/bridge.go for why this matters for duplicate detection
 	Source      string // "MANUAL", "CAS_IMPORT", "CSV_IMPORT"
 }
 
