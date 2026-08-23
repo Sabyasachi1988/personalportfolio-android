@@ -143,7 +143,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="4dp"
-                android:text="Pinch to zoom into a stretch of the chart · double-tap to reset"
+                android:text="Pinch to zoom, drag with two fingers to pan · double-tap to reset"
                 android:textSize="11sp"
                 android:gravity="center"
                 android:textColor="@color/colorNeutral" />
