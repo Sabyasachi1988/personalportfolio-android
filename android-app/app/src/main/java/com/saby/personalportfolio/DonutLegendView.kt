@@ -31,6 +31,46 @@ class DonutLegendView @JvmOverloads constructor(
         orientation = VERTICAL
     }
 
+    /**
+     * Strips whatever leading words are common to every label in the
+     * group before display. Real-world portfolios are often
+     * single-AMC-heavy (e.g. several "Nippon India ..." funds), and a
+     * fixed-width chip's end-ellipsis was truncating every single one
+     * down to the identical, useless "Nippon Indi…" - the shared AMC
+     * name, not the actually distinguishing part of the fund's name.
+     * This is intentionally generic (no AMC names hardcoded): it just
+     * finds the longest common leading word sequence across whatever
+     * labels are actually being shown, so it does the right thing
+     * whether the shared prefix is an AMC name, a common share class
+     * suffix pattern, or nothing at all (single-fund or already-diverse
+     * portfolios are left untouched).
+     */
+    private fun commonLeadingWordCount(labels: List<String>): Int {
+        if (labels.size < 2) return 0
+        val wordLists = labels.map { it.trim().split(Regex("\\s+")) }
+        val shortest = wordLists.minOf { it.size }
+        var count = 0
+        while (count < shortest) {
+            val word = wordLists[0][count].lowercase(Locale.ROOT)
+            if (wordLists.all { it[count].lowercase(Locale.ROOT) == word }) {
+                count++
+            } else {
+                break
+            }
+        }
+        // Never strip EVERY word of the shortest label - that would
+        // leave one chip blank while its siblings still show their
+        // remaining distinguishing words.
+        return count.coerceAtMost(shortest - 1)
+    }
+
+    private fun stripLeadingWords(text: String, count: Int): String {
+        if (count <= 0) return text
+        val words = text.trim().split(Regex("\\s+"))
+        if (count >= words.size) return text
+        return words.drop(count).joinToString(" ")
+    }
+
     fun setSlices(slices: List<DonutChartView.Slice>) {
         removeAllViews()
         orientation = if (chipMode) HORIZONTAL else VERTICAL
@@ -38,6 +78,9 @@ class DonutLegendView @JvmOverloads constructor(
         val textColor = ContextCompat.getColor(context, R.color.colorOnSurface)
         val positive = slices.filter { it.percent > 0f }
         val density = resources.displayMetrics.density
+
+        val shortenedLabels = positive.map { FundNameFormatter.shorten(it.label) }
+        val skipWords = commonLeadingWordCount(shortenedLabels)
 
         for ((index, slice) in positive.withIndex()) {
             val row = LinearLayout(context).apply {
@@ -70,16 +113,18 @@ class DonutLegendView @JvmOverloads constructor(
             }
 
             val label = TextView(context).apply {
-                text = FundNameFormatter.shorten(slice.label)
+                text = stripLeadingWords(shortenedLabels[index], skipWords)
                 textSize = 13f
                 setTextColor(textColor)
                 maxLines = 1
                 ellipsize = android.text.TextUtils.TruncateAt.END
                 if (chipMode) {
                     // Fixed max width per chip so a long fund name can't
-                    // make one chip dominate the row - it's already
-                    // fully readable in the holding card right below.
-                    layoutParams = LayoutParams((90 * density).toInt(), LayoutParams.WRAP_CONTENT)
+                    // make one chip dominate the row - with the shared
+                    // AMC prefix already stripped above, what's left to
+                    // show here is the part that actually distinguishes
+                    // this fund from its siblings.
+                    layoutParams = LayoutParams((130 * density).toInt(), LayoutParams.WRAP_CONTENT)
                 } else {
                     layoutParams = LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f)
                 }
