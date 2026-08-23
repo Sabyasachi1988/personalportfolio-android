@@ -1387,3 +1387,24 @@ func ComputeProgression(portfolioJSON string, memberID string, axis string, toda
 	}
 	return string(out)
 }
+
+// ComputeAssetProgression is ComputeProgression's single-fund
+// counterpart - see finance.ComputeAssetProgression's doc comment.
+func ComputeAssetProgression(portfolioJSON string, assetID string, today string) string {
+	var p store.Portfolio
+	if portfolioJSON != "" {
+		if err := json.Unmarshal([]byte(portfolioJSON), &p); err != nil {
+			return fmt.Sprintf(`{"error":%q}`, "invalid portfolio JSON: "+err.Error())
+		}
+	}
+	t, err := time.Parse("2006-01-02", today)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, "invalid today date: "+err.Error())
+	}
+	points := finance.ComputeAssetProgression(&p, assetID, t)
+	out, err := json.Marshal(points)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+	return string(out)
+}
