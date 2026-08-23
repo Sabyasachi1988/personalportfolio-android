@@ -171,6 +171,9 @@ func TestRemoveDuplicateTransactions_RemovesExactDuplicatesKeepsGenuineOnes(t *t
 	if g.AssetName != "NAVI ELSS Tax Saver Nifty 50 Index Fund" {
 		t.Errorf("group.AssetName = %q, want the asset's actual name", g.AssetName)
 	}
+	if g.Confidence != "heuristic" {
+		t.Errorf("group.Confidence = %q, want heuristic (no Description/reference was set on either transaction)", g.Confidence)
+	}
 	if len(wrapped.Portfolio.Transactions) != 2 {
 		t.Fatalf("expected 2 transactions remaining, got %d: %+v", len(wrapped.Portfolio.Transactions), wrapped.Portfolio.Transactions)
 	}
@@ -180,6 +183,183 @@ func TestRemoveDuplicateTransactions_RemovesExactDuplicatesKeepsGenuineOnes(t *t
 	}
 	if !dates["2025-01-03"] || !dates["2025-01-10"] {
 		t.Errorf("expected both distinct dates to survive, got transactions: %+v", wrapped.Portfolio.Transactions)
+	}
+}
+
+func TestTransactionsMatch_DifferentReferencesAreNeverDuplicatesEvenIfAmountsMatch(t *testing.T) {
+	units := 5.409
+	// Two GENUINELY different real-world purchases - same fund, same
+	// day, same amount, same units (this happens naturally: mutual fund
+	// NAV is fixed per day, so two separate ₹24,998.75 purchases on the
+	// same day produce identical units too) - but with two different
+	// real Trxn.Ref.No. references, taken verbatim from the actual CAS
+	// statement's own description text. This is exactly the case raised:
+	// must NOT be treated as a duplicate.
+	a := store.StoredTransaction{
+		AssetID: "asset-1", Date: "2025-07-01", Type: store.Purchase, Amount: 24998.75, Units: &units,
+		Description: "Purchase Trxn.Ref.No.pay_QnjoMAgGPZYGW0//Icici Bank Limited - 036001076406//netbanking",
+	}
+	b := store.StoredTransaction{
+		AssetID: "asset-1", Date: "2025-07-01", Type: store.Purchase, Amount: 24998.75, Units: &units,
+		Description: "Purchase Trxn.Ref.No.pay_QqVpg1ZAdY7AL1//Icici Bank Limited - 036001076406//netbanking",
+	}
+	if transactionsMatch(a, b) {
+		t.Error("transactionsMatch = true, want false - different genuine references must never be treated as the same transaction")
+	}
+}
+
+func TestTransactionsMatch_SameReferenceIsAlwaysADuplicate(t *testing.T) {
+	units := 5.409
+	desc := "Purchase Trxn.Ref.No.pay_QnjoMAgGPZYGW0//Icici Bank Limited - 036001076406//netbanking"
+	a := store.StoredTransaction{AssetID: "asset-1", Date: "2025-07-01", Type: store.Purchase, Amount: 24998.75, Units: &units, Description: desc}
+	b := store.StoredTransaction{AssetID: "asset-1", Date: "2025-07-01", Type: store.Purchase, Amount: 24998.75, Units: &units, Description: desc}
+	if !transactionsMatch(a, b) {
+		t.Error("transactionsMatch = false, want true - identical reference means the same real-world transaction")
+	}
+}
+
+func TestTransactionsMatch_SipInstallmentsHaveNoReferenceAndFallBackToHeuristic(t *testing.T) {
+	units := 595.435
+	// Real "Sys. Investment ISIP" description text from the actual CAS
+	// statement - these never carry a Trxn.Ref.No., so the heuristic
+	// fallback is the only option here (the original ambiguity still
+	// applies to genuinely reference-less rows - there is no more
+	// signal available for these).
+	a := store.StoredTransaction{
+		AssetID: "asset-1", Date: "2025-02-10", Type: store.Purchase, Amount: 24998.75, Units: &units,
+		Description: "Sys. Investment ISIP (2/28)",
+	}
+	b := store.StoredTransaction{
+		AssetID: "asset-1", Date: "2025-02-10", Type: store.Purchase, Amount: 24998.75, Units: &units,
+		Description: "Sys. Investment ISIP (2/28)",
+	}
+	if !transactionsMatch(a, b) {
+		t.Error("transactionsMatch = false, want true - identical date/amount/units with no reference on either side falls back to the heuristic match")
+	}
+}
+
+func TestRemoveDuplicateTransactions_ReferenceBasedGroupIsLabeledReference(t *testing.T) {
+	units := 5.409
+	desc := "Purchase Trxn.Ref.No.pay_QnjoMAgGPZYGW0//Icici Bank Limited - 036001076406//netbanking"
+	p := &store.Portfolio{
+		Assets: []store.Asset{{ID: "asset-1", ISIN: "INF204K01E54", Name: "Nippon India Growth Mid Cap Fund"}},
+		Transactions: []store.StoredTransaction{
+			{ID: "t1", AssetID: "asset-1", Date: "2025-07-01", Type: store.Purchase, Amount: 24998.75, Units: &units, Description: desc},
+			{ID: "t2", AssetID: "asset-1", Date: "2025-07-01", Type: store.Purchase, Amount: 24998.75, Units: &units, Description: desc},
+		},
+	}
+	pJSON, _ := json.Marshal(p)
+
+	result := RemoveDuplicateTransactions(string(pJSON))
+	var wrapped struct {
+		Removed int              `json:"removed"`
+		Groups  []DuplicateGroup `json:"groups"`
+	}
+	if err := json.Unmarshal([]byte(result), &wrapped); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if wrapped.Removed != 1 {
+		t.Fatalf("removed = %d, want 1", wrapped.Removed)
+	}
+	if len(wrapped.Groups) != 1 || wrapped.Groups[0].Confidence != "reference" {
+		t.Errorf("groups = %+v, want 1 group with Confidence=reference", wrapped.Groups)
+	}
+}
+
+func TestRemoveDuplicateTransactions_CsvReferenceMarkerAlsoGivesReferenceConfidence(t *testing.T) {
+	units := 1741.77
+	// The exact "[ref:...]" marker csvimport.go embeds when a CSV column
+	// maps to "reference" (e.g. Zerodha's trade_id) - different trade_id
+	// per row, so these must NOT be merged despite matching amount/units.
+	p := &store.Portfolio{
+		Assets: []store.Asset{{ID: "asset-1", ISIN: "INF959L01GR6", Name: "NAVI ELSS Tax Saver Nifty 50 Index Fund"}},
+		Transactions: []store.StoredTransaction{
+			{ID: "t1", AssetID: "asset-1", Date: "2025-01-03", Type: store.Purchase, Amount: 24998.75, Units: &units, Description: "buy NAVI ELSS [ref:1582636286]"},
+			{ID: "t2", AssetID: "asset-1", Date: "2025-01-03", Type: store.Purchase, Amount: 24998.75, Units: &units, Description: "buy NAVI ELSS [ref:9999999999]"},
+		},
+	}
+	pJSON, _ := json.Marshal(p)
+
+	result := RemoveDuplicateTransactions(string(pJSON))
+	var wrapped struct {
+		Removed int `json:"removed"`
+	}
+	if err := json.Unmarshal([]byte(result), &wrapped); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if wrapped.Removed != 0 {
+		t.Errorf("removed = %d, want 0 - two different trade_ids must never be collapsed into one", wrapped.Removed)
+	}
+}
+
+func TestTransactionsMatch_DifferentBalancesAreNeverDuplicatesEvenIfAmountAndUnitsMatch(t *testing.T) {
+	units := 1538.272
+	balA := 147909.211
+	balB := 149447.483
+	// This is a REAL pair from an actual CAS statement: a manual
+	// Purchase and a scheduled SIP installment landing on the same
+	// date, for the same amount, which (since mutual fund NAV is fixed
+	// per day) also produces identical units - genuinely two separate
+	// transactions, proven by the statement's own running balance
+	// column incrementing twice, not once.
+	a := store.StoredTransaction{
+		AssetID: "asset-1", Date: "2025-08-22", Type: store.Purchase, Amount: 12499.38, Units: &units, Balance: &balA,
+		Description: "Purchase Trxn.Ref.No.pay_R8IyQIDb1HyqSh//Icici Bank Limited - 036001076406//netbanking",
+	}
+	b := store.StoredTransaction{
+		AssetID: "asset-1", Date: "2025-08-22", Type: store.Purchase, Amount: 12499.38, Units: &units, Balance: &balB,
+		Description: "Sys. Investment ISIP (13/14)", // no reference at all - the case a reference alone can't catch
+	}
+	if transactionsMatch(a, b) {
+		t.Error("transactionsMatch = true, want false - different running balances prove these are two separate real transactions")
+	}
+}
+
+func TestTransactionsMatch_SameBalanceConfirmsADuplicate(t *testing.T) {
+	units := 595.435
+	bal := 595.435
+	// A true duplicate: same SIP installment description (no reference
+	// on either side), but the balance also matches, as it would for a
+	// genuine re-parse of the exact same source row.
+	a := store.StoredTransaction{
+		AssetID: "asset-1", Date: "2025-01-14", Type: store.PurchaseSIP, Amount: 24998.75, Units: &units, Balance: &bal,
+		Description: "Sys. Investment ISIP (1/28)",
+	}
+	b := store.StoredTransaction{
+		AssetID: "asset-1", Date: "2025-01-14", Type: store.PurchaseSIP, Amount: 24998.75, Units: &units, Balance: &bal,
+		Description: "Sys. Investment ISIP (1/28)",
+	}
+	if !transactionsMatch(a, b) {
+		t.Error("transactionsMatch = false, want true - identical date/amount/units/balance with no reference should still match")
+	}
+}
+
+func TestRemoveDuplicateTransactions_BalanceOnlyGroupIsLabeledBalance(t *testing.T) {
+	units := 595.435
+	bal := 595.435
+	desc := "Sys. Investment ISIP (1/28)" // no reference
+	p := &store.Portfolio{
+		Assets: []store.Asset{{ID: "asset-1", ISIN: "INF204K01H36", Name: "Nippon India Index Fund - Nifty 50 Plan"}},
+		Transactions: []store.StoredTransaction{
+			{ID: "t1", AssetID: "asset-1", Date: "2025-01-14", Type: store.PurchaseSIP, Amount: 24998.75, Units: &units, Balance: &bal, Description: desc},
+			{ID: "t2", AssetID: "asset-1", Date: "2025-01-14", Type: store.PurchaseSIP, Amount: 24998.75, Units: &units, Balance: &bal, Description: desc},
+		},
+	}
+	pJSON, _ := json.Marshal(p)
+
+	result := RemoveDuplicateTransactions(string(pJSON))
+	var wrapped struct {
+		Removed int              `json:"removed"`
+		Groups  []DuplicateGroup `json:"groups"`
+	}
+	if err := json.Unmarshal([]byte(result), &wrapped); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if wrapped.Removed != 1 {
+		t.Fatalf("removed = %d, want 1", wrapped.Removed)
+	}
+	if len(wrapped.Groups) != 1 || wrapped.Groups[0].Confidence != "balance" {
+		t.Errorf("groups = %+v, want 1 group with Confidence=balance", wrapped.Groups)
 	}
 }
 
