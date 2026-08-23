@@ -11,6 +11,122 @@ import (
 	"ledger/internal/store"
 )
 
+// extractPortfolio pulls the embedded portfolio JSON out of
+// CommitStagedRows' {"committed":N,"skippedDuplicates":N,"portfolio":{...}}
+// response shape, for tests that need to inspect or re-feed it.
+func extractPortfolio(t *testing.T, commitResult string) string {
+	t.Helper()
+	var wrapped struct {
+		Portfolio json.RawMessage `json:"portfolio"`
+	}
+	if err := json.Unmarshal([]byte(commitResult), &wrapped); err != nil {
+		t.Fatalf("CommitStagedRows result is not the expected wrapper shape: %v\nresult: %s", err, commitResult)
+	}
+	return string(wrapped.Portfolio)
+}
+
+func commitCounts(t *testing.T, commitResult string) (committed, skippedDuplicates int) {
+	t.Helper()
+	var wrapped struct {
+		Committed         int `json:"committed"`
+		SkippedDuplicates int `json:"skippedDuplicates"`
+	}
+	if err := json.Unmarshal([]byte(commitResult), &wrapped); err != nil {
+		t.Fatalf("CommitStagedRows result is not the expected wrapper shape: %v\nresult: %s", err, commitResult)
+	}
+	return wrapped.Committed, wrapped.SkippedDuplicates
+}
+
+func TestCommitStagedRows_ReimportingSameStatementDoesNotDuplicate(t *testing.T) {
+	units := 5.386
+	makeRows := func() string {
+		rows := []casimport.StagedRow{
+			{
+				Txn: store.Transaction{
+					Date: "2025-07-01", Description: "Purchase", Amount: 24998.75,
+					Units: &units, Type: store.PurchaseSIP,
+					Scheme: "NIPPON INDIA GROWTH MID CAP FUND", ISIN: "INF204K01E54",
+				},
+				Status: "NEW",
+			},
+			{
+				Txn: store.Transaction{
+					Date: "2025-07-15", Description: "Purchase", Amount: 15000,
+					Units: nil, Type: store.PurchaseSIP, // no Units, like a tax/fee line - must still dedupe on Date+Type+Amount alone
+					Scheme: "NIPPON INDIA GROWTH MID CAP FUND", ISIN: "INF204K01E54",
+				},
+				Status: "NEW",
+			},
+		}
+		b, _ := json.Marshal(rows)
+		return string(b)
+	}
+
+	// This is the exact scenario reported: the person accidentally
+	// imports the same consolidated account statement PDF a second time.
+	// The freshly-parsed rows are indistinguishable from the first
+	// import's at the PARSE level (both come back Status "NEW", since
+	// parsing has no visibility into what's already stored) - the
+	// dedup has to happen here, at commit time, against what's already
+	// in the portfolio.
+	afterFirst := CommitStagedRows("", makeRows(), "Me")
+	firstCommitted, firstSkipped := commitCounts(t, afterFirst)
+	if firstCommitted != 2 || firstSkipped != 0 {
+		t.Fatalf("first import: committed=%d skippedDuplicates=%d, want 2 and 0", firstCommitted, firstSkipped)
+	}
+
+	afterSecond := CommitStagedRows(extractPortfolio(t, afterFirst), makeRows(), "Me")
+	secondCommitted, secondSkipped := commitCounts(t, afterSecond)
+	if secondCommitted != 0 {
+		t.Errorf("second (duplicate) import: committed=%d, want 0 - nothing new should be added", secondCommitted)
+	}
+	if secondSkipped != 2 {
+		t.Errorf("second (duplicate) import: skippedDuplicates=%d, want 2 - both rows should be recognized as already present", secondSkipped)
+	}
+
+	var p store.Portfolio
+	if err := json.Unmarshal([]byte(extractPortfolio(t, afterSecond)), &p); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if len(p.Transactions) != 2 {
+		t.Fatalf("expected exactly 2 transactions total after importing the same statement twice, got %d - the portfolio was doubled", len(p.Transactions))
+	}
+	if len(p.Assets) != 1 {
+		t.Errorf("expected exactly 1 Asset, got %d", len(p.Assets))
+	}
+}
+
+func TestCommitStagedRows_GenuinelyDifferentTransactionsAreNotTreatedAsDuplicates(t *testing.T) {
+	unitsA := 5.386
+	unitsB := 6.1
+	rows := []casimport.StagedRow{
+		{
+			Txn: store.Transaction{
+				Date: "2025-07-01", Amount: 24998.75, Units: &unitsA, Type: store.PurchaseSIP,
+				Scheme: "SAME FUND", ISIN: "INF204K01E54",
+			},
+			Status: "NEW",
+		},
+		{
+			// Same date, same fund, but a different amount and units - a
+			// second, genuine SIP top-up on the same day is plausible and
+			// must NOT be collapsed into the first row.
+			Txn: store.Transaction{
+				Date: "2025-07-01", Amount: 30000, Units: &unitsB, Type: store.PurchaseSIP,
+				Scheme: "SAME FUND", ISIN: "INF204K01E54",
+			},
+			Status: "NEW",
+		},
+	}
+	rowsJSON, _ := json.Marshal(rows)
+
+	result := CommitStagedRows("", string(rowsJSON), "Me")
+	committed, skipped := commitCounts(t, result)
+	if committed != 2 || skipped != 0 {
+		t.Fatalf("committed=%d skippedDuplicates=%d, want 2 and 0 - two genuinely different transactions must both be kept", committed, skipped)
+	}
+}
+
 func TestCommitStagedRows_CreatesLinkedTransactions(t *testing.T) {
 	units := 5.386
 	rows := []casimport.StagedRow{
@@ -33,8 +149,8 @@ func TestCommitStagedRows_CreatesLinkedTransactions(t *testing.T) {
 	result := CommitStagedRows("", string(rowsJSON), "Me")
 
 	var p store.Portfolio
-	if err := json.Unmarshal([]byte(result), &p); err != nil {
-		t.Fatalf("CommitStagedRows returned invalid JSON: %v\nresult: %s", err, result)
+	if err := json.Unmarshal([]byte(extractPortfolio(t, result)), &p); err != nil {
+		t.Fatalf("CommitStagedRows returned invalid portfolio JSON: %v\nresult: %s", err, result)
 	}
 
 	if len(p.Members) != 1 || p.Members[0].Name != "Me" {
@@ -61,6 +177,14 @@ func TestCommitStagedRows_CreatesLinkedTransactions(t *testing.T) {
 	if txn.Source != "CAS_IMPORT" {
 		t.Errorf("transaction Source = %q, want CAS_IMPORT", txn.Source)
 	}
+
+	committed, skipped := commitCounts(t, result)
+	if committed != 1 {
+		t.Errorf("committed = %d, want 1", committed)
+	}
+	if skipped != 0 {
+		t.Errorf("skippedDuplicates = %d, want 0 (the second row was never NEW, so it's not a commit-time duplicate - it's filtered before reaching this logic)", skipped)
+	}
 }
 
 func TestCommitStagedRows_ReimportReusesExistingAssetAndAccount(t *testing.T) {
@@ -80,12 +204,13 @@ func TestCommitStagedRows_ReimportReusesExistingAssetAndAccount(t *testing.T) {
 	// First commit, starting from an empty portfolio.
 	afterFirst := CommitStagedRows("", makeRows("2025-01-01"), "Me")
 
-	// Second commit, starting from the first commit's own output - as the
-	// real app would do on a second CAS import.
-	afterSecond := CommitStagedRows(afterFirst, makeRows("2025-02-01"), "Me")
+	// Second commit, starting from the first commit's own embedded
+	// portfolio - as the real app does (see ImportActivity.kt, which
+	// extracts .portfolio before calling savePortfolio/re-committing).
+	afterSecond := CommitStagedRows(extractPortfolio(t, afterFirst), makeRows("2025-02-01"), "Me")
 
 	var p store.Portfolio
-	if err := json.Unmarshal([]byte(afterSecond), &p); err != nil {
+	if err := json.Unmarshal([]byte(extractPortfolio(t, afterSecond)), &p); err != nil {
 		t.Fatalf("invalid JSON: %v", err)
 	}
 
@@ -310,10 +435,10 @@ func TestCommitStagedRows_TwoDifferentMembersSameISINGetSeparateAssets(t *testin
 	// The person imports their own CAS, then imports their mother's CAS
 	// into the SAME portfolio file - both happen to hold the same fund.
 	afterMe := CommitStagedRows("", makeRows(), "Me")
-	afterBoth := CommitStagedRows(afterMe, makeRows(), "Mom")
+	afterBoth := CommitStagedRows(extractPortfolio(t, afterMe), makeRows(), "Mom")
 
 	var p store.Portfolio
-	if err := json.Unmarshal([]byte(afterBoth), &p); err != nil {
+	if err := json.Unmarshal([]byte(extractPortfolio(t, afterBoth)), &p); err != nil {
 		t.Fatalf("invalid JSON: %v", err)
 	}
 
