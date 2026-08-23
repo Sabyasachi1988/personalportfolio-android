@@ -745,6 +745,28 @@ func TestUpdateHistoricalNav_RejectsUnknownAssetAndEmptyISIN(t *testing.T) {
 	}
 }
 
+func TestUpdateHistoricalPrice_RejectsUnknownAssetAndEmptySymbol(t *testing.T) {
+	p := &store.Portfolio{
+		Assets: []store.Asset{{ID: "a1", Name: "Nippon India ETF Nifty 50 BeES", Symbol: "NIFTYBEES.NS"}},
+	}
+	pJSON, _ := json.Marshal(p)
+
+	badAsset := UpdateHistoricalPrice(string(pJSON), "a-nonexistent", "NIFTYBEES.NS", "2024-01-01")
+	if !isBridgeErrorForTest(badAsset) {
+		t.Fatalf("expected an error for a nonexistent asset, got: %s", badAsset)
+	}
+
+	badSymbol := UpdateHistoricalPrice(string(pJSON), "a1", "", "2024-01-01")
+	if !isBridgeErrorForTest(badSymbol) {
+		t.Fatalf("expected an error for an empty symbol, got: %s", badSymbol)
+	}
+
+	// Same validation-only shape as UpdateHistoricalNav - this test
+	// deliberately does not exercise the actual network fetch (see
+	// FetchYahooAdjClose's doc comment on why that can't be verified
+	// live from this sandbox).
+}
+
 func TestAddAccount_CreatesAndValidatesMember(t *testing.T) {
 	p := &store.Portfolio{Members: []store.Member{{ID: "m1", Name: "Saby"}}}
 	pJSON, _ := json.Marshal(p)
