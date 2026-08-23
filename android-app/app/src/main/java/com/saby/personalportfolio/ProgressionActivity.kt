@@ -1,12 +1,11 @@
 package com.saby.personalportfolio
 
 import android.os.Bundle
-import android.widget.AdapterView
-import android.widget.ArrayAdapter
+import android.view.View
 import android.widget.SeekBar
-import android.widget.Spinner
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.widget.PopupMenu
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import com.ledger.bridge.Bridge
@@ -19,9 +18,9 @@ class ProgressionActivity : AppCompatActivity() {
     private val gson = Gson()
     private val isoFormat = SimpleDateFormat("yyyy-MM-dd", Locale.US)
 
-    private lateinit var memberSpinner: Spinner
-    private lateinit var axisSpinner: Spinner
-    private lateinit var currencySpinner: Spinner
+    private lateinit var memberTab: TextView
+    private lateinit var axisTab: TextView
+    private lateinit var currencyTab: TextView
     private lateinit var statusText: TextView
     private lateinit var spanText: TextView
     private lateinit var dateText: TextView
@@ -31,11 +30,17 @@ class ProgressionActivity : AppCompatActivity() {
     private lateinit var xirrText: TextView
     private lateinit var chart: ProgressionChartView
     private lateinit var seekBar: SeekBar
+    private lateinit var resetZoomButton: TextView
 
     // Index 0 is always "All (family)" (empty memberID); indices 1.. map 1:1 with memberIds - same convention as HoldingsActivity.
     private var memberIds: List<String> = emptyList()
+    private var memberLabels: List<String> = emptyList()
     private var points: List<ProgressionPoint> = emptyList()
     private var currentAxis: ProgressionAxis = ProgressionAxis.WHOLE_PORTFOLIO
+
+    private var selectedMemberIndex = 0
+    private var selectedAxisIndex = 0
+    private var selectedCurrencyIndex = 0
 
     // Guards against the chart's onScrub and the SeekBar's listener
     // re-triggering each other in a feedback loop when one drives the
@@ -46,30 +51,32 @@ class ProgressionActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_progression)
 
-        memberSpinner = findViewById(R.id.progressionMemberSpinner)
-        axisSpinner = findViewById(R.id.progressionAxisSpinner)
-        currencySpinner = findViewById(R.id.progressionCurrencySpinner)
+        memberTab = findViewById(R.id.progressionMemberTab)
+        axisTab = findViewById(R.id.progressionAxisTab)
+        currencyTab = findViewById(R.id.progressionCurrencyTab)
         statusText = findViewById(R.id.progressionStatusText)
         spanText = findViewById(R.id.progressionSpanText)
-        dateText = findViewById(R.id.progressionDateText)
-        investedText = findViewById(R.id.progressionInvestedText)
-        valueText = findViewById(R.id.progressionValueText)
-        gainText = findViewById(R.id.progressionGainText)
-        xirrText = findViewById(R.id.progressionXirrText)
+        dateText = findViewById(R.id.statsCardDate)
+        investedText = findViewById(R.id.statsCardInvested)
+        valueText = findViewById(R.id.statsCardValue)
+        gainText = findViewById(R.id.statsCardGain)
+        xirrText = findViewById(R.id.statsCardXirr)
         chart = findViewById(R.id.progressionChart)
         seekBar = findViewById(R.id.progressionSeekBar)
+        resetZoomButton = findViewById(R.id.progressionResetZoomButton)
 
-        axisSpinner.adapter = ArrayAdapter(
-            this, android.R.layout.simple_spinner_dropdown_item, ProgressionAxis.entries.map { it.label }
-        )
-        currencySpinner.adapter = ArrayAdapter(
-            this, android.R.layout.simple_spinner_dropdown_item, DisplayCurrency.entries.map { it.label }
-        )
+        // Progression's card shows Date and Invested, which the shared
+        // card hides by default (only this screen browses point-in-time,
+        // so only this screen needs a Date line).
+        dateText.visibility = View.VISIBLE
+        investedText.visibility = View.VISIBLE
 
-        val reload = { _: AdapterView<*>?, _: android.view.View?, _: Int, _: Long -> loadAndShowProgression(); Unit }
-        memberSpinner.onItemSelectedListener = simpleSelectionListener(reload)
-        axisSpinner.onItemSelectedListener = simpleSelectionListener(reload)
-        currencySpinner.onItemSelectedListener = simpleSelectionListener { _, _, _, _ -> updateDetailCard(seekBar.progress) }
+        axisTab.text = ProgressionAxis.entries[selectedAxisIndex].label
+        currencyTab.text = DisplayCurrency.entries[selectedCurrencyIndex].label
+
+        memberTab.setOnClickListener { showMemberPicker() }
+        axisTab.setOnClickListener { showAxisPicker() }
+        currencyTab.setOnClickListener { showCurrencyPicker() }
 
         chart.onScrub = { index ->
             if (!syncingScrub) {
@@ -79,6 +86,10 @@ class ProgressionActivity : AppCompatActivity() {
             }
             updateDetailCard(index)
         }
+        chart.onZoomChanged = { zoomed ->
+            resetZoomButton.visibility = if (zoomed) View.VISIBLE else View.GONE
+        }
+        resetZoomButton.setOnClickListener { chart.resetZoom() }
         seekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(bar: SeekBar?, progress: Int, fromUser: Boolean) {
                 if (fromUser && !syncingScrub) {
@@ -103,17 +114,46 @@ class ProgressionActivity : AppCompatActivity() {
         // its nav bar could keep showing a stale selection - same
         // pattern as every other bottom-nav screen.
         BottomNavHelper.setup(this, findViewById(R.id.bottomNav), BottomNavDestination.PROGRESSION)
-        loadMemberSpinner()
+        loadMemberList()
     }
 
-    private fun simpleSelectionListener(onSelected: (AdapterView<*>?, android.view.View?, Int, Long) -> Unit) =
-        object : AdapterView.OnItemSelectedListener {
-            override fun onItemSelected(parent: AdapterView<*>?, view: android.view.View?, position: Int, id: Long) =
-                onSelected(parent, view, position, id)
-            override fun onNothingSelected(parent: AdapterView<*>?) {}
+    private fun showMemberPicker() {
+        val popup = PopupMenu(this, memberTab)
+        memberLabels.forEachIndexed { index, label -> popup.menu.add(0, index, index, label) }
+        popup.setOnMenuItemClickListener { item ->
+            selectedMemberIndex = item.itemId
+            memberTab.text = memberLabels.getOrElse(selectedMemberIndex) { "All (family)" }
+            loadAndShowProgression()
+            true
         }
+        popup.show()
+    }
 
-    private fun loadMemberSpinner() {
+    private fun showAxisPicker() {
+        val popup = PopupMenu(this, axisTab)
+        ProgressionAxis.entries.forEachIndexed { index, axis -> popup.menu.add(0, index, index, axis.label) }
+        popup.setOnMenuItemClickListener { item ->
+            selectedAxisIndex = item.itemId
+            axisTab.text = ProgressionAxis.entries[selectedAxisIndex].label
+            loadAndShowProgression()
+            true
+        }
+        popup.show()
+    }
+
+    private fun showCurrencyPicker() {
+        val popup = PopupMenu(this, currencyTab)
+        DisplayCurrency.entries.forEachIndexed { index, currency -> popup.menu.add(0, index, index, currency.label) }
+        popup.setOnMenuItemClickListener { item ->
+            selectedCurrencyIndex = item.itemId
+            currencyTab.text = DisplayCurrency.entries[selectedCurrencyIndex].label
+            updateDetailCard(seekBar.progress)
+            true
+        }
+        popup.show()
+    }
+
+    private fun loadMemberList() {
         val portfolioPath = PortfolioStorage.filePath(this)
         val portfolioJson = Bridge.loadPortfolio(portfolioPath)
         val membersJson = Bridge.listMembers(portfolioJson)
@@ -125,11 +165,10 @@ class ProgressionActivity : AppCompatActivity() {
             emptyList()
         }
 
-        val previousSelection = memberSpinner.selectedItemPosition.takeIf { it >= 0 } ?: 0
         memberIds = listOf("") + members.map { it.id }
-        val labels = listOf("All (family)") + members.map { it.name }
-        memberSpinner.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, labels)
-        memberSpinner.setSelection(previousSelection.coerceAtMost(memberIds.size - 1))
+        memberLabels = listOf("All (family)") + members.map { it.name }
+        selectedMemberIndex = selectedMemberIndex.coerceAtMost(memberIds.size - 1).coerceAtLeast(0)
+        memberTab.text = memberLabels.getOrElse(selectedMemberIndex) { "All (family)" }
 
         loadAndShowProgression()
     }
@@ -137,9 +176,9 @@ class ProgressionActivity : AppCompatActivity() {
     private fun isBridgeError(json: String): Boolean = json.trimStart().startsWith("{\"error\"")
 
     private fun loadAndShowProgression() {
-        if (memberIds.isEmpty()) return // spinner not populated yet - loadMemberSpinner will call back in
-        val memberId = memberIds.getOrElse(memberSpinner.selectedItemPosition) { "" }
-        currentAxis = ProgressionAxis.entries[axisSpinner.selectedItemPosition.coerceIn(0, ProgressionAxis.entries.size - 1)]
+        if (memberIds.isEmpty()) return // list not populated yet - loadMemberList will call back in
+        val memberId = memberIds.getOrElse(selectedMemberIndex) { "" }
+        currentAxis = ProgressionAxis.entries[selectedAxisIndex.coerceIn(0, ProgressionAxis.entries.size - 1)]
 
         val portfolioPath = PortfolioStorage.filePath(this)
         val portfolioJson = Bridge.loadPortfolio(portfolioPath)
@@ -222,7 +261,7 @@ class ProgressionActivity : AppCompatActivity() {
 
     private fun updateDetailCard(index: Int) {
         val p = points.getOrNull(index) ?: return
-        val display = DisplayCurrency.entries[currencySpinner.selectedItemPosition.coerceIn(0, DisplayCurrency.entries.size - 1)]
+        val display = DisplayCurrency.entries[selectedCurrencyIndex.coerceIn(0, DisplayCurrency.entries.size - 1)]
 
         dateText.text = p.date
         valueText.text = ProgressionCurrency.format(
