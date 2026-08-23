@@ -11,7 +11,8 @@ data class AssetSummary(
     @SerializedName("Name") val name: String,
     @SerializedName("ISIN") val isin: String,
     @SerializedName("Symbol") val symbol: String = "",
-    @SerializedName("Type") val type: String = ""
+    @SerializedName("Type") val type: String = "",
+    @SerializedName("ETMoneyURL") val etMoneyUrl: String = ""
 )
 
 data class AccountSummary(
@@ -39,6 +40,18 @@ data class CapCompositionEntry(
     @SerializedName("Cash") val cash: Double,
     @SerializedName("AsOf") val asOf: String,
     @SerializedName("Source") val source: String
+)
+
+// Mirrors priceapi.CapCompositionResult (Go) - the raw fetched
+// percentages from an ETMoney fund page, before the person reviews and
+// saves them (see FetchCapCompositionFromETMoney's doc comment: this is
+// a best-effort parse, not guaranteed correct).
+data class ETMoneyFetchResult(
+    @SerializedName("Large") val large: Double,
+    @SerializedName("Mid") val mid: Double,
+    @SerializedName("Small") val small: Double,
+    @SerializedName("Cash") val cash: Double,
+    @SerializedName("MatchedSum") val matchedSum: Double
 )
 
 data class StoredTransactionEntry(
