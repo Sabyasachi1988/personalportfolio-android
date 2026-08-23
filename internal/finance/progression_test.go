@@ -1,0 +1,251 @@
+package finance
+
+import (
+	"testing"
+	"time"
+
+	"ledger/internal/store"
+)
+
+func units(v float64) *float64 { return &v }
+
+func TestWeeklyDates_BasicRange(t *testing.T) {
+	p := &store.Portfolio{
+		Transactions: []store.StoredTransaction{
+			{Date: "2024-01-10"}, // a Wednesday
+		},
+	}
+	today := time.Date(2024, 1, 31, 0, 0, 0, 0, time.UTC) // a Wednesday
+
+	dates := WeeklyDates(p, today)
+
+	// First Monday on/after 2024-01-10 is 2024-01-15.
+	// Mondays: 01-15, 01-22, 01-29, then today (01-31) appended since it's not a Monday.
+	want := []string{"2024-01-15", "2024-01-22", "2024-01-29", "2024-01-31"}
+	if len(dates) != len(want) {
+		t.Fatalf("got %v, want %v", dates, want)
+	}
+	for i := range want {
+		if dates[i] != want[i] {
+			t.Errorf("dates[%d] = %s, want %s", i, dates[i], want[i])
+		}
+	}
+}
+
+func TestWeeklyDates_TodayIsMonday_NotDuplicated(t *testing.T) {
+	p := &store.Portfolio{
+		Transactions: []store.StoredTransaction{{Date: "2024-01-01"}},
+	}
+	today := time.Date(2024, 1, 15, 0, 0, 0, 0, time.UTC) // a Monday
+
+	dates := WeeklyDates(p, today)
+	last := dates[len(dates)-1]
+	if last != "2024-01-15" {
+		t.Errorf("last date = %s, want 2024-01-15", last)
+	}
+	// Must not appear twice.
+	count := 0
+	for _, d := range dates {
+		if d == "2024-01-15" {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Errorf("2024-01-15 appears %d times, want 1", count)
+	}
+}
+
+func TestWeeklyDates_NoTransactions_ReturnsNil(t *testing.T) {
+	p := &store.Portfolio{}
+	dates := WeeklyDates(p, time.Now())
+	if len(dates) != 0 {
+		t.Errorf("expected no dates for empty portfolio, got %v", dates)
+	}
+}
+
+func TestClassifyForeignAsset(t *testing.T) {
+	cases := map[string]string{
+		"iShares Gold ETF":        "Commodity",
+		"SPDR S&P 500 ETF Trust":  "Equity",
+		"Vanguard Total Bond ETF": "Debt",
+		"Apple Inc":               "Equity",
+	}
+	for name, want := range cases {
+		if got := classifyForeignAsset(name); got != want {
+			t.Errorf("classifyForeignAsset(%q) = %s, want %s", name, got, want)
+		}
+	}
+}
+
+// buildMixedPortfolio sets up one Indian equity fund (large-cap heuristic
+// name, INR account) and one Canadian equity ETF (CAD account), each with
+// a single purchase and price history, plus FX history for CAD.
+func buildMixedPortfolio() *store.Portfolio {
+	p := &store.Portfolio{
+		Members: []store.Member{{ID: "m1", Name: "Saby"}},
+		Accounts: []store.Account{
+			{ID: "acc-in", MemberID: "m1", Name: "Nippon India", Currency: "INR"},
+			{ID: "acc-ca", MemberID: "m1", Name: "Questrade", Currency: "CAD"},
+		},
+		Assets: []store.Asset{
+			{ID: "a-in", AccountID: "acc-in", Name: "Nippon India Large Cap Fund", ISIN: "INF000IN001", Type: "MutualFund"},
+			{ID: "a-ca", AccountID: "acc-ca", Name: "Vanguard S&P 500 ETF", Type: "ETF", Symbol: "VFV.TO"},
+		},
+		Transactions: []store.StoredTransaction{
+			// Tuesday, not Monday: keeps the weekly checkpoint calendar to a
+			// single point (2024-01-22) for these fixture-based tests, since
+			// WeeklyDates starts from the Monday on/after the earliest txn.
+			{ID: "t1", AccountID: "acc-in", AssetID: "a-in", Date: "2024-01-16", Type: store.Purchase, Amount: 10000, Units: units(100)},
+			{ID: "t2", AccountID: "acc-ca", AssetID: "a-ca", Date: "2024-01-16", Type: store.Purchase, Amount: 1000, Units: units(10)},
+		},
+		Prices: []store.PriceRecord{
+			{AssetID: "a-in", Date: "2024-01-15", Price: 100},
+			{AssetID: "a-in", Date: "2024-01-22", Price: 110},
+			{AssetID: "a-ca", Date: "2024-01-15", Price: 100},
+			{AssetID: "a-ca", Date: "2024-01-22", Price: 105},
+		},
+		FXRates: []store.FXRate{
+			{Currency: "CAD", Date: "2024-01-15", INRPerUnit: 60.0},
+			{Currency: "CAD", Date: "2024-01-22", INRPerUnit: 61.0},
+		},
+	}
+	return p
+}
+
+func TestComputeProgression_WholePortfolio_CombinesBothCurrenciesInINR(t *testing.T) {
+	p := buildMixedPortfolio()
+	today := time.Date(2024, 1, 22, 0, 0, 0, 0, time.UTC) // a Monday
+
+	points := ComputeProgression(p, "", AxisWholePortfolio, today)
+	if len(points) != 1 {
+		t.Fatalf("expected 1 point, got %d: %v", len(points), points)
+	}
+	pt := points[0]
+
+	// Invested: 10000 INR (Indian) + 1000 CAD * 60 INR/CAD (historical rate on flow date) = 10000 + 60000 = 70000
+	wantInvested := 70000.0
+	if pt.Invested != wantInvested {
+		t.Errorf("Invested = %v, want %v", pt.Invested, wantInvested)
+	}
+
+	// Value as of 2024-01-22: Indian 100 units * 110 = 11000 INR.
+	// Canadian: 10 units * 105 CAD = 1050 CAD * 61 INR/CAD (rate as of THIS date, not the flow date) = 64050 INR.
+	wantValue := 11000.0 + 64050.0
+	if pt.Value != wantValue {
+		t.Errorf("Value = %v, want %v", pt.Value, wantValue)
+	}
+}
+
+func TestComputeProgression_IndianEquityAxis_ExcludesForeignHolding(t *testing.T) {
+	p := buildMixedPortfolio()
+	today := time.Date(2024, 1, 22, 0, 0, 0, 0, time.UTC)
+
+	points := ComputeProgression(p, "", AxisIndianEquity, today)
+	if len(points) != 1 {
+		t.Fatalf("expected 1 point, got %d", len(points))
+	}
+	pt := points[0]
+	if pt.Invested != 10000 {
+		t.Errorf("Invested = %v, want 10000 (Canadian holding must be excluded)", pt.Invested)
+	}
+	if pt.Value != 11000 {
+		t.Errorf("Value = %v, want 11000", pt.Value)
+	}
+}
+
+func TestComputeProgression_InternationalEquityAxis_OnlyForeignHolding(t *testing.T) {
+	p := buildMixedPortfolio()
+	today := time.Date(2024, 1, 22, 0, 0, 0, 0, time.UTC)
+
+	points := ComputeProgression(p, "", AxisInternationalEquity, today)
+	if len(points) != 1 {
+		t.Fatalf("expected 1 point, got %d", len(points))
+	}
+	pt := points[0]
+	wantInvested := 1000.0 * 60.0 // CAD amount converted at the flow's own historical FX rate
+	if pt.Invested != wantInvested {
+		t.Errorf("Invested = %v, want %v", pt.Invested, wantInvested)
+	}
+	wantValue := 10.0 * 105.0 * 61.0 // units * price(as-of) * FX(as-of THIS date)
+	if pt.Value != wantValue {
+		t.Errorf("Value = %v, want %v", pt.Value, wantValue)
+	}
+	if !pt.HasINRPerCAD || pt.INRPerCAD != 61.0 {
+		t.Errorf("INRPerCAD = %v (has=%v), want 61.0", pt.INRPerCAD, pt.HasINRPerCAD)
+	}
+}
+
+func TestComputeProgression_CombinedEquityAxis_SumsBoth(t *testing.T) {
+	p := buildMixedPortfolio()
+	today := time.Date(2024, 1, 22, 0, 0, 0, 0, time.UTC)
+
+	whole := ComputeProgression(p, "", AxisWholePortfolio, today)
+	combined := ComputeProgression(p, "", AxisCombinedEquity, today)
+	if len(whole) != 1 || len(combined) != 1 {
+		t.Fatalf("expected 1 point each")
+	}
+	// In this fixture every holding is equity, so Combined should equal Whole exactly.
+	if combined[0].Invested != whole[0].Invested || combined[0].Value != whole[0].Value {
+		t.Errorf("CombinedEquity = %+v, want to match WholePortfolio = %+v", combined[0], whole[0])
+	}
+}
+
+func TestComputeProgression_EquityOriginSplit_PartialInternational(t *testing.T) {
+	p := buildMixedPortfolio()
+	// The Indian fund is actually a fund-of-fund tracking a foreign index:
+	// 30% Indian, 70% International, per a real entered composition.
+	p.EquityOriginCompositions = []store.EquityOriginComposition{
+		{AssetID: "a-in", Indian: 30, International: 70, AsOf: "2026-01-01", Source: "test"},
+	}
+	today := time.Date(2024, 1, 22, 0, 0, 0, 0, time.UTC)
+
+	indian := ComputeProgression(p, "", AxisIndianEquity, today)
+	intl := ComputeProgression(p, "", AxisInternationalEquity, today)
+
+	// Indian axis should now carry only 30% of the Indian fund's value/invested.
+	wantIndianInvested := round2(10000 * 0.30)
+	if indian[0].Invested != wantIndianInvested {
+		t.Errorf("Indian Invested = %v, want %v", indian[0].Invested, wantIndianInvested)
+	}
+
+	// International axis: 70% of the Indian FoF's INR value/invested, PLUS the
+	// full Canadian ETF (which always counts 100% International).
+	wantIntlInvestedFromFoF := 10000 * 0.70
+	wantIntlInvestedFromCAD := 1000.0 * 60.0
+	wantIntlInvested := round2(wantIntlInvestedFromFoF + wantIntlInvestedFromCAD)
+	if intl[0].Invested != wantIntlInvested {
+		t.Errorf("International Invested = %v, want %v", intl[0].Invested, wantIntlInvested)
+	}
+}
+
+func TestComputeProgression_MissingFXHistory_ExcludesRatherThanGuesses(t *testing.T) {
+	p := buildMixedPortfolio()
+	p.FXRates = nil // no FX history fetched at all
+	today := time.Date(2024, 1, 22, 0, 0, 0, 0, time.UTC)
+
+	points := ComputeProgression(p, "", AxisWholePortfolio, today)
+	pt := points[0]
+	// Only the Indian leg should count; the Canadian leg is silently excluded
+	// for lack of an FX rate, not guessed at some default/zero rate.
+	if pt.Invested != 10000 {
+		t.Errorf("Invested = %v, want 10000 (Canadian leg excluded, no FX history)", pt.Invested)
+	}
+	if pt.Value != 11000 {
+		t.Errorf("Value = %v, want 11000", pt.Value)
+	}
+	if pt.HasINRPerCAD {
+		t.Errorf("HasINRPerCAD = true, want false (no FX history at all)")
+	}
+}
+
+func TestComputeProgression_MemberScoping(t *testing.T) {
+	p := buildMixedPortfolio()
+	p.Members = append(p.Members, store.Member{ID: "m2", Name: "Mother"})
+	p.Accounts[1].MemberID = "m2" // Canadian account belongs to a different member
+	today := time.Date(2024, 1, 22, 0, 0, 0, 0, time.UTC)
+
+	points := ComputeProgression(p, "m1", AxisWholePortfolio, today)
+	if points[0].Invested != 10000 {
+		t.Errorf("Invested = %v, want 10000 (m2's Canadian holding must be excluded)", points[0].Invested)
+	}
+}
