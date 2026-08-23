@@ -131,7 +131,7 @@ func TestRemoveDuplicateTransactions_RemovesExactDuplicatesKeepsGenuineOnes(t *t
 	unitsA := 1741.77
 	unitsB := 6.1
 	p := &store.Portfolio{
-		Assets: []store.Asset{{ID: "asset-1", ISIN: "INF959L01GR6"}},
+		Assets: []store.Asset{{ID: "asset-1", ISIN: "INF959L01GR6", Name: "NAVI ELSS Tax Saver Nifty 50 Index Fund"}},
 		Transactions: []store.StoredTransaction{
 			{ID: "t1", AssetID: "asset-1", Date: "2025-01-03", Type: store.Purchase, Amount: 24998.75, Units: &unitsA},
 			// Exact duplicate of t1 (e.g. the CSV was imported twice
@@ -151,14 +151,25 @@ func TestRemoveDuplicateTransactions_RemovesExactDuplicatesKeepsGenuineOnes(t *t
 	}
 
 	var wrapped struct {
-		Removed   int            `json:"removed"`
-		Portfolio store.Portfolio `json:"portfolio"`
+		Removed   int              `json:"removed"`
+		Groups    []DuplicateGroup `json:"groups"`
+		Portfolio store.Portfolio  `json:"portfolio"`
 	}
 	if err := json.Unmarshal([]byte(result), &wrapped); err != nil {
 		t.Fatalf("invalid JSON: %v", err)
 	}
 	if wrapped.Removed != 1 {
 		t.Errorf("removed = %d, want 1", wrapped.Removed)
+	}
+	if len(wrapped.Groups) != 1 {
+		t.Fatalf("expected 1 duplicate group, got %d: %+v", len(wrapped.Groups), wrapped.Groups)
+	}
+	g := wrapped.Groups[0]
+	if g.Date != "2025-01-03" || g.ExtraCopies != 1 || g.Amount != 24998.75 {
+		t.Errorf("group = %+v, want Date=2025-01-03 ExtraCopies=1 Amount=24998.75", g)
+	}
+	if g.AssetName != "NAVI ELSS Tax Saver Nifty 50 Index Fund" {
+		t.Errorf("group.AssetName = %q, want the asset's actual name", g.AssetName)
 	}
 	if len(wrapped.Portfolio.Transactions) != 2 {
 		t.Fatalf("expected 2 transactions remaining, got %d: %+v", len(wrapped.Portfolio.Transactions), wrapped.Portfolio.Transactions)
