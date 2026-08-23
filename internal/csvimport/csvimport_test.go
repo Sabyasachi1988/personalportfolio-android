@@ -1,6 +1,7 @@
 package csvimport
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -138,6 +139,38 @@ not-a-date,BAD ROW,INF000000002,buy,5,50
 	}
 	if len(result.ManualReview) != 1 {
 		t.Errorf("expected 1 manual review line (the bad date), got %d", len(result.ManualReview))
+	}
+}
+
+func TestParseCSV_TradeIDEmbeddedAsReferenceMarkerInDescription(t *testing.T) {
+	csvData := `trade_date,symbol,isin,trade_type,quantity,price,trade_id
+2025-01-03,SOME FUND,INF000000001,buy,10,100,1582636286
+`
+	result := ParseCSV([]byte(csvData))
+	if len(result.Staged) != 1 {
+		t.Fatalf("expected 1 staged row, got %d (manual review: %+v)", len(result.Staged), result.ManualReview)
+	}
+	desc := result.Staged[0].Txn.Description
+	if !strings.Contains(desc, "[ref:1582636286]") {
+		t.Errorf("Description = %q, want it to contain the trade_id as a [ref:...] marker", desc)
+	}
+}
+
+func TestParseCSV_MissingReferenceColumnStillWorksFine(t *testing.T) {
+	// Reference is optional - most non-Zerodha CSVs won't have a
+	// trade_id column at all, and that must not block the import.
+	csvData := `trade_date,symbol,isin,trade_type,quantity,price
+2025-01-03,SOME FUND,INF000000001,buy,10,100
+`
+	result := ParseCSV([]byte(csvData))
+	if len(result.ManualReview) != 0 {
+		t.Fatalf("expected no manual review lines, got %+v", result.ManualReview)
+	}
+	if len(result.Staged) != 1 {
+		t.Fatalf("expected 1 staged row, got %d", len(result.Staged))
+	}
+	if strings.Contains(result.Staged[0].Txn.Description, "[ref:") {
+		t.Errorf("Description = %q, should not contain a [ref:...] marker when there's no reference column", result.Staged[0].Txn.Description)
 	}
 }
 
