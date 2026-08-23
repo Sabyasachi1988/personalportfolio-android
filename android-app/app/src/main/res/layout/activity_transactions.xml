@@ -39,6 +39,13 @@
             android:layout_marginTop="12dp"
             android:text="Export as CSV" />
 
+        <Button
+            android:id="@+id/removeDuplicatesButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="Remove Duplicate Transactions" />
+
         <androidx.recyclerview.widget.RecyclerView
             android:id="@+id/transactionsRecyclerView"
             android:layout_width="match_parent"
