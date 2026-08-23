@@ -49,20 +49,20 @@ class ProgressionChartView @JvmOverloads constructor(
 
     private val investedPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        strokeWidth = 4f
+        strokeWidth = 3f * density
         strokeCap = Paint.Cap.ROUND
         strokeJoin = Paint.Join.ROUND
         color = ContextCompat.getColor(context, R.color.colorNeutral)
     }
     private val valuePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        strokeWidth = 6f
+        strokeWidth = 5f * density
         strokeCap = Paint.Cap.ROUND
         strokeJoin = Paint.Join.ROUND
     }
     private val scrubLinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        strokeWidth = 2f
+        strokeWidth = 1.5f * density
         color = ContextCompat.getColor(context, R.color.colorOnSurface)
         alpha = 100
     }
@@ -71,7 +71,7 @@ class ProgressionChartView @JvmOverloads constructor(
     }
     private val gridPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        strokeWidth = 1f
+        strokeWidth = 1f * density
         color = ContextCompat.getColor(context, R.color.colorOnSurface)
         alpha = 28
     }
@@ -82,7 +82,7 @@ class ProgressionChartView @JvmOverloads constructor(
     }
     private val axisTickPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        strokeWidth = 2f
+        strokeWidth = 1.5f * density
         color = ContextCompat.getColor(context, R.color.colorNeutral)
         alpha = 140
     }
@@ -192,9 +192,9 @@ class ProgressionChartView @JvmOverloads constructor(
 
             val p = points[scrubbedIndex]
             scrubDotPaint.color = investedPaint.color
-            canvas.drawCircle(x, yForValue(p.invested.toFloat(), minV, maxV), 8f, scrubDotPaint)
+            canvas.drawCircle(x, yForValue(p.invested.toFloat(), minV, maxV), 4f * density, scrubDotPaint)
             scrubDotPaint.color = valuePaint.color
-            canvas.drawCircle(x, yForValue(p.value.toFloat(), minV, maxV), 9f, scrubDotPaint)
+            canvas.drawCircle(x, yForValue(p.value.toFloat(), minV, maxV), 5.5f * density, scrubDotPaint)
         }
     }
 
