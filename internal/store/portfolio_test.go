@@ -72,6 +72,74 @@ func TestSaveCreatesBackupOfPreviousVersion(t *testing.T) {
 	}
 }
 
+func TestUpsertPrices_ReplacesSameDateInsteadOfDuplicating(t *testing.T) {
+	p := &Portfolio{
+		Prices: []PriceRecord{
+			{AssetID: "a1", Date: "2026-01-01", Price: 100, Source: "MANUAL"},
+		},
+	}
+	p.UpsertPrices([]PriceRecord{
+		{AssetID: "a1", Date: "2026-01-01", Price: 105, Source: "TIGZIG_HISTORY"}, // same date - should replace, not duplicate
+		{AssetID: "a1", Date: "2026-01-02", Price: 106, Source: "TIGZIG_HISTORY"}, // new date - should append
+	})
+	if len(p.Prices) != 2 {
+		t.Fatalf("expected 2 price records after upsert, got %d: %+v", len(p.Prices), p.Prices)
+	}
+	price, ok := p.PriceAsOf("a1", "2026-01-01")
+	if !ok || price != 105 {
+		t.Errorf("PriceAsOf(2026-01-01) = %v, %v; want 105, true (should reflect the replacement)", price, ok)
+	}
+}
+
+func TestPriceAsOf_IgnoresPricesAfterTheDate(t *testing.T) {
+	p := &Portfolio{
+		Prices: []PriceRecord{
+			{AssetID: "a1", Date: "2026-01-01", Price: 100},
+			{AssetID: "a1", Date: "2026-01-10", Price: 110},
+			{AssetID: "a1", Date: "2026-01-20", Price: 120},
+		},
+	}
+	// A date between two known points should pick the earlier one, not
+	// the nearer one - this is "what was it worth on this date", not
+	// nearest-neighbour interpolation.
+	price, ok := p.PriceAsOf("a1", "2026-01-15")
+	if !ok || price != 110 {
+		t.Errorf("PriceAsOf(2026-01-15) = %v, %v; want 110, true", price, ok)
+	}
+	// A date before any known price should find nothing.
+	_, ok = p.PriceAsOf("a1", "2025-12-01")
+	if ok {
+		t.Errorf("PriceAsOf(2025-12-01) should find nothing before the first known price")
+	}
+}
+
+func TestFXRateAsOf_INRIsAlwaysOne(t *testing.T) {
+	p := &Portfolio{}
+	rate, ok := p.FXRateAsOf("INR", "2020-01-01")
+	if !ok || rate != 1.0 {
+		t.Errorf("FXRateAsOf(INR) = %v, %v; want 1.0, true even with no stored rates", rate, ok)
+	}
+}
+
+func TestUpsertFXRates_ReplacesSameDateInsteadOfDuplicating(t *testing.T) {
+	p := &Portfolio{
+		FXRates: []FXRate{
+			{Date: "2026-01-01", Currency: "CAD", INRPerUnit: 60.0},
+		},
+	}
+	p.UpsertFXRates([]FXRate{
+		{Date: "2026-01-01", Currency: "CAD", INRPerUnit: 61.5}, // same date - should replace
+		{Date: "2026-01-02", Currency: "CAD", INRPerUnit: 61.7}, // new date - should append
+	})
+	if len(p.FXRates) != 2 {
+		t.Fatalf("expected 2 FX rate records after upsert, got %d: %+v", len(p.FXRates), p.FXRates)
+	}
+	rate, ok := p.FXRateAsOf("CAD", "2026-01-01")
+	if !ok || rate != 61.5 {
+		t.Errorf("FXRateAsOf(CAD, 2026-01-01) = %v, %v; want 61.5, true (should reflect the replacement)", rate, ok)
+	}
+}
+
 func TestFindAssetByISIN(t *testing.T) {
 	p := &Portfolio{Assets: []Asset{
 		{ID: "a1", ISIN: "INF204K01E54", Name: "Growth Mid Cap"},
