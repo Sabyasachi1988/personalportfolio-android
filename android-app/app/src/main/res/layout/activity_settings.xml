@@ -160,6 +160,38 @@
         android:layout_marginTop="20dp"
         android:text="Restore From Backup" />
 
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="#22000000"
+        android:layout_marginTop="32dp"
+        android:layout_marginBottom="32dp" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textSize="16sp"
+        android:textStyle="bold"
+        android:textColor="#C62828"
+        android:text="Danger Zone" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:textSize="13sp"
+        android:textColor="@color/colorNeutral"
+        android:text="Your portfolio may reappear automatically after uninstalling and reinstalling this app - that's Android's own Auto Backup feature restoring it from your Google account, not anything cached separately. Use this only if you deliberately want to start completely from scratch." />
+
+    <Button
+        android:id="@+id/wipeAllDataButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:backgroundTint="#C62828"
+        android:textColor="#FFFFFF"
+        android:text="Wipe All Portfolio Data" />
+
     <TextView
         android:id="@+id/settingsStatusText"
         android:layout_width="match_parent"
