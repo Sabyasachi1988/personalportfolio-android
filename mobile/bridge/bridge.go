@@ -611,6 +611,80 @@ func ComputeAllocationDrift(portfolioJSON string) string {
 	return fmt.Sprintf(`{"hasTarget":true,"drift":%s}`, string(driftJSON))
 }
 
+// UpdateHistoricalNav fetches a mutual fund asset's full NAV history
+// from TigZig (by ISIN) and merges it into the portfolio's cached
+// Prices, upserting rather than duplicating any date already present.
+// This is the manual "Update History" action for the Indian side of
+// the progression feature - not called automatically, same pattern as
+// the existing AMFI current-price refresh. Returns the updated
+// portfolio JSON, or a bridge error string if the asset doesn't exist
+// or the fetch/parse fails.
+func UpdateHistoricalNav(portfolioJSON string, assetID string, isin string) string {
+	var p store.Portfolio
+	if portfolioJSON != "" {
+		if err := json.Unmarshal([]byte(portfolioJSON), &p); err != nil {
+			return fmt.Sprintf(`{"error":%q}`, "invalid portfolio JSON: "+err.Error())
+		}
+	}
+	assetFound := false
+	for _, a := range p.Assets {
+		if a.ID == assetID {
+			assetFound = true
+			break
+		}
+	}
+	if !assetFound {
+		return `{"error":"no asset with that ID exists"}`
+	}
+	if isin == "" {
+		return `{"error":"ISIN cannot be empty"}`
+	}
+
+	history, err := priceapi.FetchTigzigNavHistory(isin)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+	records := make([]store.PriceRecord, 0, len(history.Data))
+	for _, pt := range history.Data {
+		records = append(records, store.PriceRecord{
+			AssetID: assetID, Date: pt.Date, Price: pt.Nav, Source: "TIGZIG_HISTORY",
+		})
+	}
+	p.UpsertPrices(records)
+
+	out, err := json.Marshal(p)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+	return string(out)
+}
+
+// UpdateHistoricalFX fetches daily INR exchange rates for a currency
+// from Frankfurter (ECB-sourced, from the given date to today) and
+// merges them into the portfolio's cached FXRates. Manual action, same
+// "Update History" pattern as UpdateHistoricalNav. Returns the updated
+// portfolio JSON, or a bridge error string if the fetch/parse fails.
+func UpdateHistoricalFX(portfolioJSON string, currency string, since string) string {
+	var p store.Portfolio
+	if portfolioJSON != "" {
+		if err := json.Unmarshal([]byte(portfolioJSON), &p); err != nil {
+			return fmt.Sprintf(`{"error":%q}`, "invalid portfolio JSON: "+err.Error())
+		}
+	}
+
+	rates, err := priceapi.FetchFrankfurterHistory(currency, since)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+	p.UpsertFXRates(rates)
+
+	out, err := json.Marshal(p)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+	return string(out)
+}
+
 // AddAccount creates a new Account for a given member, e.g. a foreign
 // brokerage account that has no CAS-equivalent import (a Canadian
 // brokerage account for CAD-denominated ETFs, unlike Indian mutual funds
