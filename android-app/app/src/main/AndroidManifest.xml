@@ -53,6 +53,9 @@
             android:name=".ManualHoldingsActivity"
             android:exported="false" />
         <activity
+            android:name=".UpdateHistoryActivity"
+            android:exported="false" />
+        <activity
             android:name=".PortfolioClassTargetActivity"
             android:exported="false" />
         <activity
