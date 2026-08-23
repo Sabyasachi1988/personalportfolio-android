@@ -18,12 +18,17 @@ class TargetProgressBarView @JvmOverloads constructor(
     private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
     private val markerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
 
-    fun setValues(actual: Float, target: Float, overColor: Int, underColor: Int, trackColor: Int, markerColor: Int) {
-        // Scale against whichever of actual/target is larger (with
-        // headroom), rather than a fixed 0-100 - a fund at 3% cash
-        // target vs 8% actual should still show a visually meaningful
-        // bar, not a sliver near zero on a scale sized for 100%.
-        val maxVal = maxOf(actual, target, 1f) * 1.15f
+    // sharedMaxVal must be the SAME value across every bar shown together
+    // on one screen (e.g. all four Market Cap rows, or all four Portfolio
+    // Class rows) - see AllocationDriftAdapter.sharedMaxVal. Scaling each
+    // bar independently against its own actual/target was the original
+    // bug: a 50% row and a 25% row would each fill their own bar to
+    // roughly the same visual width, since each computed its own max from
+    // only its own two numbers - defeating the whole point of a bar
+    // chart, where length should encode magnitude relative to the OTHER
+    // rows too, not just relative to itself.
+    fun setValues(actual: Float, target: Float, sharedMaxVal: Float, overColor: Int, underColor: Int, trackColor: Int, markerColor: Int) {
+        val maxVal = sharedMaxVal.coerceAtLeast(1f)
         actualPercent = (actual / maxVal * 100f).coerceIn(0f, 100f)
         targetPercent = (target / maxVal * 100f).coerceIn(0f, 100f)
         trackPaint.color = trackColor
