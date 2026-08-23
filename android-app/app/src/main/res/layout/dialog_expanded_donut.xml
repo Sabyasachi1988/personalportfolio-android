@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="24dp">
+
+    <TextView
+        android:id="@+id/expandedDonutTitle"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textSize="17sp"
+        android:textStyle="bold"
+        android:gravity="center" />
+
+    <com.saby.personalportfolio.DonutChartView
+        android:id="@+id/expandedDonutChart"
+        android:layout_width="220dp"
+        android:layout_height="220dp"
+        android:layout_gravity="center_horizontal"
+        android:layout_marginTop="16dp" />
+
+    <!-- Capped height + scroll so a fund with many holdings doesn't push
+         the dialog off-screen - unlike the old chip legend, every row
+         here shows its full label (no truncation, no shared-prefix
+         guessing needed to read them). -->
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:maxHeight="280dp"
+        android:layout_marginTop="16dp">
+
+        <com.saby.personalportfolio.DonutLegendView
+            android:id="@+id/expandedDonutLegend"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content" />
+
+    </ScrollView>
+
+    <TextView
+        android:id="@+id/expandedDonutHint"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:textSize="12sp"
+        android:textColor="@color/colorNeutral"
+        android:gravity="center"
+        android:visibility="gone" />
+
+</LinearLayout>
