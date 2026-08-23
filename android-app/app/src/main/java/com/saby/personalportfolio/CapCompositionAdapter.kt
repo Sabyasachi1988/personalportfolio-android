@@ -11,11 +11,15 @@ import androidx.recyclerview.widget.RecyclerView
 class CapCompositionAdapter(
     private val assets: List<AssetSummary>,
     private val existingByAssetId: Map<String, CapCompositionEntry>,
-    private val onSave: (assetId: String, large: Double, mid: Double, small: Double, cash: Double, rowHolder: RowHolder) -> Unit
+    private val onSave: (assetId: String, large: Double, mid: Double, small: Double, cash: Double, rowHolder: RowHolder) -> Unit,
+    private val onFetchFromEtMoney: (assetId: String, url: String, rowHolder: RowHolder) -> Unit
 ) : RecyclerView.Adapter<CapCompositionAdapter.RowHolder>() {
 
     class RowHolder(view: View) : RecyclerView.ViewHolder(view) {
         val name: TextView = view.findViewById(R.id.assetName)
+        val etMoneyUrlInput: EditText = view.findViewById(R.id.etMoneyUrlInput)
+        val fetchButton: Button = view.findViewById(R.id.fetchEtMoneyButton)
+        val etMoneyStatusLabel: TextView = view.findViewById(R.id.etMoneyStatusLabel)
         val largeInput: EditText = view.findViewById(R.id.largeInput)
         val midInput: EditText = view.findViewById(R.id.midInput)
         val smallInput: EditText = view.findViewById(R.id.smallInput)
@@ -33,6 +37,8 @@ class CapCompositionAdapter(
     override fun onBindViewHolder(holder: RowHolder, position: Int) {
         val asset = assets[position]
         holder.name.text = FundNameFormatter.shorten(asset.name).ifBlank { "(unnamed asset)" }
+        holder.etMoneyUrlInput.setText(asset.etMoneyUrl)
+        holder.etMoneyStatusLabel.visibility = View.GONE
 
         val existing = existingByAssetId[asset.id]
         holder.largeInput.setText(existing?.large?.takeIf { it != 0.0 }?.toString() ?: "")
@@ -51,6 +57,16 @@ class CapCompositionAdapter(
             val small = holder.smallInput.text.toString().toDoubleOrNull() ?: 0.0
             val cash = holder.cashInput.text.toString().toDoubleOrNull() ?: 0.0
             onSave(asset.id, large, mid, small, cash, holder)
+        }
+
+        holder.fetchButton.setOnClickListener {
+            val url = holder.etMoneyUrlInput.text.toString().trim()
+            if (url.isBlank()) {
+                holder.etMoneyStatusLabel.visibility = View.VISIBLE
+                holder.etMoneyStatusLabel.text = "Paste an ETMoney fund page URL first"
+                return@setOnClickListener
+            }
+            onFetchFromEtMoney(asset.id, url, holder)
         }
     }
 
