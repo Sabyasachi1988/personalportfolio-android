@@ -22,27 +22,8 @@ class HoldingsAdapter(private val holdings: List<Holding>) :
     private val hasHeader = pricedHoldings.isNotEmpty()
 
     class HeaderHolder(view: View) : RecyclerView.ViewHolder(view) {
+        val container: View = view.findViewById(R.id.holdingsChartHeaderContainer)
         val donut: DonutChartView = view.findViewById(R.id.perFundDonut)
-        val legend: DonutLegendView = view.findViewById(R.id.perFundLegend)
-
-        // Android queues successive Toast.makeText(...).show() calls
-        // rather than replacing an in-flight one - tapping a second
-        // slice right after the first would otherwise wait out the
-        // first toast's full duration before showing anything new.
-        // Keeping one Toast reference and cancelling it before showing
-        // the next makes the tap feel immediate.
-        private var currentToast: android.widget.Toast? = null
-
-        fun showSliceToast(label: String, percent: Float) {
-            currentToast?.cancel()
-            val toast = android.widget.Toast.makeText(
-                itemView.context,
-                String.format(Locale.getDefault(), "%s: %.1f%%", label, percent),
-                android.widget.Toast.LENGTH_SHORT
-            )
-            currentToast = toast
-            toast.show()
-        }
     }
 
     class RowHolder(view: View) : RecyclerView.ViewHolder(view) {
@@ -76,11 +57,11 @@ class HoldingsAdapter(private val holdings: List<Holding>) :
                 .map { DonutChartView.Slice(FundNameFormatter.shorten(it.assetName), ((it.currentValue / totalValue) * 100).toFloat()) }
                 .sortedByDescending { it.percent }
             holder.donut.setSlices(slices)
-            holder.legend.chipMode = true
-            holder.legend.setSlices(slices)
-            holder.donut.onSliceTapped = { label, percent ->
-                holder.showSliceToast(label, percent)
+            val openExpanded = {
+                DonutExpansionDialog.show(holder.itemView.context, "Portfolio by fund", slices)
             }
+            holder.donut.onSliceTapped = { _, _ -> openExpanded() }
+            holder.container.setOnClickListener { openExpanded() }
             return
         }
 
