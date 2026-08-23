@@ -75,21 +75,21 @@
         android:layout_height="wrap_content"
         android:textSize="16sp"
         android:textStyle="bold"
-        android:text="Foreign Holdings" />
+        android:text="Manual Holdings" />
 
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="6dp"
         android:textSize="13sp"
-        android:text="For holdings with no CAS-equivalent import, e.g. Canadian brokerage ETFs." />
+        android:text="For anything with no CAS or CSV import available - e.g. an NSE-listed ETF like Nippon India ETF Nifty 50 BeES, individual stocks, or a Canadian brokerage account." />
 
     <Button
         android:id="@+id/manageForeignHoldingsButton"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="12dp"
-        android:text="Manage Foreign Holdings" />
+        android:text="Manage Manual Holdings" />
 
     <Button
         android:id="@+id/updateHistoryButton"
