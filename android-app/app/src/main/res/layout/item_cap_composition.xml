@@ -12,6 +12,45 @@
         android:textStyle="bold"
         android:textSize="15sp" />
 
+    <!-- Optional: paste the fund's ETMoney page URL once, then tap Fetch
+         to auto-fill the four fields below from it (best-effort parse -
+         review the numbers before saving, same as any manual entry).
+         Leaving this blank keeps the row fully manual, as before. -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginTop="10dp"
+        android:gravity="center_vertical">
+
+        <EditText
+            android:id="@+id/etMoneyUrlInput"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:hint="ETMoney fund page URL (optional)"
+            android:inputType="textUri"
+            android:maxLines="1" />
+
+        <Button
+            android:id="@+id/fetchEtMoneyButton"
+            style="?attr/materialButtonOutlinedStyle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:text="Fetch" />
+
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/etMoneyStatusLabel"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:textSize="11sp"
+        android:textColor="@color/colorNeutral"
+        android:visibility="gone" />
+
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
