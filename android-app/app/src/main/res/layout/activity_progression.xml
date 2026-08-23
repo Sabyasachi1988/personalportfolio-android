@@ -1,134 +1,177 @@
 <?xml version="1.0" encoding="utf-8"?>
-<androidx.core.widget.NestedScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:fillViewport="true">
+    android:orientation="vertical">
 
-    <LinearLayout
+    <androidx.core.widget.NestedScrollView
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:padding="24dp">
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:fillViewport="true">
 
-        <Spinner
-            android:id="@+id/progressionMemberSpinner"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content" />
-
-        <Spinner
-            android:id="@+id/progressionAxisSpinner"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp" />
-
-        <Spinner
-            android:id="@+id/progressionCurrencySpinner"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp" />
-
-        <TextView
-            android:id="@+id/progressionStatusText"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:textSize="14sp" />
-
-        <!-- Point-in-time detail card, driven by the scrubber below -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
             android:orientation="vertical"
-            android:background="@color/colorSurfaceVariant"
-            android:padding="16dp">
+            android:padding="24dp">
 
             <TextView
-                android:id="@+id/progressionDateText"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:textSize="16sp"
+                android:text="Portfolio Progression"
+                android:textSize="22sp"
                 android:textStyle="bold" />
 
+            <Spinner
+                android:id="@+id/progressionMemberSpinner"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp" />
+
+            <Spinner
+                android:id="@+id/progressionAxisSpinner"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp" />
+
+            <Spinner
+                android:id="@+id/progressionCurrencySpinner"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp" />
+
             <TextView
-                android:id="@+id/progressionInvestedText"
+                android:id="@+id/progressionStatusText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:textSize="14sp" />
+
+            <!-- Answers "how much history am I even looking at" up front,
+                 rather than only on touch - see ProgressionChartView's
+                 doc comment for why this was added. -->
+            <TextView
+                android:id="@+id/progressionSpanText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:textSize="13sp"
+                android:textStyle="bold"
+                android:textColor="?attr/colorPrimary" />
+
+            <!-- Point-in-time detail card, driven by the scrubber below -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:orientation="vertical"
+                android:background="@color/colorSurfaceVariant"
+                android:padding="16dp">
+
+                <TextView
+                    android:id="@+id/progressionDateText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textSize="16sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/progressionInvestedText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:textSize="14sp" />
+
+                <TextView
+                    android:id="@+id/progressionValueText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:textSize="14sp" />
+
+                <TextView
+                    android:id="@+id/progressionGainText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:textSize="14sp" />
+
+                <TextView
+                    android:id="@+id/progressionXirrText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:textSize="14sp" />
+
+            </LinearLayout>
+
+            <!-- Legend -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <View
+                    android:layout_width="16dp"
+                    android:layout_height="4dp"
+                    android:background="@color/colorNeutral" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="6dp"
+                    android:text="Invested"
+                    android:textSize="12sp" />
+
+                <View
+                    android:layout_width="16dp"
+                    android:layout_height="4dp"
+                    android:layout_marginStart="20dp"
+                    android:background="@color/colorGain" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="6dp"
+                    android:text="Value"
+                    android:textSize="12sp" />
+
+            </LinearLayout>
+
+            <com.saby.personalportfolio.ProgressionChartView
+                android:id="@+id/progressionChart"
+                android:layout_width="match_parent"
+                android:layout_height="250dp"
+                android:layout_marginTop="12dp" />
+
+            <!-- Slider mirrors the chart's own drag-scrub, for finer/easier
+                 control than dragging a thumb across a small chart area.
+                 Custom drawables give it a much thicker, more grabbable
+                 track+thumb than the stock thin SeekBar. -->
+            <SeekBar
+                android:id="@+id/progressionSeekBar"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
-                android:textSize="14sp" />
-
-            <TextView
-                android:id="@+id/progressionValueText"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
-                android:textSize="14sp" />
-
-            <TextView
-                android:id="@+id/progressionGainText"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
-                android:textSize="14sp" />
-
-            <TextView
-                android:id="@+id/progressionXirrText"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
-                android:textSize="14sp" />
+                android:paddingTop="12dp"
+                android:paddingBottom="12dp"
+                android:progressDrawable="@drawable/progression_seekbar_track"
+                android:thumb="@drawable/progression_seekbar_thumb"
+                android:splitTrack="false" />
 
         </LinearLayout>
 
-        <!-- Legend -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:orientation="horizontal"
-            android:gravity="center_vertical">
+    </androidx.core.widget.NestedScrollView>
 
-            <View
-                android:layout_width="16dp"
-                android:layout_height="4dp"
-                android:background="@color/colorNeutral" />
+    <com.google.android.material.bottomnavigation.BottomNavigationView
+        android:id="@+id/bottomNav"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        app:menu="@menu/bottom_nav_menu"
+        app:labelVisibilityMode="labeled" />
 
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="6dp"
-                android:text="Invested"
-                android:textSize="12sp" />
-
-            <View
-                android:layout_width="16dp"
-                android:layout_height="4dp"
-                android:layout_marginStart="20dp"
-                android:background="@color/colorGain" />
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="6dp"
-                android:text="Value"
-                android:textSize="12sp" />
-
-        </LinearLayout>
-
-        <com.saby.personalportfolio.ProgressionChartView
-            android:id="@+id/progressionChart"
-            android:layout_width="match_parent"
-            android:layout_height="220dp"
-            android:layout_marginTop="12dp" />
-
-        <!-- Slider mirrors the chart's own drag-scrub, for finer/easier
-             control than dragging a thumb across a small chart area. -->
-        <SeekBar
-            android:id="@+id/progressionSeekBar"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp" />
-
-    </LinearLayout>
-
-</androidx.core.widget.NestedScrollView>
+</LinearLayout>
