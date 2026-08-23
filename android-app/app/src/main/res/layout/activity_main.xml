@@ -107,15 +107,15 @@
 
                         <com.google.android.material.card.MaterialCardView
                             android:layout_width="240dp"
-                            android:layout_height="wrap_content"
+                            android:layout_height="300dp"
                             app:cardCornerRadius="16dp"
                             app:cardElevation="3dp">
 
                             <LinearLayout
                                 android:layout_width="match_parent"
-                                android:layout_height="wrap_content"
+                                android:layout_height="match_parent"
                                 android:orientation="vertical"
-                                android:gravity="center_horizontal"
+                                android:gravity="center"
                                 android:padding="16dp">
 
                                 <TextView
@@ -123,7 +123,10 @@
                                     android:layout_height="wrap_content"
                                     android:text="Market Cap"
                                     android:textSize="13sp"
-                                    android:textStyle="bold" />
+                                    android:textStyle="bold"
+                                    android:gravity="center"
+                                    android:minLines="2"
+                                    android:maxLines="2" />
 
                                 <com.saby.personalportfolio.DonutChartView
                                     android:id="@+id/dashboardDonutMarketCap"
@@ -143,16 +146,16 @@
 
                         <com.google.android.material.card.MaterialCardView
                             android:layout_width="240dp"
-                            android:layout_height="wrap_content"
+                            android:layout_height="300dp"
                             android:layout_marginStart="12dp"
                             app:cardCornerRadius="16dp"
                             app:cardElevation="3dp">
 
                             <LinearLayout
                                 android:layout_width="match_parent"
-                                android:layout_height="wrap_content"
+                                android:layout_height="match_parent"
                                 android:orientation="vertical"
-                                android:gravity="center_horizontal"
+                                android:gravity="center"
                                 android:padding="16dp">
 
                                 <TextView
@@ -160,7 +163,10 @@
                                     android:layout_height="wrap_content"
                                     android:text="Indian vs. International"
                                     android:textSize="13sp"
-                                    android:textStyle="bold" />
+                                    android:textStyle="bold"
+                                    android:gravity="center"
+                                    android:minLines="2"
+                                    android:maxLines="2" />
 
                                 <com.saby.personalportfolio.DonutChartView
                                     android:id="@+id/dashboardDonutOrigin"
@@ -180,16 +186,16 @@
 
                         <com.google.android.material.card.MaterialCardView
                             android:layout_width="240dp"
-                            android:layout_height="wrap_content"
+                            android:layout_height="300dp"
                             android:layout_marginStart="12dp"
                             app:cardCornerRadius="16dp"
                             app:cardElevation="3dp">
 
                             <LinearLayout
                                 android:layout_width="match_parent"
-                                android:layout_height="wrap_content"
+                                android:layout_height="match_parent"
                                 android:orientation="vertical"
-                                android:gravity="center_horizontal"
+                                android:gravity="center"
                                 android:padding="16dp">
 
                                 <TextView
@@ -197,7 +203,10 @@
                                     android:layout_height="wrap_content"
                                     android:text="Equity / Debt / Commodity"
                                     android:textSize="13sp"
-                                    android:textStyle="bold" />
+                                    android:textStyle="bold"
+                                    android:gravity="center"
+                                    android:minLines="2"
+                                    android:maxLines="2" />
 
                                 <com.saby.personalportfolio.DonutChartView
                                     android:id="@+id/dashboardDonutClass"
