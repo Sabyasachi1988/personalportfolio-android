@@ -57,6 +57,7 @@
             android:exported="false" />
         <activity
             android:name=".ProgressionActivity"
+            android:launchMode="singleTop"
             android:exported="false" />
         <activity
             android:name=".PortfolioClassTargetActivity"
