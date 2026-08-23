@@ -81,6 +81,28 @@ class DonutLegendView @JvmOverloads constructor(
         return words.drop(count).joinToString(" ")
     }
 
+    /**
+     * Picks the LARGEST leading-word-strip count (from the shared-prefix
+     * count down to 0) that still leaves every label in this set
+     * visually distinct - e.g. two different-AMC funds that both happen
+     * to be "... Multicap Fund" would otherwise both collapse to the
+     * identical "Multicap Fund" once any shared words were stripped,
+     * making them indistinguishable at a glance (reported directly: "it
+     * just says multicap fund, what if I hold 2 multicap funds"). This
+     * guarantees that never happens - distinctness always wins over
+     * brevity - while still stripping shared AMC-name prefixes whenever
+     * doing so is actually safe (no collision results).
+     */
+    private fun maxSafeSkipCount(labels: List<String>, maxSkip: Int): Int {
+        for (skip in maxSkip downTo 0) {
+            val candidates = labels.map { stripLeadingWords(it, skip) }
+            if (candidates.size == candidates.toSet().size) {
+                return skip
+            }
+        }
+        return 0
+    }
+
     fun setSlices(slices: List<DonutChartView.Slice>) {
         removeAllViews()
         orientation = if (chipMode) HORIZONTAL else VERTICAL
@@ -90,7 +112,8 @@ class DonutLegendView @JvmOverloads constructor(
         val density = resources.displayMetrics.density
 
         val shortenedLabels = positive.map { FundNameFormatter.shorten(it.label) }
-        val skipWords = commonLeadingWordCount(shortenedLabels)
+        val maxSkip = commonLeadingWordCount(shortenedLabels)
+        val skipWords = maxSafeSkipCount(shortenedLabels, maxSkip)
 
         for ((index, slice) in positive.withIndex()) {
             val row = LinearLayout(context).apply {
