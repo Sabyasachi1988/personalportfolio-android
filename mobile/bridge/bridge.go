@@ -505,20 +505,87 @@ func CommitStagedRows(portfolioJSON string, stagedRowsJSON string, memberName st
 // tie-breaker when available rather than a hard requirement that would
 // let genuinely-duplicate rows slip through whenever units happens to be
 // missing on one side.
-func isDuplicateTransaction(existing []store.StoredTransaction, assetID string, txn store.Transaction) bool {
+// RemoveDuplicateTransactions scans the portfolio's own stored
+// transactions for exact duplicates (same asset, date, type, amount,
+// and units where both have it - see transactionsMatch) and removes all
+// but the first of each duplicate group. This is a cleanup tool for
+// duplicates that already made it into a portfolio - from before the
+// commit-time dedup existed, from an older app build that predated it,
+// or from any other path that bypassed CommitStagedRows - not a
+// replacement for that dedup, which prevents new duplicates at import
+// time. Which exact copy is kept within a duplicate group is arbitrary
+// (whichever appears first in Transactions) since the copies are
+// financially identical either way. Returns {"removed": N, "portfolio": {...}}.
+func RemoveDuplicateTransactions(portfolioJSON string) string {
+	var p store.Portfolio
+	if portfolioJSON != "" {
+		if err := json.Unmarshal([]byte(portfolioJSON), &p); err != nil {
+			return fmt.Sprintf(`{"error":%q}`, "invalid portfolio JSON: "+err.Error())
+		}
+	}
+
+	keep := make([]store.StoredTransaction, 0, len(p.Transactions))
+	removed := 0
+	for _, txn := range p.Transactions {
+		isDup := false
+		for _, kept := range keep {
+			if transactionsMatch(kept, txn) {
+				isDup = true
+				break
+			}
+		}
+		if isDup {
+			removed++
+		} else {
+			keep = append(keep, txn)
+		}
+	}
+	p.Transactions = keep
+
+	out, err := json.Marshal(struct {
+		Removed   int             `json:"removed"`
+		Portfolio json.RawMessage `json:"portfolio"`
+	}{Removed: removed, Portfolio: mustMarshal(p)})
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+	return string(out)
+}
+
+func mustMarshal(v interface{}) json.RawMessage {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return json.RawMessage("null")
+	}
+	return b
+}
+
+// transactionsMatch is the shared "are these the same transaction"
+// rule, used both to keep new imports from duplicating existing rows
+// (isDuplicateTransaction) and to find duplicates that already exist
+// (RemoveDuplicateTransactions), so the two never disagree about what
+// counts as a duplicate.
+func transactionsMatch(a, b store.StoredTransaction) bool {
 	const amountEpsilon = 0.01
 	const unitsEpsilon = 0.0005
+	if a.AssetID != b.AssetID || a.Date != b.Date || a.Type != b.Type {
+		return false
+	}
+	if math.Abs(a.Amount-b.Amount) > amountEpsilon {
+		return false
+	}
+	if a.Units != nil && b.Units != nil && math.Abs(*a.Units-*b.Units) > unitsEpsilon {
+		return false
+	}
+	return true
+}
+
+func isDuplicateTransaction(existing []store.StoredTransaction, assetID string, txn store.Transaction) bool {
+	candidate := store.StoredTransaction{AssetID: assetID, Date: txn.Date, Type: txn.Type, Amount: txn.Amount, Units: txn.Units}
 	for _, e := range existing {
-		if e.AssetID != assetID || e.Date != txn.Date || e.Type != txn.Type {
-			continue
+		if transactionsMatch(e, candidate) {
+			return true
 		}
-		if math.Abs(e.Amount-txn.Amount) > amountEpsilon {
-			continue
-		}
-		if e.Units != nil && txn.Units != nil && math.Abs(*e.Units-*txn.Units) > unitsEpsilon {
-			continue
-		}
-		return true
 	}
 	return false
 }
