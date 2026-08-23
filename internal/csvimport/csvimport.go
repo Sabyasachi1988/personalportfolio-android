@@ -29,14 +29,15 @@ import (
 // exports. Matching is case-insensitive and whitespace-trimmed; the
 // first alias found in the header wins for each field.
 var columnAliases = map[string][]string{
-	"date":     {"trade_date", "date", "transaction date", "txn date", "order date", "value date", "posting date"},
-	"scheme":   {"symbol", "scheme", "scheme name", "fund", "fund name", "security name", "particulars", "instrument"},
-	"isin":     {"isin", "isin code", "isin no", "isin number"},
-	"type":     {"trade_type", "type", "transaction type", "txn type", "order type", "buy/sell", "buy_sell"},
-	"quantity": {"quantity", "units", "qty", "unit", "unit balance"},
-	"price":    {"price", "nav", "rate", "trade price", "unit price"},
-	"amount":   {"amount", "value", "trade value", "net amount", "total amount", "gross amount"},
-	"folio":    {"folio", "folio no", "folio number"},
+	"date":      {"trade_date", "date", "transaction date", "txn date", "order date", "value date", "posting date"},
+	"scheme":    {"symbol", "scheme", "scheme name", "fund", "fund name", "security name", "particulars", "instrument"},
+	"isin":      {"isin", "isin code", "isin no", "isin number"},
+	"type":      {"trade_type", "type", "transaction type", "txn type", "order type", "buy/sell", "buy_sell"},
+	"quantity":  {"quantity", "units", "qty", "unit", "unit balance"},
+	"price":     {"price", "nav", "rate", "trade price", "unit price"},
+	"amount":    {"amount", "value", "trade value", "net amount", "total amount", "gross amount"},
+	"folio":     {"folio", "folio no", "folio number"},
+	"reference": {"trade_id", "order_id", "reference", "reference number", "txn id", "transaction id"},
 }
 
 // Fields a usable CSV must have a recognized column for. amount, isin,
@@ -221,9 +222,20 @@ func buildTransactionFromCSVRow(row []string, col map[string]int) (store.Transac
 	}
 
 	units := quantity
+	description := strings.TrimSpace(typeStr + " " + scheme)
+	// Tag the description with the broker's own trade reference when
+	// the CSV carries one (e.g. Zerodha's trade_id) - this is what lets
+	// a re-imported statement be recognized with certainty rather than
+	// only by amount/units happening to coincide (see transactionsMatch
+	// in mobile/bridge/bridge.go, which looks for this exact "[ref:...]"
+	// marker).
+	if ref := get("reference"); ref != "" {
+		description = description + " [ref:" + ref + "]"
+	}
+
 	txn := store.Transaction{
 		Date:        date,
-		Description: strings.TrimSpace(typeStr + " " + scheme),
+		Description: description,
 		Amount:      amount,
 		Units:       &units,
 		Price:       priceForTxn,
