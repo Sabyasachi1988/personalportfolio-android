@@ -33,7 +33,11 @@ class HoldingsActivity : AppCompatActivity() {
     private val mainThread = Handler(Looper.getMainLooper())
 
     private lateinit var summary: TextView
-    private lateinit var xirrSummary: TextView
+    private lateinit var statsCard: View
+    private lateinit var valueText: TextView
+    private lateinit var gainText: TextView
+    private lateinit var xirrText: TextView
+    private lateinit var countText: TextView
     private lateinit var recyclerView: RecyclerView
     private lateinit var refreshButton: Button
     private lateinit var memberSpinner: Spinner
@@ -67,7 +71,11 @@ class HoldingsActivity : AppCompatActivity() {
         setContentView(R.layout.activity_holdings)
 
         summary = findViewById(R.id.holdingsSummary)
-        xirrSummary = findViewById(R.id.xirrSummary)
+        statsCard = findViewById(R.id.holdingsStatsCard)
+        valueText = findViewById(R.id.holdingsValueText)
+        gainText = findViewById(R.id.holdingsGainText)
+        xirrText = findViewById(R.id.holdingsXirrText)
+        countText = findViewById(R.id.holdingsCountText)
         recyclerView = findViewById(R.id.holdingsRecyclerView)
         recyclerView.layoutManager = LinearLayoutManager(this)
         refreshButton = findViewById(R.id.refreshPricesButton)
@@ -190,18 +198,20 @@ class HoldingsActivity : AppCompatActivity() {
         }
 
         val holdingsType = object : TypeToken<List<Holding>>() {}.type
+        var readError: String? = null
         val holdings: List<Holding> = try {
             gson.fromJson(holdingsJson, holdingsType) ?: emptyList()
         } catch (e: Exception) {
-            summary.text = "Could not read holdings: ${e.message}"
+            readError = "Could not read holdings: ${e.message}"
             emptyList()
         }
 
         allHoldings = holdings
 
         if (holdings.isEmpty()) {
-            summary.text = "No holdings yet for this filter."
-            xirrSummary.text = ""
+            summary.text = readError ?: "No holdings yet for this filter."
+            summary.visibility = View.VISIBLE
+            statsCard.visibility = View.GONE
         } else {
             var totalInvested = 0.0
             var totalValue = 0.0
@@ -213,31 +223,44 @@ class HoldingsActivity : AppCompatActivity() {
                     anyPriced = true
                 }
             }
-            summary.text = if (anyPriced) {
-                val totalGain = totalValue - totalInvested
-                "${holdings.size} holdings | Invested: ${IndianCurrencyFormatter.format(totalInvested)} | " +
-                    "Value: ${IndianCurrencyFormatter.format(totalValue)} | Gain: ${IndianCurrencyFormatter.formatSigned(totalGain)}"
-            } else {
-                "${holdings.size} holdings (no current prices available yet — tap Refresh Prices)"
-            }
+            if (anyPriced) {
+                summary.visibility = View.GONE
+                statsCard.visibility = View.VISIBLE
 
-            // Portfolio XIRR is computed for whichever holdings are
-            // currently shown, so switching the member filter also scopes
-            // the XIRR.
-            xirrSummary.text = if (anyPriced) {
+                valueText.text = IndianCurrencyFormatter.format(totalValue)
+
+                val totalGain = totalValue - totalInvested
+                val gainPct = if (totalInvested != 0.0) (totalGain / totalInvested) * 100 else 0.0
+                gainText.text = String.format(
+                    Locale.getDefault(), "%s (%.1f%%) · Invested %s",
+                    IndianCurrencyFormatter.formatSigned(totalGain), gainPct, IndianCurrencyFormatter.format(totalInvested)
+                )
+                gainText.setTextColor(
+                    androidx.core.content.ContextCompat.getColor(
+                        this, if (totalGain >= 0) R.color.colorGain else R.color.colorLoss
+                    )
+                )
+
+                // Portfolio XIRR is computed for whichever holdings are
+                // currently shown, so switching the member filter also
+                // scopes the XIRR.
                 val xirrJson = Bridge.computePortfolioXIRR(portfolioJson, memberId)
                 val xirrResult = try {
                     gson.fromJson(xirrJson, PortfolioXirrResult::class.java)
                 } catch (e: Exception) {
                     null
                 }
-                if (xirrResult?.hasXIRR == true) {
+                xirrText.text = if (xirrResult?.hasXIRR == true) {
                     String.format(Locale.getDefault(), "Portfolio XIRR: %.2f%%", xirrResult.xirr)
                 } else {
                     ""
                 }
+
+                countText.text = "${holdings.size} holding(s)"
             } else {
-                ""
+                summary.text = "${holdings.size} holdings (no current prices available yet — tap Refresh Prices)"
+                summary.visibility = View.VISIBLE
+                statsCard.visibility = View.GONE
             }
         }
 
@@ -267,6 +290,8 @@ class HoldingsActivity : AppCompatActivity() {
     private fun refreshPrices() {
         refreshButton.isEnabled = false
         summary.text = "Fetching current AMFI prices…"
+        summary.visibility = View.VISIBLE
+        statsCard.visibility = View.GONE
 
         backgroundExecutor.execute {
             try {
@@ -315,6 +340,8 @@ class HoldingsActivity : AppCompatActivity() {
 
     private fun failRefresh(message: String) {
         summary.text = message
+        summary.visibility = View.VISIBLE
+        statsCard.visibility = View.GONE
         refreshButton.isEnabled = true
     }
 }
