@@ -449,7 +449,7 @@ class ProgressionChartView @JvmOverloads constructor(
                     val totalDeltaX = event.x - downX
                     if (isPanningGesture || kotlin.math.abs(totalDeltaX) > touchSlop) {
                         isPanningGesture = true
-                        panSingleFingerTo(totalDeltaX)
+                        panSingleFingerTo(totalDeltaX, event.x)
                     }
                     // else: still within touch-slop - could still become
                     // either a tap or a drag, so nothing happens yet
@@ -479,8 +479,22 @@ class ProgressionChartView @JvmOverloads constructor(
      * pan uses) - simpler and avoids any incremental-accumulation drift
      * over a long drag. Same direction convention as the two-finger
      * pan: dragging right reveals earlier/left content.
+     *
+     * Also keeps the value-finder (scrub position/detail card) tracking
+     * the finger's CURRENT position throughout the pan, not just at
+     * release. This was the actual cause of a reported "laggy/stuck"
+     * feel when tracing values directly on the chart while zoomed,
+     * confirmed by a very useful comparison: the SeekBar (which always
+     * keeps the detail card in sync with drag position) felt smooth,
+     * dragging on the chart itself didn't - not a rendering-speed
+     * problem, since both paths trigger the same redraw, but a real
+     * gap: panning only used to CLAMP scrubbedIndex to stay inside the
+     * new window, it never actually moved it to follow the finger or
+     * fired onScrub, so the displayed value silently stopped updating
+     * the moment a drag became a pan, even though the chart itself kept
+     * moving.
      */
-    private fun panSingleFingerTo(totalDeltaX: Float) {
+    private fun panSingleFingerTo(totalDeltaX: Float, currentX: Float) {
         val span = (downWindowEnd - downWindowStart).coerceAtLeast(1)
         val usableWidth = (width - 2 * edgeInset).coerceAtLeast(1f)
         val indexPerPixel = span / usableWidth
@@ -499,9 +513,15 @@ class ProgressionChartView @JvmOverloads constructor(
         }
         windowStart = newStart.roundToInt().coerceIn(0, maxSpan.toInt())
         windowEnd = newEnd.roundToInt().coerceIn(windowStart, maxSpan.toInt())
-        scrubbedIndex = scrubbedIndex.coerceIn(windowStart, windowEnd)
         invalidate()
         notifyWindowChanged()
+
+        // scrubTo clamps to the just-updated window itself and is a
+        // no-op if the resulting index hasn't actually changed - cheap
+        // to call every frame, and this is what makes the value-finder
+        // keep tracking the finger throughout the pan instead of only
+        // updating on release.
+        scrubTo(indexForX(currentX))
     }
 
     private fun scrubToX(x: Float) {
