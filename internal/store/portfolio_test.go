@@ -91,6 +91,67 @@ func TestUpsertPrices_ReplacesSameDateInsteadOfDuplicating(t *testing.T) {
 	}
 }
 
+// TestPriceAsOf_IndexInvalidatedAfterUpsert specifically exercises the
+// build-cache-then-mutate-then-read sequence: PriceAsOf is called FIRST
+// (forcing the lazy index to build), then UpsertPrices mutates the
+// underlying data, then PriceAsOf is called again - it must reflect the
+// mutation, not serve a stale cached index from before the upsert. This
+// is the correctness property the indexed lookup (see PriceAsOf's doc
+// comment) depends on that a naive linear scan never needed to worry
+// about.
+func TestPriceAsOf_IndexInvalidatedAfterUpsert(t *testing.T) {
+	p := &Portfolio{
+		Prices: []PriceRecord{
+			{AssetID: "a1", Date: "2026-01-01", Price: 100},
+		},
+	}
+
+	// Force the index to build against the ORIGINAL data.
+	price, ok := p.PriceAsOf("a1", "2026-01-01")
+	if !ok || price != 100 {
+		t.Fatalf("PriceAsOf before upsert = %v, %v; want 100, true", price, ok)
+	}
+
+	// Mutate after the index already exists.
+	p.UpsertPrices([]PriceRecord{
+		{AssetID: "a1", Date: "2026-01-01", Price: 999},
+		{AssetID: "a1", Date: "2026-01-15", Price: 150},
+	})
+
+	price, ok = p.PriceAsOf("a1", "2026-01-01")
+	if !ok || price != 999 {
+		t.Errorf("PriceAsOf after upsert (same date) = %v, %v; want 999, true - stale cached index", price, ok)
+	}
+	price, ok = p.PriceAsOf("a1", "2026-01-15")
+	if !ok || price != 150 {
+		t.Errorf("PriceAsOf after upsert (new date) = %v, %v; want 150, true - new record missing from stale index", price, ok)
+	}
+}
+
+// TestFXRateAsOf_IndexInvalidatedAfterUpsert is FXRateAsOf's counterpart
+// to the above.
+func TestFXRateAsOf_IndexInvalidatedAfterUpsert(t *testing.T) {
+	p := &Portfolio{
+		FXRates: []FXRate{
+			{Currency: "CAD", Date: "2026-01-01", INRPerUnit: 60.0},
+		},
+	}
+
+	rate, ok := p.FXRateAsOf("CAD", "2026-01-01")
+	if !ok || rate != 60.0 {
+		t.Fatalf("FXRateAsOf before upsert = %v, %v; want 60.0, true", rate, ok)
+	}
+
+	p.UpsertFXRates([]FXRate{
+		{Currency: "CAD", Date: "2026-01-01", INRPerUnit: 61.5},
+	})
+
+	rate, ok = p.FXRateAsOf("CAD", "2026-01-01")
+	if !ok || rate != 61.5 {
+		t.Errorf("FXRateAsOf after upsert = %v, %v; want 61.5, true - stale cached index", rate, ok)
+	}
+}
+
 func TestPriceAsOf_IgnoresPricesAfterTheDate(t *testing.T) {
 	p := &Portfolio{
 		Prices: []PriceRecord{
