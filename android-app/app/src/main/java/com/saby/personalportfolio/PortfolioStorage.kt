@@ -13,4 +13,16 @@ object PortfolioStorage {
     fun filePath(context: Context): String {
         return File(context.filesDir, "portfolio.json").absolutePath
     }
+
+    // Sidecar cache file for historical Progression checkpoints - see
+    // finance.ProgressionCache's doc comment. A pure performance cache,
+    // not user data: safe to delete at any time (worst case, the next
+    // Progression view recomputes everything fresh, same as before this
+    // existed), and deliberately NOT included in Settings → Export
+    // Backup / Restore From Backup, since it's meaningless without the
+    // exact portfolio.json it was computed against and would just be
+    // dead weight in a backup file.
+    fun progressionCachePath(context: Context): String {
+        return File(context.filesDir, "progression-cache.json").absolutePath
+    }
 }
