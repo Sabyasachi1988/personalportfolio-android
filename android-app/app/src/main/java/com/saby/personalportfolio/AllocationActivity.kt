@@ -199,7 +199,12 @@ class AllocationActivity : AppCompatActivity() {
             "Allocation by market cap segment (set a target to see drift)"
         }
 
-        val sorted = slices.sortedByDescending { it.percent }
+        // Already in a fixed, canonical order from the Go side (see
+        // finance.sortSlicesCanonically) - re-sorting by percent here would
+        // bring back the exact "reorders itself on every reload" problem
+        // that fix was for, just moved from map-iteration randomness to
+        // percentages naturally drifting between refreshes.
+        val sorted = slices
         recyclerView.adapter = AllocationAdapter(sorted)
         val chartSlices = sorted.map {
             DonutChartView.Slice(it.label, it.percent.toFloat(), CapSegmentColors.forLabel(this, it.label))
@@ -230,7 +235,12 @@ class AllocationActivity : AppCompatActivity() {
             "Of your equity holdings, Indian vs. International (defaults to Indian until entered)"
         }
 
-        val sorted = slices.sortedByDescending { it.percent }
+        // Already in a fixed, canonical order from the Go side (see
+        // finance.sortSlicesCanonically) - re-sorting by percent here would
+        // bring back the exact "reorders itself on every reload" problem
+        // that fix was for, just moved from map-iteration randomness to
+        // percentages naturally drifting between refreshes.
+        val sorted = slices
         recyclerViewOrigin.adapter = AllocationAdapter(sorted)
         val chartSlices = sorted.map {
             DonutChartView.Slice(it.label, it.percent.toFloat(), CapSegmentColors.forLabel(this, it.label))
@@ -283,7 +293,12 @@ class AllocationActivity : AppCompatActivity() {
             "Whole portfolio by class (set a target to see drift)"
         }
 
-        val sorted = slices.sortedByDescending { it.percent }
+        // Already in a fixed, canonical order from the Go side (see
+        // finance.sortSlicesCanonically) - re-sorting by percent here would
+        // bring back the exact "reorders itself on every reload" problem
+        // that fix was for, just moved from map-iteration randomness to
+        // percentages naturally drifting between refreshes.
+        val sorted = slices
         recyclerViewClass.adapter = AllocationAdapter(sorted)
         val chartSlices = sorted.map {
             DonutChartView.Slice(it.label, it.percent.toFloat(), CapSegmentColors.forLabel(this, it.label))
