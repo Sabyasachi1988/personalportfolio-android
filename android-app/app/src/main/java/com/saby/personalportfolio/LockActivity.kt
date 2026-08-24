@@ -65,10 +65,24 @@ class LockActivity : AppCompatActivity() {
             }
         })
 
-        promptInfo = BiometricPrompt.PromptInfo.Builder()
+        // androidx.biometric REQUIRES setNegativeButtonText() whenever
+        // DEVICE_CREDENTIAL is not among the allowed authenticators -
+        // PromptInfo.Builder.build() throws IllegalArgumentException
+        // without it. This was missing on the "allow weak biometric"
+        // path (which never includes DEVICE_CREDENTIAL - see the
+        // comment above), which meant .build() crashed immediately on
+        // EVERY launch once that setting was on, since it runs before
+        // any prompt is even shown - a real, confirmed crash loop, not
+        // a hypothetical.
+        val builder = BiometricPrompt.PromptInfo.Builder()
             .setTitle("Unlock Personal Portfolio")
             .setAllowedAuthenticators(authenticators)
-            .build()
+        // DEVICE_CREDENTIAL is only absent on the allowWeak path (see
+        // above) - that's the one case a negative button is required.
+        if (allowWeak) {
+            builder.setNegativeButtonText("Cancel")
+        }
+        promptInfo = builder.build()
 
         statusText.text = "Verify it's you to continue"
         unlockButton.setOnClickListener { biometricPrompt.authenticate(promptInfo) }
