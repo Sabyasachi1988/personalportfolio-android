@@ -21,15 +21,27 @@ class LockActivity : AppCompatActivity() {
         statusText = findViewById(R.id.lockStatusText)
         val unlockButton = findViewById<Button>(R.id.unlockButton)
 
+        // androidx.biometric does not allow combining BIOMETRIC_WEAK with
+        // DEVICE_CREDENTIAL in the same request (only BIOMETRIC_STRONG
+        // can be paired with a device-credential fallback - that's an
+        // androidx.biometric constraint, not something this app chose).
+        // So allowing weaker biometrics (most phones' plain camera-based
+        // face unlock, unlike a depth-sensor system) means giving up the
+        // PIN/pattern/password fallback for this specific prompt. Both
+        // configurations still work standalone.
+        val allowWeak = LockPreference.allowWeakBiometric(this)
+        val authenticators = if (allowWeak) {
+            BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.BIOMETRIC_WEAK
+        } else {
+            BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.DEVICE_CREDENTIAL
+        }
+
         val biometricManager = BiometricManager.from(this)
-        val canAuthenticate = biometricManager.canAuthenticate(
-            BiometricManager.Authenticators.BIOMETRIC_STRONG or
-                BiometricManager.Authenticators.DEVICE_CREDENTIAL
-        )
+        val canAuthenticate = biometricManager.canAuthenticate(authenticators)
 
         if (canAuthenticate != BiometricManager.BIOMETRIC_SUCCESS) {
-            // No fingerprint/face AND no PIN/pattern/password enrolled at
-            // all on this device - there is no credential to lock behind.
+            // Nothing usable enrolled for the currently-selected
+            // strictness level - there is no credential to lock behind.
             // Skip locking entirely rather than trapping the person
             // outside their own app with no way to prove who they are.
             unlock()
@@ -55,10 +67,7 @@ class LockActivity : AppCompatActivity() {
 
         promptInfo = BiometricPrompt.PromptInfo.Builder()
             .setTitle("Unlock Personal Portfolio")
-            .setAllowedAuthenticators(
-                BiometricManager.Authenticators.BIOMETRIC_STRONG or
-                    BiometricManager.Authenticators.DEVICE_CREDENTIAL
-            )
+            .setAllowedAuthenticators(authenticators)
             .build()
 
         statusText.text = "Verify it's you to continue"
