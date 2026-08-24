@@ -16,11 +16,31 @@ import java.util.Locale
  * which individual holdings it's made of - the underlying data always
  * stays distinguishable (a Nippon India Nifty 50 fund is still visibly
  * different from a Navi one), consolidation is purely a display choice.
+ *
+ * Includes the same tap-to-expand donut header as HoldingsAdapter, built
+ * from these SAME grouped rows - so e.g. 3 funds labeled "Nifty 50"
+ * among 12 total holdings show as exactly one "Nifty 50" slice plus 9
+ * independent slices, matching the row list below it exactly. The donut
+ * used to disappear entirely in grouped mode (this adapter had no
+ * header view type at all) - that's fixed by giving it one here.
  */
 class GroupedHoldingsAdapter(
     private val rows: List<GroupedHolding>,
     private val onDrillDown: (GroupedHolding) -> Unit
-) : RecyclerView.Adapter<GroupedHoldingsAdapter.RowHolder>() {
+) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
+
+    companion object {
+        private const val TYPE_HEADER = 0
+        private const val TYPE_ROW = 1
+    }
+
+    private val pricedRows = rows.filter { it.hasPrice }
+    private val hasHeader = pricedRows.isNotEmpty()
+
+    class HeaderHolder(view: View) : RecyclerView.ViewHolder(view) {
+        val container: View = view.findViewById(R.id.holdingsChartHeaderContainer)
+        val donut: DonutChartView = view.findViewById(R.id.perFundDonut)
+    }
 
     class RowHolder(view: View) : RecyclerView.ViewHolder(view) {
         val name: TextView = view.findViewById(R.id.holdingName)
@@ -29,13 +49,43 @@ class GroupedHoldingsAdapter(
         val secondaryLine: TextView = view.findViewById(R.id.holdingSecondaryLine)
     }
 
-    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RowHolder {
-        val view = LayoutInflater.from(parent.context).inflate(R.layout.item_holding, parent, false)
-        return RowHolder(view)
+    override fun getItemViewType(position: Int): Int {
+        return if (hasHeader && position == 0) TYPE_HEADER else TYPE_ROW
     }
 
-    override fun onBindViewHolder(holder: RowHolder, position: Int) {
-        val row = rows[position]
+    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
+        return if (viewType == TYPE_HEADER) {
+            val view = LayoutInflater.from(parent.context)
+                .inflate(R.layout.item_holdings_chart_header, parent, false)
+            HeaderHolder(view)
+        } else {
+            val view = LayoutInflater.from(parent.context).inflate(R.layout.item_holding, parent, false)
+            RowHolder(view)
+        }
+    }
+
+    override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
+        if (holder is HeaderHolder) {
+            val totalValue = pricedRows.sumOf { it.currentValue }
+            val slices = pricedRows
+                .filter { totalValue > 0 }
+                .map { DonutChartView.Slice(FundNameFormatter.shorten(it.displayName), ((it.currentValue / totalValue) * 100).toFloat()) }
+                .sortedByDescending { it.percent }
+            holder.donut.setSlices(slices)
+            val openExpanded = {
+                DonutExpansionDialog.show(holder.itemView.context, "Portfolio by fund", slices)
+            }
+            holder.donut.onSliceTapped = { _, _ -> openExpanded() }
+            holder.container.setOnClickListener { openExpanded() }
+            return
+        }
+
+        val rowHolder = holder as RowHolder
+        val row = rows[if (hasHeader) position - 1 else position]
+        bindRow(rowHolder, row)
+    }
+
+    private fun bindRow(holder: RowHolder, row: GroupedHolding) {
         val namePrefix = if (row.isGroup) "▸ " else ""
         holder.name.text = namePrefix + row.displayName.ifBlank { "(unnamed)" }
 
@@ -65,5 +115,5 @@ class GroupedHoldingsAdapter(
         }
     }
 
-    override fun getItemCount(): Int = rows.size
+    override fun getItemCount(): Int = rows.size + if (hasHeader) 1 else 0
 }
