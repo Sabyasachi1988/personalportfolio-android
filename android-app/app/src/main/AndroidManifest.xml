@@ -65,6 +65,9 @@
         <activity
             android:name=".MembersActivity"
             android:exported="false" />
+        <activity
+            android:name=".FundGroupsActivity"
+            android:exported="false" />
     </application>
 
 </manifest>
