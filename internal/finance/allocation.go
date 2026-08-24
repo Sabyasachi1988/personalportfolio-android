@@ -132,6 +132,21 @@ func toSlices(totals map[string]float64, total float64) []AllocationSlice {
 // conventions. This is a heuristic, not a certified classification -
 // unusual or newly-launched fund names may not match any pattern and
 // will return "Unclassified" rather than a guess presented as fact.
+//
+// Covers both AMFI-style full scheme names (space-separated, e.g. "...
+// NIFTY 50 BEES FOF - DIRECT GROWTH PLAN") AND bare NSE/BSE exchange
+// ticker symbols (no spaces at all, e.g. "NIFTYBEES") - a CSV-imported
+// ETF's Name is often just its raw ticker (see
+// bridge.inferInitialSymbol), which is a fundamentally different naming
+// vocabulary than a CAS statement's full scheme name. Without an
+// explicit no-space alias for each pattern, a bare ticker like
+// "NIFTYBEES" matches NOTHING here and comes back "Unclassified" -
+// which silently excludes it from equity classification entirely (see
+// EffectiveAssetClass), removing it from both the Allocation Market Cap
+// view AND every equity-scoped Progression axis (Indian/International/
+// Combined Equity) even though it's obviously, 100% equity. This was a
+// real reported bug, not a hypothetical - confirmed by tracing an
+// actual imported ETF's classification through this exact function.
 func GuessMarketCapSegment(fundName string) string {
 	n := strings.ToLower(fundName)
 
@@ -150,7 +165,7 @@ func GuessMarketCapSegment(fundName string) string {
 		return "Multi Cap"
 	case containsAny(n, "flexicap", "flexi cap"):
 		return "Flexi Cap"
-	case containsAny(n, "next 50", "nifty 50", "nifty50", "nifty bees", "sensex", "nifty 100", "nifty100", "bluechip", "blue chip", "large cap", "largecap"):
+	case containsAny(n, "next 50", "nifty 50", "nifty50", "nifty bees", "niftybees", "sensex", "nifty 100", "nifty100", "bluechip", "blue chip", "large cap", "largecap"):
 		return "Large Cap"
 	default:
 		return "Unclassified"
