@@ -19,6 +19,9 @@
     <color name="colorNeutral">#AAAAAA</color>
     <color name="colorAmber">#FFCA28</color>
 
+    <!-- See colors.xml's comment - same reasoning, brighter for dark backgrounds. -->
+    <color name="colorProgressionInvested">#64B5F6</color>
+
     <color name="chartSlice1">#66BB6A</color>
     <color name="chartSlice2">#64B5F6</color>
     <color name="chartSlice3">#FFCA28</color>
