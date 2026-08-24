@@ -16,13 +16,11 @@ import java.util.Locale
 class ProgressionActivity : AppCompatActivity() {
 
     private val gson = Gson()
-    private val isoFormat = SimpleDateFormat("yyyy-MM-dd", Locale.US)
 
     private lateinit var memberTab: TextView
     private lateinit var axisTab: TextView
     private lateinit var currencyTab: TextView
     private lateinit var statusText: TextView
-    private lateinit var spanText: TextView
     private lateinit var dateText: TextView
     private lateinit var investedText: TextView
     private lateinit var valueText: TextView
@@ -66,7 +64,6 @@ class ProgressionActivity : AppCompatActivity() {
         axisTab = findViewById(R.id.progressionAxisTab)
         currencyTab = findViewById(R.id.progressionCurrencyTab)
         statusText = findViewById(R.id.progressionStatusText)
-        spanText = findViewById(R.id.progressionSpanText)
         dateText = findViewById(R.id.statsCardDate)
         investedText = findViewById(R.id.statsCardInvested)
         valueText = findViewById(R.id.statsCardValue)
@@ -273,7 +270,6 @@ class ProgressionActivity : AppCompatActivity() {
 
         if (points.isEmpty()) {
             statusText.text = "No progression data yet — this needs transactions and price history. Run \"Update Price History\" from Settings first."
-            spanText.text = ""
             chart.setPoints(emptyList())
             dateText.text = ""
             investedText.text = ""
@@ -283,55 +279,9 @@ class ProgressionActivity : AppCompatActivity() {
             return
         }
 
-        statusText.text = if (assetId != null) {
-            "Weekly checkpoints for this fund from its first transaction to today. Drag the chart or slider to browse."
-        } else {
-            "Weekly checkpoints from first transaction to today. Drag the chart or slider to browse."
-        }
-        spanText.text = spanSummary(points)
+        statusText.text = if (assetId != null) "Weekly checkpoints for this fund" else "Weekly checkpoints"
         seekBar.max = (points.size - 1).coerceAtLeast(0)
         chart.setPoints(points) // triggers onScrub for the last point, which updates the detail card
-    }
-
-    /**
-     * "Jun 2024 – Aug 2026 · 2y 2m · 118 points" - gives an immediate
-     * sense of scale (is this 3 months or 20 years of history?) without
-     * needing to touch the chart at all, which the plain chart alone
-     * didn't convey. Uses plain millisecond-difference month/year math
-     * rather than java.time, since minSdk 24 doesn't have java.time
-     * without core library desugaring (not currently enabled).
-     */
-    private fun spanSummary(pts: List<ProgressionPoint>): String {
-        val first = pts.first().date
-        val last = pts.last().date
-        val firstDate = try { isoFormat.parse(first) } catch (e: Exception) { null }
-        val lastDate = try { isoFormat.parse(last) } catch (e: Exception) { null }
-        val monthLabel = SimpleDateFormat("MMM yyyy", Locale.US)
-        val rangeLabel = if (firstDate != null && lastDate != null) {
-            "${monthLabel.format(firstDate)} – ${monthLabel.format(lastDate)}"
-        } else {
-            "$first – $last"
-        }
-
-        val durationLabel = if (firstDate != null && lastDate != null) {
-            val totalDays = ((lastDate.time - firstDate.time) / (1000L * 60 * 60 * 24)).toInt().coerceAtLeast(0)
-            when {
-                totalDays < 60 -> " · ${(totalDays / 7).coerceAtLeast(1)} weeks"
-                else -> {
-                    val totalMonths = totalDays / 30
-                    val years = totalMonths / 12
-                    val months = totalMonths % 12
-                    val parts = mutableListOf<String>()
-                    if (years > 0) parts.add("${years}y")
-                    if (months > 0 || years == 0) parts.add("${months}m")
-                    " · " + parts.joinToString(" ")
-                }
-            }
-        } else {
-            ""
-        }
-
-        return "$rangeLabel$durationLabel · ${pts.size} points"
     }
 
     private fun updateDetailCard(index: Int) {
