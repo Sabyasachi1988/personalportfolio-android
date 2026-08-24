@@ -46,6 +46,10 @@ class SettingsActivity : AppCompatActivity() {
             startActivity(android.content.Intent(this, ManualHoldingsActivity::class.java))
         }
 
+        findViewById<android.widget.Button>(R.id.manageFundGroupsButton).setOnClickListener {
+            startActivity(android.content.Intent(this, FundGroupsActivity::class.java))
+        }
+
         findViewById<android.widget.Button>(R.id.updateHistoryButton).setOnClickListener {
             startActivity(android.content.Intent(this, UpdateHistoryActivity::class.java))
         }
