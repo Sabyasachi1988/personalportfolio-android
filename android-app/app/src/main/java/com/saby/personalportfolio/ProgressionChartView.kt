@@ -56,6 +56,16 @@ class ProgressionChartView @JvmOverloads constructor(
     /** Called whenever the zoom window changes, with true if currently zoomed in (not showing the full range). */
     var onZoomChanged: ((zoomed: Boolean) -> Unit)? = null
 
+    /**
+     * Called whenever the visible window's DATE RANGE changes (on
+     * setPoints, resetZoom, and every pinch/pan update) - lets the
+     * hosting Activity react to how narrow a span is actually showing,
+     * e.g. to swap in daily-resolution data once zoomed past some
+     * threshold (see ProgressionActivity's daily-overlay handling).
+     * Fires with empty dates when there are no points at all.
+     */
+    var onWindowChanged: ((startDate: String, endDate: String, spanDays: Int) -> Unit)? = null
+
     private var points: List<ProgressionPoint> = emptyList()
     private var scrubbedIndex: Int = -1
 
@@ -149,6 +159,7 @@ class ProgressionChartView @JvmOverloads constructor(
         valuePaint.color = currentSeriesColor()
         invalidate()
         onZoomChanged?.invoke(false)
+        notifyWindowChanged()
         if (scrubbedIndex >= 0) onScrub?.invoke(scrubbedIndex)
     }
 
@@ -172,8 +183,39 @@ class ProgressionChartView @JvmOverloads constructor(
         invalidate()
         if (wasZoomed) {
             onZoomChanged?.invoke(false)
+            notifyWindowChanged()
             onScrub?.invoke(scrubbedIndex)
         }
+    }
+
+    /**
+     * Days between the window's start and end point dates (parsed as
+     * plain "yyyy-MM-dd" - always well-formed here, since every date
+     * comes from the bridge in that format). Falls back to the INDEX
+     * span if parsing ever fails, which is still a reasonable proxy for
+     * "how narrow is this view" even though it may not be exactly in
+     * days for a weekly series.
+     */
+    private fun notifyWindowChanged() {
+        val callback = onWindowChanged ?: return
+        if (points.isEmpty()) {
+            callback("", "", 0)
+            return
+        }
+        val startDate = points[windowStart].date
+        val endDate = points[windowEnd].date
+        val spanDays = try {
+            val start = isoDateFormat.parse(startDate)
+            val end = isoDateFormat.parse(endDate)
+            if (start != null && end != null) {
+                ((end.time - start.time) / (1000L * 60 * 60 * 24)).toInt().coerceAtLeast(0)
+            } else {
+                windowEnd - windowStart
+            }
+        } catch (e: Exception) {
+            windowEnd - windowStart
+        }
+        callback(startDate, endDate, spanDays)
     }
 
     private fun isZoomed(): Boolean = points.isNotEmpty() && (windowStart > 0 || windowEnd < points.size - 1)
@@ -428,6 +470,7 @@ class ProgressionChartView @JvmOverloads constructor(
 
             val nowZoomed = isZoomed()
             if (nowZoomed != wasZoomed) onZoomChanged?.invoke(nowZoomed)
+            notifyWindowChanged()
             return true
         }
     }
