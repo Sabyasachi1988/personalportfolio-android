@@ -390,16 +390,14 @@ func applyAmfiRecords(p *store.Portfolio, records []priceapi.NavRecord) (matched
 // upsertPriceRecord replaces any existing PriceRecord for the same
 // AssetID+Date (so refreshing twice on the same day doesn't accumulate
 // duplicate rows), or appends a new one otherwise.
+// upsertPriceRecord is a single-record convenience wrapper around
+// store.Portfolio.UpsertPrices - delegating rather than duplicating the
+// upsert logic here means this also gets that method's cache
+// invalidation (see Portfolio.invalidatePriceIndex's doc comment) for
+// free, rather than needing its own copy of that bookkeeping.
 func upsertPriceRecord(p *store.Portfolio, assetID, isoDate string, price float64, source string) {
-	for i := range p.Prices {
-		if p.Prices[i].AssetID == assetID && p.Prices[i].Date == isoDate {
-			p.Prices[i].Price = price
-			p.Prices[i].Source = source
-			return
-		}
-	}
-	p.Prices = append(p.Prices, store.PriceRecord{
-		AssetID: assetID, Date: isoDate, Price: price, Source: source,
+	p.UpsertPrices([]store.PriceRecord{
+		{AssetID: assetID, Date: isoDate, Price: price, Source: source},
 	})
 }
 
@@ -1581,7 +1579,7 @@ func ComputeHoldingsInSegment(portfolioJSON string, memberID string, segmentLabe
 // the weekly-checkpoint boundary (and the "append today" rule) matches
 // what the person actually sees on their phone, not the build server's
 // clock.
-func ComputeProgression(portfolioJSON string, memberID string, axis string, today string) string {
+func ComputeProgression(portfolioJSON string, memberID string, axis string, today string, cachePath string) string {
 	var p store.Portfolio
 	if portfolioJSON != "" {
 		if err := json.Unmarshal([]byte(portfolioJSON), &p); err != nil {
@@ -1592,12 +1590,37 @@ func ComputeProgression(portfolioJSON string, memberID string, axis string, toda
 	if err != nil {
 		return fmt.Sprintf(`{"error":%q}`, "invalid today date: "+err.Error())
 	}
-	points := finance.ComputeProgression(&p, memberID, finance.ProgressionAxis(axis), t)
+	cache := loadProgressionCacheIfRequested(cachePath)
+	points := finance.ComputeProgression(&p, memberID, finance.ProgressionAxis(axis), t, cache)
+	saveProgressionCacheIfRequested(cache, cachePath)
 	out, err := json.Marshal(points)
 	if err != nil {
 		return fmt.Sprintf(`{"error":%q}`, err.Error())
 	}
 	return string(out)
+}
+
+// loadProgressionCacheIfRequested/saveProgressionCacheIfRequested wrap
+// finance.LoadProgressionCache/(*ProgressionCache).Save for the 3
+// weekly progression bridge functions - cachePath == "" means "caching
+// disabled", passed straight through as a nil *finance.ProgressionCache
+// (see finance.ComputeProgression's doc comment: nil just means always
+// compute fresh, no error). A save failure is deliberately swallowed -
+// this is a pure performance cache, not user data, and a failed write
+// here should never surface as a user-facing error or block anything
+// else the caller is doing.
+func loadProgressionCacheIfRequested(cachePath string) *finance.ProgressionCache {
+	if cachePath == "" {
+		return nil
+	}
+	return finance.LoadProgressionCache(cachePath)
+}
+
+func saveProgressionCacheIfRequested(cache *finance.ProgressionCache, cachePath string) {
+	if cache == nil || cachePath == "" {
+		return
+	}
+	_ = cache.Save(cachePath)
 }
 
 // ComputeProgressionDailyRange is ComputeProgression's daily-granularity
@@ -1630,7 +1653,7 @@ func ComputeProgressionDailyRange(portfolioJSON string, memberID string, axis st
 
 // ComputeAssetProgression is ComputeProgression's single-fund
 // counterpart - see finance.ComputeAssetProgression's doc comment.
-func ComputeAssetProgression(portfolioJSON string, assetID string, today string) string {
+func ComputeAssetProgression(portfolioJSON string, assetID string, today string, cachePath string) string {
 	var p store.Portfolio
 	if portfolioJSON != "" {
 		if err := json.Unmarshal([]byte(portfolioJSON), &p); err != nil {
@@ -1641,7 +1664,9 @@ func ComputeAssetProgression(portfolioJSON string, assetID string, today string)
 	if err != nil {
 		return fmt.Sprintf(`{"error":%q}`, "invalid today date: "+err.Error())
 	}
-	points := finance.ComputeAssetProgression(&p, assetID, t)
+	cache := loadProgressionCacheIfRequested(cachePath)
+	points := finance.ComputeAssetProgression(&p, assetID, t, cache)
+	saveProgressionCacheIfRequested(cache, cachePath)
 	out, err := json.Marshal(points)
 	if err != nil {
 		return fmt.Sprintf(`{"error":%q}`, err.Error())
@@ -1668,6 +1693,56 @@ func ComputeAssetProgressionDailyRange(portfolioJSON string, assetID string, sta
 		return fmt.Sprintf(`{"error":%q}`, "invalid end date: "+err.Error())
 	}
 	points := finance.ComputeAssetProgressionDailyRange(&p, assetID, start, end)
+	out, err := json.Marshal(points)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+	return string(out)
+}
+
+// ComputeGroupProgression is ComputeProgression's fund-group counterpart
+// - see finance.ComputeGroupProgression's doc comment. groupLabel is the
+// free-text label assigned via SetAssetGroupLabel (e.g. "Nifty 50").
+func ComputeGroupProgression(portfolioJSON string, memberID string, groupLabel string, today string, cachePath string) string {
+	var p store.Portfolio
+	if portfolioJSON != "" {
+		if err := json.Unmarshal([]byte(portfolioJSON), &p); err != nil {
+			return fmt.Sprintf(`{"error":%q}`, "invalid portfolio JSON: "+err.Error())
+		}
+	}
+	t, err := time.Parse("2006-01-02", today)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, "invalid today date: "+err.Error())
+	}
+	cache := loadProgressionCacheIfRequested(cachePath)
+	points := finance.ComputeGroupProgression(&p, memberID, groupLabel, t, cache)
+	saveProgressionCacheIfRequested(cache, cachePath)
+	out, err := json.Marshal(points)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+	return string(out)
+}
+
+// ComputeGroupProgressionDailyRange is ComputeGroupProgression's
+// daily-granularity counterpart, bounded to [startDate, endDate] - see
+// finance.ComputeGroupProgressionDailyRange's doc comment.
+func ComputeGroupProgressionDailyRange(portfolioJSON string, memberID string, groupLabel string, startDate string, endDate string) string {
+	var p store.Portfolio
+	if portfolioJSON != "" {
+		if err := json.Unmarshal([]byte(portfolioJSON), &p); err != nil {
+			return fmt.Sprintf(`{"error":%q}`, "invalid portfolio JSON: "+err.Error())
+		}
+	}
+	start, err := time.Parse("2006-01-02", startDate)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, "invalid start date: "+err.Error())
+	}
+	end, err := time.Parse("2006-01-02", endDate)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, "invalid end date: "+err.Error())
+	}
+	points := finance.ComputeGroupProgressionDailyRange(&p, memberID, groupLabel, start, end)
 	out, err := json.Marshal(points)
 	if err != nil {
 		return fmt.Sprintf(`{"error":%q}`, err.Error())
