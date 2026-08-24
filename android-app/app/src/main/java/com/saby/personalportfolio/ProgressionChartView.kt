@@ -44,6 +44,11 @@ import kotlin.math.roundToInt
  * flat sliver against years of history. Double-tap resets to the full
  * range. onZoomChanged reports whether the view is currently zoomed, so
  * the hosting Activity can show/hide a "Reset zoom" affordance.
+ *
+ * Once zoomed, a SINGLE finger drag pans the window (no need for a
+ * second finger just to move around what's already zoomed in) - see
+ * onTouchEvent's doc comment. A single-finger TAP still scrubs to that
+ * point either way.
  */
 class ProgressionChartView @JvmOverloads constructor(
     context: Context,
@@ -55,6 +60,22 @@ class ProgressionChartView @JvmOverloads constructor(
 
     /** Called whenever the zoom window changes, with true if currently zoomed in (not showing the full range). */
     var onZoomChanged: ((zoomed: Boolean) -> Unit)? = null
+
+    /**
+     * Called (once per gesture, not per-frame) when a pinch-out is
+     * attempted while ALREADY showing the full extent of whatever
+     * dataset is currently loaded (windowStart==0 AND
+     * windowEnd==points.size-1) - there's nowhere further this chart's
+     * OWN data can reveal, since it was only ever given a bounded daily
+     * window (see ProgressionActivity's daily-zoom-on-demand fetching).
+     * Continuing to pinch out at that point used to just silently do
+     * nothing - clamped, but with no visible feedback that anything
+     * happened, which read as the gesture being stuck/broken. The
+     * hosting Activity is expected to swap in a wider dataset (its
+     * weekly spine) in response, so zooming out keeps working smoothly
+     * past the edge of the currently-loaded daily window.
+     */
+    var onZoomOutBeyondBounds: (() -> Unit)? = null
 
     /**
      * Called whenever the visible window's DATE RANGE changes (on
@@ -368,6 +389,35 @@ class ProgressionChartView @JvmOverloads constructor(
         }
     }
 
+    private val touchSlop = android.view.ViewConfiguration.get(context).scaledTouchSlop
+
+    // Single-finger gesture tracking, for distinguishing a tap (scrub to
+    // that point - the original behavior) from a drag (pan the visible
+    // window, when zoomed - see onTouchEvent's doc comment). Reset at
+    // the start of every single-finger gesture.
+    private var downX = 0f
+    private var downWindowStart = 0
+    private var downWindowEnd = 0
+    private var isPanningGesture = false
+
+    /**
+     * Single-finger behavior depends on zoom state:
+     *
+     * - NOT zoomed (showing the full loaded range): unchanged from
+     *   before - continuous scrub-as-you-drag, exactly as it always
+     *   worked. There's nothing meaningful to pan to at full zoom-out
+     *   anyway.
+     * - ZOOMED: a genuine drag (past touch-slop) now PANS the visible
+     *   window with one finger, instead of requiring a two-finger drag
+     *   (which necessarily also risks zooming if the two fingers don't
+     *   move in perfect lockstep - reported directly as an issue). A
+     *   quick TAP (movement stays under touch-slop) still scrubs to
+     *   that point, resolved on release so a tap-that-becomes-a-drag
+     *   doesn't flash a scrub position it's about to abandon.
+     *
+     * Two-finger pinch/pan (ScaleGestureDetector) is unaffected either
+     * way - this only changes what a SINGLE finger does.
+     */
     override fun onTouchEvent(event: MotionEvent): Boolean {
         if (points.isEmpty()) return super.onTouchEvent(event)
 
@@ -375,25 +425,83 @@ class ProgressionChartView @JvmOverloads constructor(
         gestureDetector.onTouchEvent(event)
 
         // While a pinch is actively in progress (2+ fingers down), don't
-        // also treat the gesture as a single-finger scrub - the two
+        // also treat the gesture as a single-finger scrub/pan - the two
         // interpretations of the same touch stream would otherwise fight
         // each other every frame.
         if (scaleDetector.isInProgress || event.pointerCount > 1) {
+            isPanningGesture = false
             return true
         }
 
         when (event.action) {
-            MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE -> {
-                scrubToX(event.x)
+            MotionEvent.ACTION_DOWN -> {
+                downX = event.x
+                downWindowStart = windowStart
+                downWindowEnd = windowEnd
+                isPanningGesture = false
+                if (!isZoomed()) {
+                    scrubToX(event.x)
+                }
+                return true
+            }
+            MotionEvent.ACTION_MOVE -> {
+                if (isZoomed()) {
+                    val totalDeltaX = event.x - downX
+                    if (isPanningGesture || kotlin.math.abs(totalDeltaX) > touchSlop) {
+                        isPanningGesture = true
+                        panSingleFingerTo(totalDeltaX)
+                    }
+                    // else: still within touch-slop - could still become
+                    // either a tap or a drag, so nothing happens yet
+                    // (deliberately not scrubbing mid-uncertainty here,
+                    // unlike the not-zoomed case below).
+                } else {
+                    scrubToX(event.x)
+                }
                 return true
             }
             MotionEvent.ACTION_UP -> {
-                scrubToX(event.x)
+                if (!isPanningGesture) {
+                    scrubToX(event.x)
+                }
+                isPanningGesture = false
                 performClick()
                 return true
             }
         }
         return super.onTouchEvent(event)
+    }
+
+    /**
+     * Pans the window by `totalDeltaX` pixels of single-finger movement
+     * SINCE ACTION_DOWN (an absolute offset from the gesture's starting
+     * window, not an incremental per-frame delta like the two-finger
+     * pan uses) - simpler and avoids any incremental-accumulation drift
+     * over a long drag. Same direction convention as the two-finger
+     * pan: dragging right reveals earlier/left content.
+     */
+    private fun panSingleFingerTo(totalDeltaX: Float) {
+        val span = (downWindowEnd - downWindowStart).coerceAtLeast(1)
+        val usableWidth = (width - 2 * edgeInset).coerceAtLeast(1f)
+        val indexPerPixel = span / usableWidth
+        val indexDelta = -totalDeltaX * indexPerPixel
+
+        var newStart = downWindowStart + indexDelta
+        var newEnd = downWindowEnd + indexDelta
+        val maxSpan = (points.size - 1).toFloat()
+        if (newStart < 0f) {
+            newEnd -= newStart
+            newStart = 0f
+        }
+        if (newEnd > maxSpan) {
+            newStart -= (newEnd - maxSpan)
+            newEnd = maxSpan
+        }
+        windowStart = newStart.roundToInt().coerceIn(0, maxSpan.toInt())
+        windowEnd = newEnd.roundToInt().coerceIn(windowStart, maxSpan.toInt())
+        scrubbedIndex = scrubbedIndex.coerceIn(windowStart, windowEnd)
+        invalidate()
+        notifyWindowChanged()
     }
 
     private fun scrubToX(x: Float) {
@@ -411,16 +519,52 @@ class ProgressionChartView @JvmOverloads constructor(
         private var lastFocusXPixels = 0f
         private var panWindowStartF = 0f
         private var panWindowEndF = 0f
+        // Captured once at the start of each gesture (not re-checked
+        // per-frame) - see onZoomOutBeyondBounds' doc comment for why
+        // "started already at full bounds" is the right thing to test,
+        // rather than re-deriving "at bounds" from the live, possibly
+        // momentarily-out-of-range pan/zoom math mid-frame.
+        private var startedAtFullBounds = false
+        private var firedZoomOutBeyondBounds = false
 
         override fun onScaleBegin(detector: ScaleGestureDetector): Boolean {
             panWindowStartF = windowStart.toFloat()
             panWindowEndF = windowEnd.toFloat()
             lastFocusXPixels = detector.focusX
+            val maxSpanInt = points.size - 1
+            startedAtFullBounds = points.size > 1 && windowStart <= 0 && windowEnd >= maxSpanInt
+            firedZoomOutBeyondBounds = false
             return true
         }
 
         override fun onScale(detector: ScaleGestureDetector): Boolean {
             if (points.size < 2) return true
+
+            // Already showing everything this chart has loaded, and the
+            // person is still pinching outward - hand off to the
+            // Activity to load something wider, rather than silently
+            // clamping and doing nothing (which is what "stuck" looked
+            // like). Fires once per gesture; once the Activity swaps
+            // `points` out from under this view (via setPoints), the
+            // rest of this gesture's frames become moot anyway.
+            if (startedAtFullBounds && !firedZoomOutBeyondBounds && detector.scaleFactor < 1f) {
+                firedZoomOutBeyondBounds = true
+                onZoomOutBeyondBounds?.invoke()
+                // The callback may have swapped `points` out from under
+                // this view (e.g. falling back to the weekly spine via
+                // setPoints) - re-sync the pan/zoom reference frame to
+                // whatever the CURRENT state now is, so if the fingers
+                // stay down and this same physical gesture continues,
+                // it continues smoothly against the new dataset instead
+                // of computing against now-meaningless offsets sized for
+                // the old one.
+                panWindowStartF = windowStart.toFloat()
+                panWindowEndF = windowEnd.toFloat()
+                lastFocusXPixels = detector.focusX
+                startedAtFullBounds = points.size > 1 && windowStart <= 0 && windowEnd >= points.size - 1
+                return true
+            }
+
             val wasZoomed = isZoomed()
             val maxSpan = (points.size - 1).toFloat()
             val usableWidth = (width - 2 * edgeInset).coerceAtLeast(1f)
