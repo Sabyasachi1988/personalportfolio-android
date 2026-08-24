@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"math"
 	"regexp"
+	"strings"
 	"time"
 
 	"ledger/internal/casimport"
@@ -191,6 +192,44 @@ func ComputeAllocationByMarketCap(portfolioJSON string, memberID string) string 
 
 	slices := finance.AllocationByMarketCapSegment(holdings, compByAsset)
 	out, err := json.Marshal(slices)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+	return string(out)
+}
+
+// ComputeGroupedHoldings is ComputeHoldings' consolidated counterpart -
+// see finance.GroupHoldingsByLabel's doc comment. memberID scopes to one
+// member's holdings first (empty = whole family), same convention as
+// ComputeAllocationByMarketCap.
+func ComputeGroupedHoldings(portfolioJSON string, memberID string) string {
+	var p store.Portfolio
+	if portfolioJSON != "" {
+		if err := json.Unmarshal([]byte(portfolioJSON), &p); err != nil {
+			return fmt.Sprintf(`{"error":%q}`, "invalid portfolio JSON: "+err.Error())
+		}
+	}
+	holdings := finance.FilterHoldingsByMember(finance.ComputeHoldings(&p), memberID)
+	grouped := finance.GroupHoldingsByLabel(&p, holdings)
+	out, err := json.Marshal(grouped)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+	return string(out)
+}
+
+// SetAssetGroupLabel records (or clears, if label is "") the fund-group
+// label for an asset - see store.Asset.GroupLabel's doc comment. Returns
+// the updated portfolio as JSON.
+func SetAssetGroupLabel(portfolioJSON string, assetID string, label string) string {
+	var p store.Portfolio
+	if portfolioJSON != "" {
+		if err := json.Unmarshal([]byte(portfolioJSON), &p); err != nil {
+			return fmt.Sprintf(`{"error":%q}`, "invalid portfolio JSON: "+err.Error())
+		}
+	}
+	p.SetAssetGroupLabel(assetID, label)
+	out, err := json.Marshal(p)
 	if err != nil {
 		return fmt.Sprintf(`{"error":%q}`, err.Error())
 	}
@@ -428,7 +467,11 @@ func SavePortfolio(path string, portfolioJSON string) string {
 // across the whole portfolio: two different members holding the same
 // fund (same ISIN) must NOT be silently merged onto whichever account
 // happened to create the Asset first - store.Portfolio.FindAssetByISIN
-// is deliberately not used here for that reason.
+// is deliberately not used here for that reason. Rows with no usable
+// ISIN (common for broker trade-CSV exports, unlike CAS statements,
+// which always carry one) fall back to matching by exact scheme/fund
+// name within the account instead - see findAssetByNameInAccount's doc
+// comment for what this does and doesn't guarantee.
 //
 // Before appending, each row is also checked against transactions
 // ALREADY in the portfolio for the same asset (see isDuplicateTransaction)
@@ -488,6 +531,9 @@ func CommitStagedRows(portfolioJSON string, stagedRowsJSON string, memberName st
 
 		asset, ok := findAssetByISINInAccount(&p, txn.ISIN, account.ID)
 		if !ok {
+			asset, ok = findAssetByNameInAccount(&p, txn.Scheme, account.ID)
+		}
+		if !ok {
 			asset = store.Asset{
 				ID:        store.NewID("asset"),
 				AccountID: account.ID,
@@ -496,6 +542,19 @@ func CommitStagedRows(portfolioJSON string, stagedRowsJSON string, memberName st
 				Type:      "MutualFund",
 			}
 			p.Assets = append(p.Assets, asset)
+		} else if asset.ISIN == "" && txn.ISIN != "" {
+			// Backfill: this asset was first created from an ISIN-less
+			// CSV row (matched by name just now), and this row happens
+			// to carry a real ISIN - store it so FUTURE imports for this
+			// same fund can match by the more reliable ISIN path instead
+			// of continuing to depend on the name staying identical.
+			for i := range p.Assets {
+				if p.Assets[i].ID == asset.ID {
+					p.Assets[i].ISIN = txn.ISIN
+					asset.ISIN = txn.ISIN
+					break
+				}
+			}
 		}
 
 		if isDuplicateTransaction(p.Transactions, asset.ID, txn) {
@@ -768,6 +827,39 @@ func findAssetByISINInAccount(p *store.Portfolio, isin string, accountID string)
 	}
 	for _, a := range p.Assets {
 		if a.ISIN == isin && a.AccountID == accountID {
+			return a, true
+		}
+	}
+	return store.Asset{}, false
+}
+
+// findAssetByNameInAccount is CommitStagedRows' fallback for rows with
+// no usable ISIN - most broker trade-CSV exports (Zerodha Console
+// included) simply don't carry an ISIN column at all, unlike a CAS
+// statement, which always does. Without this fallback, every CSV-only
+// import (or overlapping re-import of the same CSV) fell straight to
+// "create a new asset" every single time, since
+// findAssetByISINInAccount("") always returns not-found by design -
+// this was silently duplicating assets (and therefore every transaction
+// attached to them) on every re-import, even though the PDF path's
+// reliance on ISIN worked correctly the whole time.
+//
+// Matching is exact (case-insensitive, whitespace-trimmed) on the
+// scheme/fund name text as it appears in that row - reliable when
+// re-importing overlapping exports from the SAME broker/source (the
+// name text is identical every time), which is the common case this was
+// reported against. It is NOT guaranteed to bridge across genuinely
+// different naming conventions (e.g. a CSV's short ticker-style name vs
+// a CAS statement's full official AMFI scheme name for the same real
+// fund) - if those differ, this still creates a separate asset, same as
+// before. That's a real, known limitation, not silently papered over.
+func findAssetByNameInAccount(p *store.Portfolio, scheme string, accountID string) (store.Asset, bool) {
+	normalized := strings.ToLower(strings.TrimSpace(scheme))
+	if normalized == "" {
+		return store.Asset{}, false
+	}
+	for _, a := range p.Assets {
+		if a.AccountID == accountID && strings.ToLower(strings.TrimSpace(a.Name)) == normalized {
 			return a, true
 		}
 	}
