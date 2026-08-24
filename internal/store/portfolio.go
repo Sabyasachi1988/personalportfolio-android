@@ -36,6 +36,18 @@ type Asset struct {
 	Symbol     string // Yahoo-style symbol for stocks/ETFs, e.g. "RELIANCE.NS"
 	AssetClass string // AMFI/SEBI category, e.g. "Equity", "Debt", "Other" (set on price refresh)
 	ETMoneyURL string `json:",omitempty"` // full ETMoney fund page URL (e.g. https://www.etmoney.com/mutual-funds/<slug>/<id>), entered once so cap composition can be auto-fetched from it; empty means "not linked, manual entry only"
+	// GroupLabel is a free-text bucket the person assigns themselves,
+	// e.g. "Nifty 50" - so several DIFFERENT real assets (different
+	// AMC, different ISIN - e.g. a Nippon India Nifty 50 fund, a Navi
+	// Nifty 50 fund, and an HDFC Nifty 50 ETF) that all represent the
+	// same underlying exposure can be viewed as one consolidated line
+	// when useful, without merging their actual stored data - each
+	// Asset/transaction/ISIN stays exactly as it is; GroupLabel is
+	// purely a display-time aggregation key (see
+	// finance.GroupHoldingsByLabel). Empty means "not grouped, show
+	// individually" - the default and current behavior for everything
+	// until the person deliberately labels something.
+	GroupLabel string `json:",omitempty"`
 }
 
 // StoredTransaction is a confirmed transaction attached to a real
@@ -371,6 +383,18 @@ func (p *Portfolio) SetAssetETMoneyURL(assetID, url string) {
 	for i := range p.Assets {
 		if p.Assets[i].ID == assetID {
 			p.Assets[i].ETMoneyURL = url
+			return
+		}
+	}
+}
+
+// SetAssetGroupLabel records (or clears, if label is "") the fund-group
+// label for an asset - see Asset.GroupLabel's doc comment. No-op if the
+// asset ID isn't found.
+func (p *Portfolio) SetAssetGroupLabel(assetID, label string) {
+	for i := range p.Assets {
+		if p.Assets[i].ID == assetID {
+			p.Assets[i].GroupLabel = label
 			return
 		}
 	}
