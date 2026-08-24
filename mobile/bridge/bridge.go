@@ -381,7 +381,7 @@ func applyAmfiRecords(p *store.Portfolio, records []priceapi.NavRecord) (matched
 		if !ok {
 			continue
 		}
-		upsertPriceRecord(p, asset.ID, isoDate, rec.NAV)
+		upsertPriceRecord(p, asset.ID, isoDate, rec.NAV, "AMFI")
 		matchedCount++
 	}
 	return matchedCount
@@ -390,16 +390,16 @@ func applyAmfiRecords(p *store.Portfolio, records []priceapi.NavRecord) (matched
 // upsertPriceRecord replaces any existing PriceRecord for the same
 // AssetID+Date (so refreshing twice on the same day doesn't accumulate
 // duplicate rows), or appends a new one otherwise.
-func upsertPriceRecord(p *store.Portfolio, assetID, isoDate string, price float64) {
+func upsertPriceRecord(p *store.Portfolio, assetID, isoDate string, price float64, source string) {
 	for i := range p.Prices {
 		if p.Prices[i].AssetID == assetID && p.Prices[i].Date == isoDate {
 			p.Prices[i].Price = price
-			p.Prices[i].Source = "AMFI"
+			p.Prices[i].Source = source
 			return
 		}
 	}
 	p.Prices = append(p.Prices, store.PriceRecord{
-		AssetID: assetID, Date: isoDate, Price: price, Source: "AMFI",
+		AssetID: assetID, Date: isoDate, Price: price, Source: source,
 	})
 }
 
@@ -414,6 +414,58 @@ func amfiDateToISO(s string) (string, bool) {
 		return "", false
 	}
 	return t.Format("2006-01-02"), true
+}
+
+// RefreshSymbolPrices fetches a live quote (real HTTP call - requires
+// the Android app to hold the INTERNET permission) for every Asset that
+// has a Symbol but no ISIN - an ETF or stock, not a folio-based mutual
+// fund - and updates today's PriceRecord for each.
+//
+// Complements RefreshAmfiPrices, which only ever covered ISIN-based
+// mutual fund assets: together they're "refresh today's price for
+// everything", the lightweight quick-refresh counterpart to
+// UpdateHistoricalPrice's much heavier multi-year history fetch. Any
+// individual symbol's fetch failing (e.g. a bad/incomplete symbol - see
+// FixAssetSymbolActivity) does not stop the others from being tried;
+// failures are collected and returned so the caller can show exactly
+// which ones need attention, rather than one bad symbol silently
+// blocking every fund's refresh.
+func RefreshSymbolPrices(portfolioJSON string) string {
+	var p store.Portfolio
+	if portfolioJSON != "" {
+		if err := json.Unmarshal([]byte(portfolioJSON), &p); err != nil {
+			return fmt.Sprintf(`{"error":%q}`, "invalid portfolio JSON: "+err.Error())
+		}
+	}
+
+	matched := 0
+	var failures []string
+	for _, asset := range p.Assets {
+		if asset.ISIN != "" || asset.Symbol == "" {
+			continue
+		}
+		quote, err := priceapi.FetchYahooQuote(asset.Symbol)
+		if err != nil {
+			failures = append(failures, fmt.Sprintf("%s (%s): %s", asset.Name, asset.Symbol, err.Error()))
+			continue
+		}
+		isoDate := time.Now().Format("2006-01-02")
+		if !quote.AsOf.IsZero() {
+			isoDate = quote.AsOf.Format("2006-01-02")
+		}
+		upsertPriceRecord(&p, asset.ID, isoDate, quote.Price, "YAHOO")
+		matched++
+	}
+
+	out, err := json.Marshal(p)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+	failuresJSON, err := json.Marshal(failures)
+	if err != nil {
+		failuresJSON = []byte("[]")
+	}
+	return fmt.Sprintf(`{"matchedCount":%d,"failures":%s,"portfolio":%s}`, matched, failuresJSON, string(out))
 }
 
 // ComputePortfolioXIRR computes the single pooled XIRR across the whole
