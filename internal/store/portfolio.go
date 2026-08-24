@@ -375,6 +375,21 @@ func (p *Portfolio) SetCapComposition(assetID string, large, mid, small, cash fl
 	p.CapCompositions = append(p.CapCompositions, CapComposition{AssetID: assetID, Large: large, Mid: mid, Small: small, Cash: cash, AsOf: asOf, Source: source})
 }
 
+// SetAssetSymbolAndType updates an asset's Symbol and Type - the
+// correction path for a CSV-imported ETF/stock whose auto-inferred
+// Symbol needs an exchange suffix added (see bridge.inferInitialSymbol's
+// doc comment for why that can't be guessed automatically), or whose
+// Type needs fixing. No-op if the asset ID isn't found.
+func (p *Portfolio) SetAssetSymbolAndType(assetID, symbol, assetType string) {
+	for i := range p.Assets {
+		if p.Assets[i].ID == assetID {
+			p.Assets[i].Symbol = symbol
+			p.Assets[i].Type = assetType
+			return
+		}
+	}
+}
+
 // SetAssetETMoneyURL records the ETMoney fund page URL for an asset, so
 // its cap composition can later be auto-fetched from that URL. Passing
 // an empty url un-links the asset (falls back to manual-only entry).
