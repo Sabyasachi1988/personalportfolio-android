@@ -35,10 +35,10 @@ import (
 
 // ImportCASResult is the JSON shape returned by ImportCAS.
 type ImportCASResult struct {
-	Format       string                     `json:"format"`
-	Staged       []casimport.StagedRow      `json:"staged"`
+	Format       string                       `json:"format"`
+	Staged       []casimport.StagedRow        `json:"staged"`
 	ManualReview []casimport.ManualReviewLine `json:"manualReview"`
-	Error        string                     `json:"error,omitempty"`
+	Error        string                       `json:"error,omitempty"`
 }
 
 // ImportCAS parses a CAS PDF (raw bytes, e.g. read from a content:// URI on
@@ -1600,6 +1600,34 @@ func ComputeProgression(portfolioJSON string, memberID string, axis string, toda
 	return string(out)
 }
 
+// ComputeProgressionDailyRange is ComputeProgression's daily-granularity
+// counterpart, bounded to [startDate, endDate] - see
+// finance.ComputeProgressionDailyRange's doc comment. Intended for a
+// zoomed-in chart window (see ProgressionChartView's onWindowChanged),
+// not full-history daily browsing.
+func ComputeProgressionDailyRange(portfolioJSON string, memberID string, axis string, startDate string, endDate string) string {
+	var p store.Portfolio
+	if portfolioJSON != "" {
+		if err := json.Unmarshal([]byte(portfolioJSON), &p); err != nil {
+			return fmt.Sprintf(`{"error":%q}`, "invalid portfolio JSON: "+err.Error())
+		}
+	}
+	start, err := time.Parse("2006-01-02", startDate)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, "invalid start date: "+err.Error())
+	}
+	end, err := time.Parse("2006-01-02", endDate)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, "invalid end date: "+err.Error())
+	}
+	points := finance.ComputeProgressionDailyRange(&p, memberID, finance.ProgressionAxis(axis), start, end)
+	out, err := json.Marshal(points)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+	return string(out)
+}
+
 // ComputeAssetProgression is ComputeProgression's single-fund
 // counterpart - see finance.ComputeAssetProgression's doc comment.
 func ComputeAssetProgression(portfolioJSON string, assetID string, today string) string {
@@ -1614,6 +1642,32 @@ func ComputeAssetProgression(portfolioJSON string, assetID string, today string)
 		return fmt.Sprintf(`{"error":%q}`, "invalid today date: "+err.Error())
 	}
 	points := finance.ComputeAssetProgression(&p, assetID, t)
+	out, err := json.Marshal(points)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+	return string(out)
+}
+
+// ComputeAssetProgressionDailyRange is ComputeAssetProgression's
+// daily-granularity counterpart, bounded to [startDate, endDate] - see
+// finance.ComputeAssetProgressionDailyRange's doc comment.
+func ComputeAssetProgressionDailyRange(portfolioJSON string, assetID string, startDate string, endDate string) string {
+	var p store.Portfolio
+	if portfolioJSON != "" {
+		if err := json.Unmarshal([]byte(portfolioJSON), &p); err != nil {
+			return fmt.Sprintf(`{"error":%q}`, "invalid portfolio JSON: "+err.Error())
+		}
+	}
+	start, err := time.Parse("2006-01-02", startDate)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, "invalid start date: "+err.Error())
+	}
+	end, err := time.Parse("2006-01-02", endDate)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, "invalid end date: "+err.Error())
+	}
+	points := finance.ComputeAssetProgressionDailyRange(&p, assetID, start, end)
 	out, err := json.Marshal(points)
 	if err != nil {
 		return fmt.Sprintf(`{"error":%q}`, err.Error())
