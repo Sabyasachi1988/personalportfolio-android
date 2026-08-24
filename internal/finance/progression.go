@@ -248,6 +248,71 @@ func computeProgressionSeries(
 	return points
 }
 
+// ComputeGroupProgression computes a weekly (plus today) progression
+// series for every asset sharing the same fund-group label (see
+// store.Asset.GroupLabel's doc comment and GroupHoldingsByLabel) -
+// letting someone browse a CONSOLIDATED group's own growth story (e.g.
+// several different-AMC "Nifty 50" funds combined) the same way
+// ComputeAssetProgression does for a single fund. All matching assets
+// are weighted 1.0 (fully summed together), NOT a fractional axis
+// split - grouping means "add these up", same convention
+// GroupHoldingsByLabel already uses for the Holdings screen's
+// consolidated view. memberID scopes to one member's assets first
+// (empty = whole family), matching ComputeGroupedHoldings' own
+// convention for the same reason: two different members holding
+// same-labeled funds should never silently sum together.
+//
+// cache may be nil - see ComputeProgression's doc comment.
+func ComputeGroupProgression(p *store.Portfolio, memberID, groupLabel string, today time.Time, cache *ProgressionCache) []ProgressionPoint {
+	accountByID, assetByID, included, weights := groupProgressionInputs(p, memberID, groupLabel)
+	dates := WeeklyDates(p, today)
+	if cache == nil {
+		return computeProgressionSeries(p, accountByID, assetByID, included, weights, dates)
+	}
+	cacheKey := "group:" + memberID + ":" + groupLabel
+	return computeProgressionSeriesCached(p, accountByID, assetByID, included, weights, dates, cache, cacheKey)
+}
+
+// ComputeGroupProgressionDailyRange is ComputeGroupProgression's
+// daily-granularity counterpart, bounded to [start, end] - see
+// DailyDatesInRange's doc comment and ComputeAssetProgressionDailyRange's
+// caveat about scope (a zoomed-in window, not full-history browsing).
+func ComputeGroupProgressionDailyRange(p *store.Portfolio, memberID, groupLabel string, start, end time.Time) []ProgressionPoint {
+	accountByID, assetByID, included, weights := groupProgressionInputs(p, memberID, groupLabel)
+	dates := DailyDatesInRange(start, end)
+	return computeProgressionSeries(p, accountByID, assetByID, included, weights, dates)
+}
+
+func groupProgressionInputs(p *store.Portfolio, memberID, groupLabel string) (map[string]store.Account, map[string]store.Asset, map[string]bool, map[string]float64) {
+	accountByID := make(map[string]store.Account, len(p.Accounts))
+	for _, a := range p.Accounts {
+		accountByID[a.ID] = a
+	}
+	assetByID := make(map[string]store.Asset, len(p.Assets))
+	for _, a := range p.Assets {
+		assetByID[a.ID] = a
+	}
+
+	included := make(map[string]bool)
+	weights := make(map[string]float64)
+	for _, a := range p.Assets {
+		if a.GroupLabel != groupLabel {
+			continue
+		}
+		acct, ok := accountByID[a.AccountID]
+		if !ok {
+			continue
+		}
+		if memberID != "" && acct.MemberID != memberID {
+			continue
+		}
+		included[a.ID] = true
+		weights[a.ID] = 1.0
+	}
+
+	return accountByID, assetByID, included, weights
+}
+
 // ComputeAssetProgression computes a weekly (plus today) progression
 // series for exactly ONE asset (a single fund), letting someone browse
 // a specific holding's own growth story rather than only ever seeing it
@@ -255,10 +320,15 @@ func computeProgressionSeries(
 // ComputeProgression, this ignores axis/member scoping entirely - a
 // single fund is already fully scoped by definition - and always weighs
 // that one asset at 1.0.
-func ComputeAssetProgression(p *store.Portfolio, assetID string, today time.Time) []ProgressionPoint {
+//
+// cache may be nil - see ComputeProgression's doc comment.
+func ComputeAssetProgression(p *store.Portfolio, assetID string, today time.Time, cache *ProgressionCache) []ProgressionPoint {
 	accountByID, assetByID, included, weights := singleAssetProgressionInputs(p, assetID)
 	dates := WeeklyDates(p, today)
-	return computeProgressionSeries(p, accountByID, assetByID, included, weights, dates)
+	if cache == nil {
+		return computeProgressionSeries(p, accountByID, assetByID, included, weights, dates)
+	}
+	return computeProgressionSeriesCached(p, accountByID, assetByID, included, weights, dates, cache, "asset:"+assetID)
 }
 
 // ComputeAssetProgressionDailyRange is ComputeAssetProgression's
@@ -298,10 +368,18 @@ func singleAssetProgressionInputs(p *store.Portfolio, assetID string) (map[strin
 // fetched FX history for that currency is silently excluded from that
 // point (rather than guessed) - run "Update History" with an earlier
 // `since` date if a point looks incomplete.
-func ComputeProgression(p *store.Portfolio, memberID string, axis ProgressionAxis, today time.Time) []ProgressionPoint {
+//
+// cache may be nil, which simply disables caching (always computes
+// everything fresh) - see ProgressionCache's doc comment for what
+// passing a real cache buys.
+func ComputeProgression(p *store.Portfolio, memberID string, axis ProgressionAxis, today time.Time, cache *ProgressionCache) []ProgressionPoint {
 	accountByID, assetByID, included, weights := progressionInputs(p, memberID, axis)
 	dates := WeeklyDates(p, today)
-	return computeProgressionSeries(p, accountByID, assetByID, included, weights, dates)
+	if cache == nil {
+		return computeProgressionSeries(p, accountByID, assetByID, included, weights, dates)
+	}
+	cacheKey := "axis:" + memberID + ":" + string(axis)
+	return computeProgressionSeriesCached(p, accountByID, assetByID, included, weights, dates, cache, cacheKey)
 }
 
 // ComputeProgressionDailyRange is ComputeProgression's daily-granularity
