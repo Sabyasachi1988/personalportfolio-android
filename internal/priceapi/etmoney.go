@@ -40,38 +40,54 @@ func htmlToPlainText(html string) string {
 	return multiSpace.ReplaceAllString(noTags, " ")
 }
 
-// firstPercentAfter finds the first occurrence of any of `labels` in
+// percentNearAnyOccurrence scans EVERY occurrence of any of `labels` in
 // `text` (case-insensitive) and returns the first N.N%-style number
-// within the following `window` characters. This is a proximity
-// heuristic, not a structured parse - ETMoney's actual markup was not
-// independently verified before this was written (see FetchETMoneyCapComposition
+// found within `window` characters after any of them - not just the
+// FIRST occurrence of the label. This is a proximity heuristic, not a
+// structured parse - ETMoney's actual markup was not independently
+// verified before this was written (see FetchETMoneyCapComposition's
 // doc comment), so this deliberately looks for the same simple pattern
 // ("label", then shortly after, a percentage) that would survive most
 // reasonable markup changes, rather than depending on exact tag/class
 // names that could break silently.
-func firstPercentAfter(text string, labels []string, window int) (float64, bool) {
+//
+// Scanning only the FIRST occurrence (an earlier version of this
+// function) had a real, confirmed bug: a fund whose own NAME contains
+// one of these labels - e.g. "Nippon India Growth MID CAP Fund" - has
+// its first "Mid Cap" occurrence in the page's own heading/title, which
+// isn't followed by a percentage at all. That earlier version gave up
+// right there, even though the real allocation table with "Mid Cap:
+// 65.85%" existed further down the same page. Any Large/Mid/Small Cap
+// -named fund would hit this - not a rare edge case.
+func percentNearAnyOccurrence(text string, labels []string, window int) (float64, bool) {
 	lower := strings.ToLower(text)
 	percentRe := regexp.MustCompile(`(\d{1,3}(?:\.\d{1,2})?)\s*%`)
 
 	for _, label := range labels {
-		idx := strings.Index(lower, strings.ToLower(label))
-		if idx == -1 {
-			continue
+		lowerLabel := strings.ToLower(label)
+		searchFrom := 0
+		for {
+			relIdx := strings.Index(lower[searchFrom:], lowerLabel)
+			if relIdx == -1 {
+				break // no more occurrences of this label variant
+			}
+			idx := searchFrom + relIdx
+
+			end := idx + len(label) + window
+			if end > len(text) {
+				end = len(text)
+			}
+			segment := text[idx+len(label) : end]
+			if match := percentRe.FindStringSubmatch(segment); match != nil {
+				if val, err := strconv.ParseFloat(match[1], 64); err == nil {
+					return val, true
+				}
+			}
+			// This occurrence didn't have a nearby percentage (e.g. it
+			// was in a heading) - keep scanning past it for the next
+			// occurrence of the same label, rather than giving up.
+			searchFrom = idx + len(lowerLabel)
 		}
-		end := idx + len(label) + window
-		if end > len(text) {
-			end = len(text)
-		}
-		segment := text[idx+len(label) : end]
-		match := percentRe.FindStringSubmatch(segment)
-		if match == nil {
-			continue
-		}
-		val, err := strconv.ParseFloat(match[1], 64)
-		if err != nil {
-			continue
-		}
-		return val, true
 	}
 	return 0, false
 }
@@ -121,9 +137,9 @@ func FetchETMoneyCapComposition(url string) (CapCompositionResult, error) {
 	text := htmlToPlainText(string(body))
 
 	const window = 60 // characters after a label to look for its percentage
-	large, largeOK := firstPercentAfter(text, []string{"Large Cap", "Large-cap", "Largecap"}, window)
-	mid, midOK := firstPercentAfter(text, []string{"Mid Cap", "Mid-cap", "Midcap"}, window)
-	small, smallOK := firstPercentAfter(text, []string{"Small Cap", "Small-cap", "Smallcap"}, window)
+	large, largeOK := percentNearAnyOccurrence(text, []string{"Large Cap", "Large-cap", "Largecap"}, window)
+	mid, midOK := percentNearAnyOccurrence(text, []string{"Mid Cap", "Mid-cap", "Midcap"}, window)
+	small, smallOK := percentNearAnyOccurrence(text, []string{"Small Cap", "Small-cap", "Smallcap"}, window)
 	if !largeOK || !midOK || !smallOK {
 		return CapCompositionResult{}, fmt.Errorf("could not find Large/Mid/Small cap percentages on the page (large found=%v, mid found=%v, small found=%v) — page layout may not match what this was built against; enter manually instead", largeOK, midOK, smallOK)
 	}
