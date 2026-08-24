@@ -69,7 +69,7 @@ class ProgressionChartView @JvmOverloads constructor(
     private val axisDateFormat = SimpleDateFormat("MMM ''yy", Locale.US)
     private val isoDateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.US)
 
-    private val investedColor = ContextCompat.getColor(context, R.color.colorSecondary)
+    private val investedColor = ContextCompat.getColor(context, R.color.colorProgressionInvested)
 
     private val investedPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
