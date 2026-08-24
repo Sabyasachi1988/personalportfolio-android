@@ -138,6 +138,84 @@ func TestCommitStagedRows_NameMatchBackfillsISINWhenLaterRowHasOne(t *testing.T)
 	}
 }
 
+// TestCommitStagedRows_FolioLessETFRowGetsStockTypeAndSymbolPrefill
+// reproduces the exact scenario reported: a Zerodha-style broker CSV for
+// an NSE-listed ETF (NIFTYBEES) - real ISIN present, no folio column at
+// all (unlike a CAS statement, which always has one). Before this fix,
+// every new asset defaulted to Type "MutualFund" regardless of the row's
+// actual shape, and Symbol was never populated - together, this meant
+// an ETF imported from CSV could never be correctly routed to the Yahoo
+// price-history path (see UpdateHistoryActivity's ISIN-presence-based
+// routing), leaving it permanently priceless in Portfolio Progression.
+func TestCommitStagedRows_FolioLessETFRowGetsStockTypeAndSymbolPrefill(t *testing.T) {
+	units := 384.0
+	rows := []casimport.StagedRow{
+		{
+			Txn: store.Transaction{
+				Date: "2025-01-16", Description: "buy NIFTYBEES", Amount: 100078.0,
+				Units: &units, Type: store.Purchase,
+				Scheme: "NIFTYBEES", ISIN: "INF204KB14I2", Folio: "", // no folio column in this CSV - the key signal
+			},
+			Status: "NEW",
+		},
+	}
+	b, _ := json.Marshal(rows)
+
+	result := CommitStagedRows("", string(b), "Me")
+	committed, _ := commitCounts(t, result)
+	if committed != 1 {
+		t.Fatalf("committed=%d, want 1", committed)
+	}
+
+	var p store.Portfolio
+	if err := json.Unmarshal([]byte(extractPortfolio(t, result)), &p); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if len(p.Assets) != 1 {
+		t.Fatalf("expected exactly 1 asset, got %d", len(p.Assets))
+	}
+	asset := p.Assets[0]
+	if asset.Type != "Stock" {
+		t.Errorf("Type = %q, want %q (folio-less row should not default to MutualFund)", asset.Type, "Stock")
+	}
+	if asset.Symbol != "NIFTYBEES" {
+		t.Errorf("Symbol = %q, want %q (pre-filled from the row's scheme text as a starting point)", asset.Symbol, "NIFTYBEES")
+	}
+	if asset.ISIN != "INF204KB14I2" {
+		t.Errorf("ISIN = %q, want %q (still recorded correctly, unaffected by the Type/Symbol fix)", asset.ISIN, "INF204KB14I2")
+	}
+}
+
+func TestCommitStagedRows_FolioedRowStillGetsMutualFundType(t *testing.T) {
+	units := 5.386
+	rows := []casimport.StagedRow{
+		{
+			Txn: store.Transaction{
+				Date: "2025-07-01", Description: "Purchase", Amount: 24998.75,
+				Units: &units, Type: store.PurchaseSIP,
+				Scheme: "NIPPON INDIA GROWTH MID CAP FUND", ISIN: "INF204K01E54", Folio: "12345678/90",
+			},
+			Status: "NEW",
+		},
+	}
+	b, _ := json.Marshal(rows)
+
+	result := CommitStagedRows("", string(b), "Me")
+	var p store.Portfolio
+	if err := json.Unmarshal([]byte(extractPortfolio(t, result)), &p); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if len(p.Assets) != 1 {
+		t.Fatalf("expected exactly 1 asset, got %d", len(p.Assets))
+	}
+	if p.Assets[0].Type != "MutualFund" {
+		t.Errorf("Type = %q, want %q (a folioed row is a real mutual fund transaction)", p.Assets[0].Type, "MutualFund")
+	}
+	if p.Assets[0].Symbol != "" {
+		t.Errorf("Symbol = %q, want empty (folio-based rows have no symbol concept)", p.Assets[0].Symbol)
+	}
+}
+
 func TestCommitStagedRows_ReimportingSameStatementDoesNotDuplicate(t *testing.T) {
 	units := 5.386
 	makeRows := func() string {
