@@ -37,6 +37,107 @@ func commitCounts(t *testing.T, commitResult string) (committed, skippedDuplicat
 	return wrapped.Committed, wrapped.SkippedDuplicates
 }
 
+// TestCommitStagedRows_CSVWithoutISINReimportDoesNotDuplicateAsset
+// reproduces the exact bug reported: broker trade-CSV exports (Zerodha
+// Console included) commonly have NO ISIN column at all, unlike a CAS
+// PDF statement, which always carries one. Before
+// findAssetByNameInAccount existed, every CSV-sourced row with a blank
+// ISIN fell straight to "create a new asset" on every single commit -
+// re-importing an overlapping CSV export silently created a second
+// (third, fourth, ...) Asset for the same real fund, each with its own
+// transactions, rather than being recognized as the same holding.
+func TestCommitStagedRows_CSVWithoutISINReimportDoesNotDuplicateAsset(t *testing.T) {
+	units := 12.5
+	makeRows := func() string {
+		rows := []casimport.StagedRow{
+			{
+				Txn: store.Transaction{
+					Date: "2025-08-01", Description: "buy KOTAK LARGE MIDCAP", Amount: 5000,
+					Units: &units, Type: store.PurchaseSIP,
+					Scheme: "KOTAK LARGE MIDCAP", ISIN: "", // no ISIN column in this CSV, exactly like a real Zerodha tradebook export
+				},
+				Status: "NEW",
+			},
+		}
+		b, _ := json.Marshal(rows)
+		return string(b)
+	}
+
+	afterFirst := CommitStagedRows("", makeRows(), "Me")
+	firstCommitted, _ := commitCounts(t, afterFirst)
+	if firstCommitted != 1 {
+		t.Fatalf("first import: committed=%d, want 1", firstCommitted)
+	}
+
+	afterSecond := CommitStagedRows(extractPortfolio(t, afterFirst), makeRows(), "Me")
+	secondCommitted, secondSkipped := commitCounts(t, afterSecond)
+	if secondCommitted != 0 {
+		t.Errorf("second (overlapping) CSV import: committed=%d, want 0", secondCommitted)
+	}
+	if secondSkipped != 1 {
+		t.Errorf("second (overlapping) CSV import: skippedDuplicates=%d, want 1", secondSkipped)
+	}
+
+	var p store.Portfolio
+	if err := json.Unmarshal([]byte(extractPortfolio(t, afterSecond)), &p); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if len(p.Assets) != 1 {
+		t.Fatalf("expected exactly 1 Asset for the same ISIN-less fund re-imported twice, got %d - this is the reported bug", len(p.Assets))
+	}
+	if len(p.Transactions) != 1 {
+		t.Fatalf("expected exactly 1 transaction, got %d", len(p.Transactions))
+	}
+}
+
+// TestCommitStagedRows_NameMatchBackfillsISINWhenLaterRowHasOne covers
+// the mixed-source case: an asset first created from an ISIN-less CSV
+// row, then a later row for the same fund (matched by name) DOES carry
+// a real ISIN - that ISIN should be backfilled onto the existing asset
+// rather than left blank forever, so future imports for this fund can
+// use the more reliable ISIN match instead of continuing to depend on
+// the name staying identical.
+func TestCommitStagedRows_NameMatchBackfillsISINWhenLaterRowHasOne(t *testing.T) {
+	units1 := 10.0
+	units2 := 5.0
+	rows := []casimport.StagedRow{
+		{
+			Txn: store.Transaction{
+				Date: "2025-08-01", Description: "buy KOTAK LARGE MIDCAP", Amount: 4000,
+				Units: &units1, Type: store.PurchaseSIP,
+				Scheme: "KOTAK LARGE MIDCAP", ISIN: "",
+			},
+			Status: "NEW",
+		},
+		{
+			Txn: store.Transaction{
+				Date: "2025-08-15", Description: "buy KOTAK LARGE MIDCAP", Amount: 2000,
+				Units: &units2, Type: store.PurchaseSIP,
+				Scheme: "KOTAK LARGE MIDCAP", ISIN: "INF174K01LR2", // this row happens to carry the real ISIN
+			},
+			Status: "NEW",
+		},
+	}
+	b, _ := json.Marshal(rows)
+
+	result := CommitStagedRows("", string(b), "Me")
+	committed, _ := commitCounts(t, result)
+	if committed != 2 {
+		t.Fatalf("committed=%d, want 2", committed)
+	}
+
+	var p store.Portfolio
+	if err := json.Unmarshal([]byte(extractPortfolio(t, result)), &p); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if len(p.Assets) != 1 {
+		t.Fatalf("expected both rows to resolve to the same single Asset (matched by name), got %d assets", len(p.Assets))
+	}
+	if p.Assets[0].ISIN != "INF174K01LR2" {
+		t.Errorf("expected the asset's ISIN to be backfilled to %q, got %q", "INF174K01LR2", p.Assets[0].ISIN)
+	}
+}
+
 func TestCommitStagedRows_ReimportingSameStatementDoesNotDuplicate(t *testing.T) {
 	units := 5.386
 	makeRows := func() string {
