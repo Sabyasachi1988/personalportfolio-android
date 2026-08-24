@@ -218,6 +218,24 @@ func ComputeGroupedHoldings(portfolioJSON string, memberID string) string {
 	return string(out)
 }
 
+// SetAssetSymbolAndType updates an asset's Symbol and Type - see
+// store.Portfolio.SetAssetSymbolAndType's doc comment. Returns the
+// updated portfolio as JSON.
+func SetAssetSymbolAndType(portfolioJSON string, assetID string, symbol string, assetType string) string {
+	var p store.Portfolio
+	if portfolioJSON != "" {
+		if err := json.Unmarshal([]byte(portfolioJSON), &p); err != nil {
+			return fmt.Sprintf(`{"error":%q}`, "invalid portfolio JSON: "+err.Error())
+		}
+	}
+	p.SetAssetSymbolAndType(assetID, symbol, assetType)
+	out, err := json.Marshal(p)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+	return string(out)
+}
+
 // SetAssetGroupLabel records (or clears, if label is "") the fund-group
 // label for an asset - see store.Asset.GroupLabel's doc comment. Returns
 // the updated portfolio as JSON.
@@ -539,7 +557,8 @@ func CommitStagedRows(portfolioJSON string, stagedRowsJSON string, memberName st
 				AccountID: account.ID,
 				Name:      txn.Scheme,
 				ISIN:      txn.ISIN,
-				Type:      "MutualFund",
+				Type:      inferAssetType(txn),
+				Symbol:    inferInitialSymbol(txn),
 			}
 			p.Assets = append(p.Assets, asset)
 		} else if asset.ISIN == "" && txn.ISIN != "" {
@@ -831,6 +850,55 @@ func findAssetByISINInAccount(p *store.Portfolio, isin string, accountID string)
 		}
 	}
 	return store.Asset{}, false
+}
+
+// inferAssetType picks a starting Type for a newly-committed asset,
+// used regardless of whether the row came from a CAS PDF or a CSV.
+//
+// Folio is the signal: every real CAS-statement transaction carries a
+// mutual fund folio number (it's intrinsic to how folio-based MF units
+// work), while broker trade-CSV exports (Zerodha Console included) -
+// covering both ETFs and individual stocks, both traded via a plain
+// exchange Symbol rather than a folio - essentially never do. Blindly
+// defaulting every new asset to "MutualFund" (the old behavior) was
+// wrong for exactly this case: an ISIN-carrying, folio-less CSV row for
+// an NSE/BSE-listed ETF (e.g. NIFTYBEES) got mislabeled as a mutual
+// fund, which matters beyond cosmetics - see UpdateHistoryActivity's
+// asset-classification comment: an asset with an ISIN is routed to the
+// AMFI/TigZig NAV-history path, NOT the Yahoo symbol-based path an
+// ETF/stock actually needs, regardless of what its Type says. Fixing
+// Type here doesn't fix that routing by itself (routing keys off
+// ISIN-presence, not Type) - inferInitialSymbol below is the other half
+// of the real fix, since populating Symbol is what a person can use
+// to correct the routing after import (see FixAssetSymbolActivity).
+//
+// This is a heuristic, not a certified classification - a mutual fund
+// bought through a broker's CSV export with no folio column at all
+// would also default to "Stock" here, incorrectly. There's no
+// stronger signal available in a generic broker CSV to distinguish
+// that case.
+func inferAssetType(txn store.Transaction) string {
+	if txn.Folio != "" {
+		return "MutualFund"
+	}
+	return "Stock"
+}
+
+// inferInitialSymbol pre-fills Asset.Symbol from the CSV/CAS row's own
+// scheme/security text for a folio-less (likely ETF/stock) row, as a
+// STARTING point only - a raw broker CSV "symbol" column (e.g.
+// "NIFTYBEES") is not by itself a valid Yahoo Finance ticker, which
+// needs an exchange suffix (".NS" for NSE, ".BO" for BSE) that this
+// function does not add, since the same underlying instrument can
+// genuinely trade - and appear in the same CSV - under both exchanges,
+// and guessing which one the person wants would be presenting a guess
+// as fact. The person still needs to review/complete this via
+// FixAssetSymbolActivity before "Update Price History" can use it.
+func inferInitialSymbol(txn store.Transaction) string {
+	if txn.Folio != "" {
+		return "" // folio-based (mutual fund) row - no symbol concept applies
+	}
+	return strings.TrimSpace(txn.Scheme)
 }
 
 // findAssetByNameInAccount is CommitStagedRows' fallback for rows with
