@@ -74,6 +74,70 @@ func TestComputeAssetProgressionDailyRange_ScopedToOneAsset(t *testing.T) {
 	}
 }
 
+func TestComputeGroupProgression_SumsAllSameLabeledAssets(t *testing.T) {
+	p := &store.Portfolio{
+		Members:  []store.Member{{ID: "m1", Name: "Saby"}},
+		Accounts: []store.Account{{ID: "acc-in", MemberID: "m1", Name: "Zerodha", Currency: "INR"}},
+		Assets: []store.Asset{
+			{ID: "a-nippon", AccountID: "acc-in", Name: "NIFTYBEES", GroupLabel: "Nifty 50"},
+			{ID: "a-navi", AccountID: "acc-in", Name: "Navi Nifty 50 Fund", GroupLabel: "Nifty 50"},
+			{ID: "a-other", AccountID: "acc-in", Name: "Some Other Fund", GroupLabel: ""}, // ungrouped - must be excluded
+		},
+		Transactions: []store.StoredTransaction{
+			{ID: "t1", AccountID: "acc-in", AssetID: "a-nippon", Date: "2024-01-16", Type: store.Purchase, Amount: 10000, Units: units(100)},
+			{ID: "t2", AccountID: "acc-in", AssetID: "a-navi", Date: "2024-01-16", Type: store.Purchase, Amount: 5000, Units: units(50)},
+			{ID: "t3", AccountID: "acc-in", AssetID: "a-other", Date: "2024-01-16", Type: store.Purchase, Amount: 99999, Units: units(999)},
+		},
+		Prices: []store.PriceRecord{
+			{AssetID: "a-nippon", Date: "2024-01-22", Price: 110},
+			{AssetID: "a-navi", Date: "2024-01-22", Price: 105},
+			{AssetID: "a-other", Date: "2024-01-22", Price: 1},
+		},
+	}
+	today := time.Date(2024, 1, 22, 0, 0, 0, 0, time.UTC)
+
+	points := ComputeGroupProgression(p, "", "Nifty 50", today, nil)
+	if len(points) != 1 {
+		t.Fatalf("expected 1 point, got %d", len(points))
+	}
+	pt := points[0]
+	if pt.Invested != 15000 {
+		t.Errorf("Invested = %v, want 15000 (10000+5000, the ungrouped fund's 99999 must be excluded)", pt.Invested)
+	}
+	wantValue := 100.0*110 + 50.0*105 // 11000 + 5250
+	if pt.Value != wantValue {
+		t.Errorf("Value = %v, want %v", pt.Value, wantValue)
+	}
+}
+
+func TestComputeGroupProgression_DifferentMembersNeverSummed(t *testing.T) {
+	p := &store.Portfolio{
+		Members: []store.Member{{ID: "m1", Name: "Saby"}, {ID: "m2", Name: "Mother"}},
+		Accounts: []store.Account{
+			{ID: "acc1", MemberID: "m1", Name: "Saby's", Currency: "INR"},
+			{ID: "acc2", MemberID: "m2", Name: "Mother's", Currency: "INR"},
+		},
+		Assets: []store.Asset{
+			{ID: "a1", AccountID: "acc1", Name: "Fund A", GroupLabel: "Nifty 50"},
+			{ID: "a2", AccountID: "acc2", Name: "Fund B", GroupLabel: "Nifty 50"},
+		},
+		Transactions: []store.StoredTransaction{
+			{ID: "t1", AccountID: "acc1", AssetID: "a1", Date: "2024-01-16", Type: store.Purchase, Amount: 10000, Units: units(100)},
+			{ID: "t2", AccountID: "acc2", AssetID: "a2", Date: "2024-01-16", Type: store.Purchase, Amount: 20000, Units: units(200)},
+		},
+		Prices: []store.PriceRecord{
+			{AssetID: "a1", Date: "2024-01-22", Price: 110},
+			{AssetID: "a2", Date: "2024-01-22", Price: 110},
+		},
+	}
+	today := time.Date(2024, 1, 22, 0, 0, 0, 0, time.UTC)
+
+	points := ComputeGroupProgression(p, "m1", "Nifty 50", today, nil)
+	if len(points) != 1 || points[0].Invested != 10000 {
+		t.Errorf("member-scoped group progression = %+v, want Invested=10000 (only Saby's asset, not Mother's)", points)
+	}
+}
+
 func TestWeeklyDates_BasicRange(t *testing.T) {
 	p := &store.Portfolio{
 		Transactions: []store.StoredTransaction{
@@ -181,7 +245,7 @@ func TestComputeProgression_WholePortfolio_CombinesBothCurrenciesInINR(t *testin
 	p := buildMixedPortfolio()
 	today := time.Date(2024, 1, 22, 0, 0, 0, 0, time.UTC) // a Monday
 
-	points := ComputeProgression(p, "", AxisWholePortfolio, today)
+	points := ComputeProgression(p, "", AxisWholePortfolio, today, nil)
 	if len(points) != 1 {
 		t.Fatalf("expected 1 point, got %d: %v", len(points), points)
 	}
@@ -229,7 +293,7 @@ func TestComputeProgression_IndianEquityAxis_IncludesBareTickerETF(t *testing.T)
 	}
 	today := time.Date(2024, 1, 22, 0, 0, 0, 0, time.UTC)
 
-	points := ComputeProgression(p, "", AxisIndianEquity, today)
+	points := ComputeProgression(p, "", AxisIndianEquity, today, nil)
 	if len(points) != 1 {
 		t.Fatalf("expected 1 point, got %d", len(points))
 	}
@@ -245,7 +309,7 @@ func TestComputeProgression_IndianEquityAxis_ExcludesForeignHolding(t *testing.T
 	p := buildMixedPortfolio()
 	today := time.Date(2024, 1, 22, 0, 0, 0, 0, time.UTC)
 
-	points := ComputeProgression(p, "", AxisIndianEquity, today)
+	points := ComputeProgression(p, "", AxisIndianEquity, today, nil)
 	if len(points) != 1 {
 		t.Fatalf("expected 1 point, got %d", len(points))
 	}
@@ -262,7 +326,7 @@ func TestComputeProgression_InternationalEquityAxis_OnlyForeignHolding(t *testin
 	p := buildMixedPortfolio()
 	today := time.Date(2024, 1, 22, 0, 0, 0, 0, time.UTC)
 
-	points := ComputeProgression(p, "", AxisInternationalEquity, today)
+	points := ComputeProgression(p, "", AxisInternationalEquity, today, nil)
 	if len(points) != 1 {
 		t.Fatalf("expected 1 point, got %d", len(points))
 	}
@@ -284,8 +348,8 @@ func TestComputeProgression_CombinedEquityAxis_SumsBoth(t *testing.T) {
 	p := buildMixedPortfolio()
 	today := time.Date(2024, 1, 22, 0, 0, 0, 0, time.UTC)
 
-	whole := ComputeProgression(p, "", AxisWholePortfolio, today)
-	combined := ComputeProgression(p, "", AxisCombinedEquity, today)
+	whole := ComputeProgression(p, "", AxisWholePortfolio, today, nil)
+	combined := ComputeProgression(p, "", AxisCombinedEquity, today, nil)
 	if len(whole) != 1 || len(combined) != 1 {
 		t.Fatalf("expected 1 point each")
 	}
@@ -304,8 +368,8 @@ func TestComputeProgression_EquityOriginSplit_PartialInternational(t *testing.T)
 	}
 	today := time.Date(2024, 1, 22, 0, 0, 0, 0, time.UTC)
 
-	indian := ComputeProgression(p, "", AxisIndianEquity, today)
-	intl := ComputeProgression(p, "", AxisInternationalEquity, today)
+	indian := ComputeProgression(p, "", AxisIndianEquity, today, nil)
+	intl := ComputeProgression(p, "", AxisInternationalEquity, today, nil)
 
 	// Indian axis should now carry only 30% of the Indian fund's value/invested.
 	wantIndianInvested := round2(10000 * 0.30)
@@ -328,7 +392,7 @@ func TestComputeProgression_MissingFXHistory_ExcludesRatherThanGuesses(t *testin
 	p.FXRates = nil // no FX history fetched at all
 	today := time.Date(2024, 1, 22, 0, 0, 0, 0, time.UTC)
 
-	points := ComputeProgression(p, "", AxisWholePortfolio, today)
+	points := ComputeProgression(p, "", AxisWholePortfolio, today, nil)
 	pt := points[0]
 	// Only the Indian leg should count; the Canadian leg is silently excluded
 	// for lack of an FX rate, not guessed at some default/zero rate.
@@ -349,7 +413,7 @@ func TestComputeProgression_MemberScoping(t *testing.T) {
 	p.Accounts[1].MemberID = "m2" // Canadian account belongs to a different member
 	today := time.Date(2024, 1, 22, 0, 0, 0, 0, time.UTC)
 
-	points := ComputeProgression(p, "m1", AxisWholePortfolio, today)
+	points := ComputeProgression(p, "m1", AxisWholePortfolio, today, nil)
 	if points[0].Invested != 10000 {
 		t.Errorf("Invested = %v, want 10000 (m2's Canadian holding must be excluded)", points[0].Invested)
 	}
