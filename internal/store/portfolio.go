@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"sync/atomic"
 	"time"
 )
@@ -64,7 +65,7 @@ type StoredTransaction struct {
 	Units       *float64
 	Price       *float64
 	Balance     *float64 // running unit balance as printed on the CAS statement, when available - see transactionsMatch in mobile/bridge/bridge.go for why this matters for duplicate detection
-	Source      string // "MANUAL", "CAS_IMPORT", "CSV_IMPORT"
+	Source      string   // "MANUAL", "CAS_IMPORT", "CSV_IMPORT"
 }
 
 // FXRate is one historical exchange rate point: on Date, 1 unit of
@@ -167,6 +168,39 @@ type Portfolio struct {
 	EquityOriginCompositions []EquityOriginComposition
 	PortfolioClassTarget     PortfolioClassTarget
 	FXRates                  []FXRate
+
+	// Lazily-built, per-instance lookup caches for PriceAsOf/FXRateAsOf -
+	// see those methods' doc comments for why they exist (a plain linear
+	// scan over ALL Prices/FXRates on every single call became the
+	// dominant cost of computing a progression series once real
+	// multi-year history accumulated). Unexported: invisible to JSON
+	// (de)serialization, and only ever meaningful for the lifetime of
+	// one in-memory *Portfolio instance - a freshly-unmarshaled Portfolio
+	// always starts with these unbuilt (Go zero values), which is
+	// correct, since there's nothing to reuse across separate loads.
+	priceIndexBuilt bool
+	priceIndex      map[string][]PriceRecord // per assetID, sorted ascending by Date
+	fxIndexBuilt    bool
+	fxIndex         map[string][]FXRate // per currency, sorted ascending by Date
+}
+
+// invalidatePriceIndex discards the cached price index, if any - called
+// from anything that mutates Prices after the index may have already
+// been built for this instance, so a later PriceAsOf call rebuilds
+// against the current data rather than serving stale results from
+// before the mutation. Current callers in this codebase only ever
+// read OR write prices within a single Portfolio instance's lifetime,
+// never both - but this makes that a safety property enforced by the
+// code, not just an unstated assumption a future caller could silently
+// violate.
+func (p *Portfolio) invalidatePriceIndex() {
+	p.priceIndexBuilt = false
+	p.priceIndex = nil
+}
+
+func (p *Portfolio) invalidateFXIndex() {
+	p.fxIndexBuilt = false
+	p.fxIndex = nil
 }
 
 // idCounter guarantees NewID is unique even when called many times within
@@ -281,6 +315,7 @@ func (p *Portfolio) UpsertPrices(records []PriceRecord) {
 			index[key] = len(p.Prices) - 1
 		}
 	}
+	p.invalidatePriceIndex()
 }
 
 // UpsertFXRates merges new FX rate records the same way, keyed by
@@ -299,6 +334,44 @@ func (p *Portfolio) UpsertFXRates(rates []FXRate) {
 			index[key] = len(p.FXRates) - 1
 		}
 	}
+	p.invalidateFXIndex()
+}
+
+// ensurePriceIndex builds priceIndex (grouped by AssetID, sorted
+// ascending by Date) the first time it's needed for this instance, then
+// leaves it in place for every subsequent PriceAsOf call - the exact
+// access pattern a progression computation has (one instance, hundreds
+// of PriceAsOf calls across many checkpoints and assets).
+func (p *Portfolio) ensurePriceIndex() {
+	if p.priceIndexBuilt {
+		return
+	}
+	index := make(map[string][]PriceRecord, len(p.Assets))
+	for _, rec := range p.Prices {
+		index[rec.AssetID] = append(index[rec.AssetID], rec)
+	}
+	for assetID, recs := range index {
+		sort.Slice(recs, func(i, j int) bool { return recs[i].Date < recs[j].Date })
+		index[assetID] = recs
+	}
+	p.priceIndex = index
+	p.priceIndexBuilt = true
+}
+
+func (p *Portfolio) ensureFXIndex() {
+	if p.fxIndexBuilt {
+		return
+	}
+	index := make(map[string][]FXRate)
+	for _, fx := range p.FXRates {
+		index[fx.Currency] = append(index[fx.Currency], fx)
+	}
+	for currency, rates := range index {
+		sort.Slice(rates, func(i, j int) bool { return rates[i].Date < rates[j].Date })
+		index[currency] = rates
+	}
+	p.fxIndex = index
+	p.fxIndexBuilt = true
 }
 
 // PriceAsOf returns the latest price on or before the given date for an
@@ -309,22 +382,26 @@ func (p *Portfolio) UpsertFXRates(rates []FXRate) {
 // "what is it worth now", which is the whole point of a historical
 // progression view. Returns ok=false if no price exists on or before
 // the date at all (e.g. before the asset's first NAV).
+//
+// Backed by a per-asset, date-sorted index (see ensurePriceIndex) with a
+// binary search per call, rather than a linear scan of the WHOLE Prices
+// slice - the naive version's cost scaled with (checkpoints x included
+// assets x TOTAL price records ever stored across the whole portfolio),
+// which at a real multi-year, multi-asset scale made computing a
+// progression series take tens of seconds. Confirmed via
+// internal/benchmark before and after this change - see that package's
+// doc comment for the measured numbers.
 func (p *Portfolio) PriceAsOf(assetID, date string) (price float64, ok bool) {
-	bestDate := ""
-	for _, rec := range p.Prices {
-		if rec.AssetID != assetID {
-			continue
-		}
-		if rec.Date > date {
-			continue
-		}
-		if rec.Date > bestDate {
-			bestDate = rec.Date
-			price = rec.Price
-			ok = true
-		}
+	p.ensurePriceIndex()
+	recs := p.priceIndex[assetID]
+	// First index with Date > target date; everything before it is <=
+	// target date, so idx-1 is the latest one on or before it.
+	idx := sort.Search(len(recs), func(i int) bool { return recs[i].Date > date })
+	if idx == 0 {
+		return 0, false
 	}
-	return price, ok
+	rec := recs[idx-1]
+	return rec.Price, true
 }
 
 // FXRateAsOf returns the latest known INR-per-unit rate for a currency
@@ -332,25 +409,21 @@ func (p *Portfolio) PriceAsOf(assetID, date string) (price float64, ok bool) {
 // trivially, without needing any stored rate. Returns ok=false if no
 // rate exists on or before the date (e.g. before the earliest fetched
 // FX history).
+//
+// Same indexed-binary-search approach as PriceAsOf, for the same reason
+// - see that method's doc comment.
 func (p *Portfolio) FXRateAsOf(currency, date string) (rate float64, ok bool) {
 	if currency == "INR" {
 		return 1.0, true
 	}
-	bestDate := ""
-	for _, fx := range p.FXRates {
-		if fx.Currency != currency {
-			continue
-		}
-		if fx.Date > date {
-			continue
-		}
-		if fx.Date > bestDate {
-			bestDate = fx.Date
-			rate = fx.INRPerUnit
-			ok = true
-		}
+	p.ensureFXIndex()
+	rates := p.fxIndex[currency]
+	idx := sort.Search(len(rates), func(i int) bool { return rates[i].Date > date })
+	if idx == 0 {
+		return 0, false
 	}
-	return rate, ok
+	rec := rates[idx-1]
+	return rec.INRPerUnit, true
 }
 func (p *Portfolio) GetCapComposition(assetID string) (CapComposition, bool) {
 	for _, c := range p.CapCompositions {
