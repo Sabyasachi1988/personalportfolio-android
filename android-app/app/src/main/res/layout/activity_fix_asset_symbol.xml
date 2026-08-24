@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="20dp">
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Fix ETF/Stock Symbol"
+        android:textSize="20sp"
+        android:textStyle="bold" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:textSize="13sp"
+        android:textColor="@color/colorNeutral"
+        android:text="Anything imported from a broker CSV (ETFs, stocks) needs a Yahoo Finance symbol here before Settings → Update Price History can fetch its prices - a plain mutual fund folio doesn't need this. NSE-listed symbols end in .NS (e.g. NIFTYBEES.NS), BSE-listed ones end in .BO. If the same instrument traded on both exchanges in your import, pick whichever one you want price history sourced from." />
+
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/fixAssetSymbolRecyclerView"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:layout_marginTop="16dp" />
+
+</LinearLayout>
