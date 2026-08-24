@@ -1413,7 +1413,7 @@ func TestComputeProgression_ReturnsWeeklyPointsAsJSON(t *testing.T) {
 	}
 	pJSON, _ := json.Marshal(p)
 
-	result := ComputeProgression(string(pJSON), "", "WholePortfolio", "2024-01-22")
+	result := ComputeProgression(string(pJSON), "", "WholePortfolio", "2024-01-22", "")
 	if isBridgeErrorForTest(result) {
 		t.Fatalf("unexpected error: %s", result)
 	}
@@ -1437,7 +1437,7 @@ func TestComputeProgression_ReturnsWeeklyPointsAsJSON(t *testing.T) {
 }
 
 func TestComputeProgression_InvalidTodayDateReturnsError(t *testing.T) {
-	result := ComputeProgression("{}", "", "WholePortfolio", "not-a-date")
+	result := ComputeProgression("{}", "", "WholePortfolio", "not-a-date", "")
 	if !isBridgeErrorForTest(result) {
 		t.Errorf("expected an error for an invalid today date, got: %s", result)
 	}
