@@ -172,11 +172,40 @@ class ProgressionChartView @JvmOverloads constructor(
         isClickable = true
     }
 
-    fun setPoints(newPoints: List<ProgressionPoint>) {
+    /**
+     * Sets the underlying data. By default resets to show the FULL
+     * range - used for the initial weekly load and for "Reset zoom".
+     *
+     * Pass preserveWindowDates (startDate, endDate) to instead keep
+     * showing that same visible date range against the new data,
+     * rather than resetting to its full width - used when a boundary-
+     * triggered daily refetch widens the loaded array out from under
+     * an ACTIVE zoom/pan (see ProgressionActivity's
+     * fetchAndSwitchToDailyRange, which always fetches a wider PADDED
+     * range than what's actually visible, specifically so panning has
+     * room before hitting the edge again). Without this, every such
+     * refetch reset the visible window to that newly-loaded, wider-
+     * than-requested array's full width - reported directly as the
+     * zoomed-in window "snapping" back out to the full loaded range
+     * (e.g. 3 months back to 6) every time a pan crossed a loaded-data
+     * boundary, rather than continuing to scroll at the same zoom
+     * level the person was actually at.
+     */
+    fun setPoints(newPoints: List<ProgressionPoint>, preserveWindowDates: Pair<String, String>? = null) {
         points = newPoints
-        windowStart = 0
-        windowEnd = (points.size - 1).coerceAtLeast(0)
-        scrubbedIndex = (points.size - 1).coerceAtLeast(-1)
+        if (preserveWindowDates != null && points.isNotEmpty()) {
+            val (targetStart, targetEnd) = preserveWindowDates
+            windowStart = points.indexOfFirst { it.date >= targetStart }.let { if (it < 0) 0 else it }
+            windowEnd = points.indexOfLast { it.date <= targetEnd }.let { if (it < 0) points.size - 1 else it }
+            if (windowEnd < windowStart) windowEnd = windowStart
+            if (windowEnd - windowStart < minWindowSpan) {
+                windowEnd = (windowStart + minWindowSpan).coerceAtMost(points.size - 1)
+            }
+        } else {
+            windowStart = 0
+            windowEnd = (points.size - 1).coerceAtLeast(0)
+        }
+        scrubbedIndex = windowEnd.coerceAtLeast(-1)
         valuePaint.color = currentSeriesColor()
         // If a single-finger pan is actively in progress, this call is
         // almost always the daily-range refetch it just triggered by
@@ -199,7 +228,7 @@ class ProgressionChartView @JvmOverloads constructor(
             downWindowEnd = windowEnd
         }
         invalidate()
-        onZoomChanged?.invoke(false)
+        onZoomChanged?.invoke(isZoomed())
         notifyWindowChanged()
         if (scrubbedIndex >= 0) onScrub?.invoke(scrubbedIndex)
     }
