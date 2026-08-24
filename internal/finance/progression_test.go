@@ -136,6 +136,46 @@ func TestComputeProgression_WholePortfolio_CombinesBothCurrenciesInINR(t *testin
 	}
 }
 
+// TestComputeProgression_IndianEquityAxis_IncludesBareTickerETF
+// reproduces the exact bug reported: an INR-account NSE-listed ETF whose
+// Name is a bare exchange ticker (e.g. "NIFTYBEES", as imported from a
+// broker CSV - see bridge.inferInitialSymbol) was silently excluded
+// from every equity-scoped Progression axis (Indian/International/
+// Combined Equity), because GuessMarketCapSegment's patterns required a
+// space ("nifty bees") that a real ticker symbol never has - it fell
+// through to "Unclassified", which EffectiveAssetClass does not count
+// as Equity. AxisWholePortfolio worked (it bypasses the equity check
+// entirely), which is exactly what was reported: "whole portfolio
+// shows it, Indian equity makes it disappear."
+func TestComputeProgression_IndianEquityAxis_IncludesBareTickerETF(t *testing.T) {
+	p := &store.Portfolio{
+		Members:  []store.Member{{ID: "m1", Name: "Saby"}},
+		Accounts: []store.Account{{ID: "acc-in", MemberID: "m1", Name: "Zerodha", Currency: "INR"}},
+		Assets: []store.Asset{
+			{ID: "a-etf", AccountID: "acc-in", Name: "NIFTYBEES", ISIN: "INF204KB14I2", Type: "Stock", Symbol: "NIFTYBEES.NS"},
+		},
+		Transactions: []store.StoredTransaction{
+			{ID: "t1", AccountID: "acc-in", AssetID: "a-etf", Date: "2024-01-16", Type: store.Purchase, Amount: 10000, Units: units(100)},
+		},
+		Prices: []store.PriceRecord{
+			{AssetID: "a-etf", Date: "2024-01-15", Price: 100},
+			{AssetID: "a-etf", Date: "2024-01-22", Price: 110},
+		},
+	}
+	today := time.Date(2024, 1, 22, 0, 0, 0, 0, time.UTC)
+
+	points := ComputeProgression(p, "", AxisIndianEquity, today)
+	if len(points) != 1 {
+		t.Fatalf("expected 1 point, got %d", len(points))
+	}
+	if points[0].Value != 11000 {
+		t.Errorf("Value = %v, want 11000 - the ETF was excluded from Indian Equity (this is the reported bug)", points[0].Value)
+	}
+	if points[0].Invested != 10000 {
+		t.Errorf("Invested = %v, want 10000", points[0].Invested)
+	}
+}
+
 func TestComputeProgression_IndianEquityAxis_ExcludesForeignHolding(t *testing.T) {
 	p := buildMixedPortfolio()
 	today := time.Date(2024, 1, 22, 0, 0, 0, 0, time.UTC)
