@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="20dp">
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Manage Fund Groups"
+        android:textSize="20sp"
+        android:textStyle="bold" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:textSize="13sp"
+        android:textColor="@color/colorNeutral"
+        android:text="Give several funds/ETFs the same label (e.g. &quot;Nifty 50&quot;) to see them as one consolidated row in Holdings, with the &quot;Group by fund label&quot; switch on - useful when you hold the same underlying index from more than one AMC. Each fund's own data stays completely separate; this only changes how it's displayed. Leave a fund's label blank to keep it showing individually." />
+
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/fundGroupsRecyclerView"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:layout_marginTop="16dp" />
+
+</LinearLayout>
