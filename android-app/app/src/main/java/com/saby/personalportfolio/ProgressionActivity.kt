@@ -1,6 +1,8 @@
 package com.saby.personalportfolio
 
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.view.View
 import android.widget.SeekBar
 import android.widget.TextView
@@ -12,10 +14,30 @@ import com.ledger.bridge.Bridge
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.concurrent.Executors
 
 class ProgressionActivity : AppCompatActivity() {
 
     private val gson = Gson()
+    // Loading a progression series recomputes every checkpoint from full
+    // transaction/price history (see finance.computeProgressionPoint) -
+    // benchmarked at real-world scale, the full weekly range alone can
+    // run into the hundreds of milliseconds today and would get far
+    // worse as years of history accumulate. This screen was the one
+    // place in the app still doing that on the main thread - moved to
+    // match the backgroundExecutor+mainThread.post pattern already used
+    // everywhere else (Holdings, CapComposition, Settings, etc.).
+    private val backgroundExecutor = Executors.newSingleThreadExecutor()
+    private val mainThread = Handler(Looper.getMainLooper())
+
+    // Debounces the daily-overlay fetch triggered by pinch-zooming past
+    // dailyZoomThresholdDays - without this, a continuous pinch gesture
+    // (which fires onWindowChanged many times per second) would trigger
+    // a Bridge call on every single frame.
+    private val dailyModeHandler = Handler(Looper.getMainLooper())
+    private var pendingDailyModeRunnable: Runnable? = null
+    private val dailyZoomDebounceMillis = 400L
+    private val dailyZoomThresholdDays = 90
 
     private lateinit var memberTab: TextView
     private lateinit var axisTab: TextView
@@ -33,7 +55,16 @@ class ProgressionActivity : AppCompatActivity() {
     // Index 0 is always "All (family)" (empty memberID); indices 1.. map 1:1 with memberIds - same convention as HoldingsActivity.
     private var memberIds: List<String> = emptyList()
     private var memberLabels: List<String> = emptyList()
+
+    // The currently-DISPLAYED series (whichever of weeklySpine or a
+    // daily-overlay range is active) - what updateDetailCard indexes
+    // into. weeklySpine is always the full weekly range for the current
+    // member/axis/fund selection, kept around so "Reset zoom" can return
+    // to it even after a daily overlay has replaced `points` entirely.
     private var points: List<ProgressionPoint> = emptyList()
+    private var weeklySpine: List<ProgressionPoint> = emptyList()
+    private var inDailyMode = false
+
     private var currentAxis: ProgressionAxis = ProgressionAxis.WHOLE_PORTFOLIO
 
     // When set, the picker is in "specific fund" mode: the axis
@@ -95,9 +126,12 @@ class ProgressionActivity : AppCompatActivity() {
             updateDetailCard(index)
         }
         chart.onZoomChanged = { zoomed ->
-            resetZoomButton.visibility = if (zoomed) View.VISIBLE else View.GONE
+            resetZoomButton.visibility = if (zoomed || inDailyMode) View.VISIBLE else View.GONE
         }
-        resetZoomButton.setOnClickListener { chart.resetZoom() }
+        chart.onWindowChanged = { startDate, endDate, spanDays ->
+            onChartWindowChanged(startDate, endDate, spanDays)
+        }
+        resetZoomButton.setOnClickListener { resetToWeeklyView() }
         seekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(bar: SeekBar?, progress: Int, fromUser: Boolean) {
                 if (fromUser && !syncingScrub) {
@@ -124,6 +158,13 @@ class ProgressionActivity : AppCompatActivity() {
         BottomNavHelper.setup(this, findViewById(R.id.bottomNav), BottomNavDestination.PROGRESSION)
         loadMemberList()
         loadAssetList()
+    }
+
+    override fun onPause() {
+        super.onPause()
+        // Don't let a debounced daily-fetch fire (and touch views) after
+        // the screen has been navigated away from.
+        pendingDailyModeRunnable?.let { dailyModeHandler.removeCallbacks(it) }
     }
 
     private fun showMemberPicker() {
@@ -227,49 +268,69 @@ class ProgressionActivity : AppCompatActivity() {
 
     private fun loadAndShowProgression() {
         if (memberIds.isEmpty()) return // list not populated yet - loadMemberList will call back in
-        val portfolioPath = PortfolioStorage.filePath(this)
-        val portfolioJson = Bridge.loadPortfolio(portfolioPath)
-        val today = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
+        pendingDailyModeRunnable?.let { dailyModeHandler.removeCallbacks(it) }
+        inDailyMode = false
 
         val assetId = selectedAssetId
-        val resultJson: String
-        if (assetId != null) {
-            // Fund mode: a single fund is already fully scoped, so the
-            // axis/member pickers don't apply - the currency picker's
-            // "Native" option still needs to know whether this
-            // particular fund is INR or foreign, so currentAxis is set
-            // here purely as ProgressionCurrency's existing INR/CAD
-            // switch (see ProgressionCurrency.nativeCurrencyFor), not
-            // because this is really an "International Equity" view.
-            currentAxis = if (accountCurrencyByAssetId[assetId] == "INR") {
-                ProgressionAxis.WHOLE_PORTFOLIO
-            } else {
-                ProgressionAxis.INTERNATIONAL_EQUITY
-            }
-            resultJson = Bridge.computeAssetProgression(portfolioJson, assetId, today)
-        } else {
-            val memberId = memberIds.getOrElse(selectedMemberIndex) { "" }
-            currentAxis = ProgressionAxis.entries[selectedAxisIndex.coerceIn(0, ProgressionAxis.entries.size - 1)]
-            resultJson = Bridge.computeProgression(portfolioJson, memberId, currentAxis.bridgeValue, today)
-        }
+        val memberId = memberIds.getOrElse(selectedMemberIndex) { "" }
+        val axisForFetch = ProgressionAxis.entries[selectedAxisIndex.coerceIn(0, ProgressionAxis.entries.size - 1)]
 
+        statusText.text = "Loading…"
+
+        backgroundExecutor.execute {
+            val portfolioPath = PortfolioStorage.filePath(this)
+            val portfolioJson = Bridge.loadPortfolio(portfolioPath)
+            val today = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
+
+            val resolvedAxis: ProgressionAxis
+            val resultJson: String
+            if (assetId != null) {
+                // Fund mode: a single fund is already fully scoped, so the
+                // axis/member pickers don't apply - the currency picker's
+                // "Native" option still needs to know whether this
+                // particular fund is INR or foreign, so the axis is set
+                // here purely as ProgressionCurrency's existing INR/CAD
+                // switch (see ProgressionCurrency.nativeCurrencyFor), not
+                // because this is really an "International Equity" view.
+                resolvedAxis = if (accountCurrencyByAssetId[assetId] == "INR") {
+                    ProgressionAxis.WHOLE_PORTFOLIO
+                } else {
+                    ProgressionAxis.INTERNATIONAL_EQUITY
+                }
+                resultJson = Bridge.computeAssetProgression(portfolioJson, assetId, today)
+            } else {
+                resolvedAxis = axisForFetch
+                resultJson = Bridge.computeProgression(portfolioJson, memberId, resolvedAxis.bridgeValue, today)
+            }
+
+            mainThread.post {
+                currentAxis = resolvedAxis
+                applyLoadedProgression(resultJson, assetId != null)
+            }
+        }
+    }
+
+    private fun applyLoadedProgression(resultJson: String, isFundMode: Boolean) {
         if (isBridgeError(resultJson)) {
             statusText.text = "Could not compute progression: $resultJson"
             points = emptyList()
+            weeklySpine = emptyList()
             chart.setPoints(emptyList())
             return
         }
 
         val pointType = object : TypeToken<List<ProgressionPoint>>() {}.type
-        points = try {
+        val loaded: List<ProgressionPoint> = try {
             gson.fromJson(resultJson, pointType) ?: emptyList()
         } catch (e: Exception) {
             statusText.text = "Could not read progression data: ${e.message}"
             emptyList()
         }
 
-        if (points.isEmpty()) {
+        if (loaded.isEmpty()) {
             statusText.text = "No progression data yet — this needs transactions and price history. Run \"Update Price History\" from Settings first."
+            points = emptyList()
+            weeklySpine = emptyList()
             chart.setPoints(emptyList())
             dateText.text = ""
             investedText.text = ""
@@ -279,9 +340,80 @@ class ProgressionActivity : AppCompatActivity() {
             return
         }
 
-        statusText.text = if (assetId != null) "Weekly checkpoints for this fund" else "Weekly checkpoints"
-        seekBar.max = (points.size - 1).coerceAtLeast(0)
-        chart.setPoints(points) // triggers onScrub for the last point, which updates the detail card
+        weeklySpine = loaded
+        points = loaded
+        statusText.text = if (isFundMode) "Weekly checkpoints for this fund" else "Weekly checkpoints"
+        seekBar.max = (loaded.size - 1).coerceAtLeast(0)
+        chart.setPoints(loaded) // triggers onScrub for the last point, which updates the detail card
+    }
+
+    /**
+     * Reacts to the chart's zoom/pan window narrowing past
+     * dailyZoomThresholdDays by fetching real daily-resolution data for
+     * exactly that date range and swapping it in - see
+     * ProgressionChartView.onWindowChanged's doc comment. Debounced so a
+     * continuous pinch gesture doesn't fire a Bridge call on every
+     * frame. Only triggers when not ALREADY in daily mode - once daily
+     * data is loaded, it IS the finest granularity available, so further
+     * zooming within it needs no further fetch.
+     */
+    private fun onChartWindowChanged(startDate: String, endDate: String, spanDays: Int) {
+        pendingDailyModeRunnable?.let { dailyModeHandler.removeCallbacks(it) }
+        if (inDailyMode || weeklySpine.isEmpty()) return
+        if (startDate.isBlank() || endDate.isBlank()) return
+        if (spanDays !in 1..dailyZoomThresholdDays) return
+
+        val runnable = Runnable { fetchAndSwitchToDailyRange(startDate, endDate) }
+        pendingDailyModeRunnable = runnable
+        dailyModeHandler.postDelayed(runnable, dailyZoomDebounceMillis)
+    }
+
+    private fun fetchAndSwitchToDailyRange(startDate: String, endDate: String) {
+        val assetId = selectedAssetId
+        val memberId = memberIds.getOrElse(selectedMemberIndex) { "" }
+        val axisForFetch = currentAxis
+
+        backgroundExecutor.execute {
+            val portfolioPath = PortfolioStorage.filePath(this)
+            val portfolioJson = Bridge.loadPortfolio(portfolioPath)
+            val resultJson = if (assetId != null) {
+                Bridge.computeAssetProgressionDailyRange(portfolioJson, assetId, startDate, endDate)
+            } else {
+                Bridge.computeProgressionDailyRange(portfolioJson, memberId, axisForFetch.bridgeValue, startDate, endDate)
+            }
+
+            if (isBridgeError(resultJson)) return@execute // silently keep the weekly view - this is a background enhancement, not a required load
+            val pointType = object : TypeToken<List<ProgressionPoint>>() {}.type
+            val dailyPoints: List<ProgressionPoint> = try {
+                gson.fromJson(resultJson, pointType) ?: emptyList()
+            } catch (e: Exception) {
+                emptyList()
+            }
+            if (dailyPoints.size < 2) return@execute // not enough to show a meaningful chart - stay on weekly
+
+            mainThread.post {
+                inDailyMode = true
+                points = dailyPoints
+                seekBar.max = (dailyPoints.size - 1).coerceAtLeast(0)
+                chart.setPoints(dailyPoints)
+                resetZoomButton.visibility = View.VISIBLE
+                statusText.text = if (assetId != null) "Daily detail for this fund" else "Daily detail"
+            }
+        }
+    }
+
+    /** "Reset zoom" while in daily mode means "back to the weekly spine", not just re-fitting the currently-loaded daily range. */
+    private fun resetToWeeklyView() {
+        pendingDailyModeRunnable?.let { dailyModeHandler.removeCallbacks(it) }
+        if (inDailyMode) {
+            inDailyMode = false
+            points = weeklySpine
+            seekBar.max = (weeklySpine.size - 1).coerceAtLeast(0)
+            chart.setPoints(weeklySpine)
+            statusText.text = if (selectedAssetId != null) "Weekly checkpoints for this fund" else "Weekly checkpoints"
+        } else {
+            chart.resetZoom()
+        }
     }
 
     private fun updateDetailCard(index: Int) {
