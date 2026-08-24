@@ -127,7 +127,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="4dp"
-                android:text="Pinch to zoom (past ~3 months shows real daily detail) · two-finger drag to pan · double-tap to reset"
+                android:text="Pinch to zoom (past ~6 months shows real daily detail) · drag to pan once zoomed · double-tap to reset"
                 android:textSize="11sp"
                 android:gravity="center"
                 android:textColor="@color/colorNeutral" />
