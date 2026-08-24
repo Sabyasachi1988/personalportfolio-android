@@ -26,6 +26,24 @@ func TestGuessMarketCapSegment_RealNipponFundNames(t *testing.T) {
 	}
 }
 
+// TestGuessMarketCapSegment_BareETFTickers covers the reported bug: a
+// CSV-imported ETF's Name is often a bare exchange ticker with no
+// spaces at all (e.g. "NIFTYBEES"), a different naming vocabulary from
+// AMFI's full scheme names - see GuessMarketCapSegment's doc comment.
+func TestGuessMarketCapSegment_BareETFTickers(t *testing.T) {
+	cases := map[string]string{
+		"NIFTYBEES": "Large Cap",
+		"niftybees": "Large Cap", // case-insensitivity, as imported verbatim from a CSV symbol column
+		"GOLDBEES":  "Commodity", // already worked before this fix - "gold" substring matches with or without spaces
+	}
+	for name, want := range cases {
+		got := GuessMarketCapSegment(name)
+		if got != want {
+			t.Errorf("GuessMarketCapSegment(%q) = %q, want %q", name, got, want)
+		}
+	}
+}
+
 func TestGuessMarketCapSegment_DebtAndCommodity(t *testing.T) {
 	cases := map[string]string{
 		"HDFC Corporate Bond Fund":                      "Debt",
