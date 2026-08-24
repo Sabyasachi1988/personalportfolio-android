@@ -19,6 +19,16 @@
     <color name="colorNeutral">#757575</color>
     <color name="colorAmber">#F9A825</color>
 
+    <!-- Dedicated Invested-line color for the Portfolio Progression
+         chart - deliberately NOT colorSecondary (teal #00897B), which
+         sits close enough to colorGain (green #2E7D32) in hue that the
+         two lines were hard to tell apart at a glance on a small phone
+         screen, especially when the Value line is also green (gaining).
+         A vivid blue has no hue overlap with green, red, or teal, so it
+         stays visually distinct from the Value line regardless of
+         whether that line is currently green (gain) or red (loss). -->
+    <color name="colorProgressionInvested">#1E88E5</color>
+
     <!-- Fixed palette for chart slices, cycled if there are more slices
          than colors (now 14, not 7 - with a realistic 9-10 fund
          portfolio, 7 colors guaranteed repeats and made the legend
