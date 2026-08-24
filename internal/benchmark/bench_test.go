@@ -202,6 +202,22 @@ func benchmarkProgression(b *testing.B, p *store.Portfolio) {
 		}
 	})
 
+	b.Run("daily_180day_window", func(b *testing.B) {
+		start := today.AddDate(0, 0, -180)
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			finance.ComputeProgressionDailyRange(p, "", finance.AxisWholePortfolio, start, today)
+		}
+	})
+
+	b.Run("daily_365day_window", func(b *testing.B) {
+		start := today.AddDate(0, 0, -365)
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			finance.ComputeProgressionDailyRange(p, "", finance.AxisWholePortfolio, start, today)
+		}
+	})
+
 	// The scenario the progression cache is actually for: the person
 	// opens Progression, browses/scrubs/zooms (no data changes), closes
 	// the app, reopens it later - repeated calls against UNCHANGED data.
