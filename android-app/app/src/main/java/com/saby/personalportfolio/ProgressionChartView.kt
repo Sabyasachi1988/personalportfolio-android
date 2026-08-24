@@ -178,6 +178,26 @@ class ProgressionChartView @JvmOverloads constructor(
         windowEnd = (points.size - 1).coerceAtLeast(0)
         scrubbedIndex = (points.size - 1).coerceAtLeast(-1)
         valuePaint.color = currentSeriesColor()
+        // If a single-finger pan is actively in progress, this call is
+        // almost always the daily-range refetch it just triggered by
+        // panning past the edge of what was loaded (see
+        // ProgressionActivity.onChartWindowChanged) - NOT a fresh
+        // gesture. panSingleFingerTo anchors every frame to
+        // downWindowStart/downWindowEnd, snapshotted once at
+        // ACTION_DOWN; left alone, those still index into the array
+        // just replaced above, so the next MOVE event computes against
+        // a coordinate frame that no longer exists. Re-baselining here
+        // to the just-reset window and the finger's last known position
+        // is the single-finger equivalent of what onScale already does
+        // when onZoomOutBeyondBounds swaps `points` mid-pinch (see that
+        // re-sync's doc comment) - without it, panning silently stalls
+        // the moment a boundary fetch lands, which read as "moves, then
+        // stops" rather than a smooth continued pan.
+        if (isPanningGesture) {
+            downX = lastTouchX
+            downWindowStart = windowStart
+            downWindowEnd = windowEnd
+        }
         invalidate()
         onZoomChanged?.invoke(false)
         notifyWindowChanged()
@@ -400,6 +420,13 @@ class ProgressionChartView @JvmOverloads constructor(
     private var downWindowEnd = 0
     private var isPanningGesture = false
 
+    // Mirrors the most recent single-finger x position seen in
+    // ACTION_DOWN/ACTION_MOVE, kept independent of downX (which is a
+    // fixed gesture-start anchor, not updated per-frame). Needed so
+    // setPoints() can re-baseline an in-progress pan against wherever
+    // the finger actually is right now - see setPoints' doc comment.
+    private var lastTouchX = 0f
+
     /**
      * Single-finger behavior depends on zoom state:
      *
@@ -436,6 +463,7 @@ class ProgressionChartView @JvmOverloads constructor(
         when (event.action) {
             MotionEvent.ACTION_DOWN -> {
                 downX = event.x
+                lastTouchX = event.x
                 downWindowStart = windowStart
                 downWindowEnd = windowEnd
                 isPanningGesture = false
@@ -445,6 +473,7 @@ class ProgressionChartView @JvmOverloads constructor(
                 return true
             }
             MotionEvent.ACTION_MOVE -> {
+                lastTouchX = event.x
                 if (isZoomed()) {
                     val totalDeltaX = event.x - downX
                     if (isPanningGesture || kotlin.math.abs(totalDeltaX) > touchSlop) {
