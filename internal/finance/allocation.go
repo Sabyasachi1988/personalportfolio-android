@@ -1,6 +1,7 @@
 package finance
 
 import (
+	"sort"
 	"strings"
 
 	"ledger/internal/store"
@@ -115,6 +116,49 @@ func AllocationByMarketCapSegment(holdings []Holding, compositionByAsset map[str
 	return toSlices(totals, total)
 }
 
+// canonicalSliceOrder gives every known allocation-slice label a fixed
+// rank, so the SAME breakdown always displays in the SAME order. Go
+// deliberately randomizes map iteration order (it's part of the
+// language spec, not a bug in a particular Go version) - toSlices used
+// to build its output directly from ranging over a map, which meant
+// Market Cap, Equity Origin, and Portfolio Class donuts/cards all
+// visibly reordered themselves on every single reload, with no
+// underlying change in the data at all. Unknown labels (any future
+// category not listed here) sort after all known ones, alphabetically
+// among themselves, rather than being silently dropped or crashing.
+var canonicalSliceOrder = map[string]int{
+	"Large Cap":            0,
+	"Mid Cap":              1,
+	"Small Cap":            2,
+	"Multi Cap":            3,
+	"Flexi Cap":            4,
+	"Cash":                 5,
+	"Indian Equity":        6,
+	"International Equity": 7,
+	"Equity":               8,
+	"Debt":                 9,
+	"Commodity":            10,
+	"Others":               11,
+	"Unclassified":         12,
+}
+
+func sortSlicesCanonically(slices []AllocationSlice) {
+	sort.SliceStable(slices, func(i, j int) bool {
+		ri, iKnown := canonicalSliceOrder[slices[i].Label]
+		rj, jKnown := canonicalSliceOrder[slices[j].Label]
+		switch {
+		case iKnown && jKnown:
+			return ri < rj
+		case iKnown && !jKnown:
+			return true
+		case !iKnown && jKnown:
+			return false
+		default:
+			return slices[i].Label < slices[j].Label
+		}
+	})
+}
+
 func toSlices(totals map[string]float64, total float64) []AllocationSlice {
 	var out []AllocationSlice
 	for label, value := range totals {
@@ -124,6 +168,7 @@ func toSlices(totals map[string]float64, total float64) []AllocationSlice {
 		}
 		out = append(out, AllocationSlice{Label: label, Value: round2(value), Percent: round2(pct)})
 	}
+	sortSlicesCanonically(out)
 	return out
 }
 
