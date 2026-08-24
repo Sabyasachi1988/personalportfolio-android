@@ -3,9 +3,11 @@ package com.saby.personalportfolio
 import android.app.AlertDialog
 import android.net.Uri
 import android.os.Bundle
+import android.widget.ArrayAdapter
 import android.widget.EditText
 import android.widget.RadioButton
 import android.widget.RadioGroup
+import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
@@ -13,6 +15,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
 import androidx.core.content.ContextCompat
+import com.google.android.material.switchmaterial.SwitchMaterial
 import com.google.gson.JsonParser
 import java.io.File
 import java.text.SimpleDateFormat
@@ -37,6 +40,7 @@ class SettingsActivity : AppCompatActivity() {
 
         statusText = findViewById(R.id.settingsStatusText)
         setupThemeToggle()
+        setupLockSettings()
 
         findViewById<android.widget.Button>(R.id.manageMembersButton).setOnClickListener {
             startActivity(android.content.Intent(this, MembersActivity::class.java))
@@ -91,6 +95,39 @@ class SettingsActivity : AppCompatActivity() {
                 else -> ThemePreference.MODE_SYSTEM
             }
             ThemePreference.setMode(this, mode)
+        }
+    }
+
+    /**
+     * Grace period + strictness settings persisted via LockPreference,
+     * consumed by PersonalPortfolioApp's lifecycle observer and
+     * LockActivity respectively - see those files' doc comments.
+     */
+    private fun setupLockSettings() {
+        val enabledSwitch = findViewById<SwitchMaterial>(R.id.lockEnabledSwitch)
+        val graceSpinner = findViewById<Spinner>(R.id.lockGraceSpinner)
+        val strictnessGroup = findViewById<RadioGroup>(R.id.lockBiometricStrictnessGroup)
+        val strictRadio = findViewById<RadioButton>(R.id.lockStrictRadio)
+        val weakRadio = findViewById<RadioButton>(R.id.lockWeakRadio)
+
+        enabledSwitch.isChecked = LockPreference.isEnabled(this)
+        enabledSwitch.setOnCheckedChangeListener { _, checked ->
+            LockPreference.setEnabled(this, checked)
+        }
+
+        graceSpinner.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, LockPreference.GRACE_PERIOD_LABELS)
+        val currentGraceIndex = LockPreference.GRACE_PERIOD_OPTIONS.indexOf(LockPreference.graceSeconds(this)).coerceAtLeast(0)
+        graceSpinner.setSelection(currentGraceIndex)
+        graceSpinner.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: android.view.View?, position: Int, id: Long) {
+                LockPreference.setGraceSeconds(this@SettingsActivity, LockPreference.GRACE_PERIOD_OPTIONS.getOrElse(position) { 0 })
+            }
+            override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {}
+        }
+
+        if (LockPreference.allowWeakBiometric(this)) weakRadio.isChecked = true else strictRadio.isChecked = true
+        strictnessGroup.setOnCheckedChangeListener { _, checkedId ->
+            LockPreference.setAllowWeakBiometric(this, checkedId == R.id.lockWeakRadio)
         }
     }
 
