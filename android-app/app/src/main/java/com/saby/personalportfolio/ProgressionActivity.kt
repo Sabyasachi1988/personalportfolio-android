@@ -64,6 +64,17 @@ class ProgressionActivity : AppCompatActivity() {
     private var points: List<ProgressionPoint> = emptyList()
     private var weeklySpine: List<ProgressionPoint> = emptyList()
     private var inDailyMode = false
+    // The [start, end] dates actually covered by the currently-loaded
+    // daily dataset - NOT necessarily the same as the currently-visible
+    // window (that dataset is usually padded wider than any one window
+    // into it - see fetchAndSwitchToDailyRange's padding). Used by
+    // onChartWindowChanged to tell "still panning within what's already
+    // loaded, nothing to do" apart from "panned past the edge of loaded
+    // data, need a new fetch" - see that function's doc comment for the
+    // bug this fixes (panning used to silently get stuck at this exact
+    // edge, with no mechanism to notice and fetch further).
+    private var dailyDataStart: String? = null
+    private var dailyDataEnd: String? = null
 
     private var currentAxis: ProgressionAxis = ProgressionAxis.WHOLE_PORTFOLIO
 
@@ -312,6 +323,8 @@ class ProgressionActivity : AppCompatActivity() {
         if (memberIds.isEmpty()) return // list not populated yet - loadMemberList will call back in
         pendingDailyModeRunnable?.let { dailyModeHandler.removeCallbacks(it) }
         inDailyMode = false
+        dailyDataStart = null
+        dailyDataEnd = null
 
         val assetId = selectedAssetId
         val groupLabel = selectedGroupLabel
@@ -443,31 +456,90 @@ class ProgressionActivity : AppCompatActivity() {
     }
 
     /**
-     * Reacts to the chart's zoom/pan window narrowing past
-     * dailyZoomThresholdDays by fetching real daily-resolution data for
-     * exactly that date range and swapping it in - see
+     * Reacts to the chart's zoom/pan window changing by fetching real
+     * daily-resolution data and swapping it in - see
      * ProgressionChartView.onWindowChanged's doc comment. Debounced so a
-     * continuous pinch gesture doesn't fire a Bridge call on every
-     * frame. Only triggers when not ALREADY in daily mode - once daily
-     * data is loaded, it IS the finest granularity available, so further
-     * zooming within it needs no further fetch.
+     * continuous pinch/pan gesture doesn't fire a Bridge call on every
+     * frame.
+     *
+     * Triggers a NEW fetch whenever the visible window isn't fully
+     * covered by whatever daily data is already loaded (dailyDataStart/
+     * End) - not just the first time daily mode is entered. Panning
+     * used to get silently stuck at the edge of the originally-fetched
+     * daily range, with nothing checking whether the person had panned
+     * to dates outside it - the old guard here (`if (inDailyMode)
+     * return`) was written for "zooming further within already-loaded
+     * data needs no new fetch" (still true, and still avoided below via
+     * the containment check) but incorrectly also blocked "panned past
+     * what's loaded", which very much does need a new fetch.
      */
     private fun onChartWindowChanged(startDate: String, endDate: String, spanDays: Int) {
         pendingDailyModeRunnable?.let { dailyModeHandler.removeCallbacks(it) }
-        if (inDailyMode || weeklySpine.isEmpty()) return
+        if (weeklySpine.isEmpty()) return
         if (startDate.isBlank() || endDate.isBlank()) return
         if (spanDays !in 1..dailyZoomThresholdDays) return
+
+        if (inDailyMode) {
+            val loadedStart = dailyDataStart
+            val loadedEnd = dailyDataEnd
+            // Plain string comparison is safe here - every date is
+            // "yyyy-MM-dd", where lexicographic order already matches
+            // chronological order.
+            if (loadedStart != null && loadedEnd != null && startDate >= loadedStart && endDate <= loadedEnd) {
+                return // still fully within what's already loaded
+            }
+        }
 
         val runnable = Runnable { fetchAndSwitchToDailyRange(startDate, endDate) }
         pendingDailyModeRunnable = runnable
         dailyModeHandler.postDelayed(runnable, dailyZoomDebounceMillis)
     }
 
-    private fun fetchAndSwitchToDailyRange(startDate: String, endDate: String) {
+    /**
+     * Widens a requested daily-fetch range well beyond exactly what's
+     * currently visible (50% padding on each side), so panning within
+     * the loaded data has real room to move before hitting its edge and
+     * needing another fetch. Fetching EXACTLY the visible window (the
+     * previous behavior) left zero slack - the instant you panned at
+     * all, you were already at the loaded data's edge, which is what
+     * "gets stuck almost immediately" looked like. Capped so the total
+     * padded width never exceeds dailyZoomThresholdDays (the
+     * benchmarked-safe daily-fetch size - see internal/benchmark), and
+     * never requests dates after today.
+     */
+    private fun paddedDailyRange(startDate: String, endDate: String): Pair<String, String> {
+        val fmt = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+        val start = try { fmt.parse(startDate) } catch (e: Exception) { null } ?: return startDate to endDate
+        val end = try { fmt.parse(endDate) } catch (e: Exception) { null } ?: return startDate to endDate
+
+        val spanMillis = (end.time - start.time).coerceAtLeast(0L)
+        val paddingMillis = spanMillis / 2
+        var paddedStartMillis = start.time - paddingMillis
+        var paddedEndMillis = end.time + paddingMillis
+
+        val maxWidthMillis = dailyZoomThresholdDays.toLong() * 24 * 60 * 60 * 1000
+        if (paddedEndMillis - paddedStartMillis > maxWidthMillis) {
+            val center = (start.time + end.time) / 2
+            paddedStartMillis = center - maxWidthMillis / 2
+            paddedEndMillis = center + maxWidthMillis / 2
+        }
+
+        val todayMillis = Date().time
+        if (paddedEndMillis > todayMillis) {
+            val overshoot = paddedEndMillis - todayMillis
+            paddedEndMillis = todayMillis
+            paddedStartMillis -= overshoot // give the freed-up room to the start side instead of just losing it
+        }
+
+        return fmt.format(Date(paddedStartMillis)) to fmt.format(Date(paddedEndMillis))
+    }
+
+    private fun fetchAndSwitchToDailyRange(requestedStartDate: String, requestedEndDate: String) {
         val assetId = selectedAssetId
         val groupLabel = selectedGroupLabel
         val memberId = memberIds.getOrElse(selectedMemberIndex) { "" }
         val axisForFetch = currentAxis
+        val (startDate, endDate) = paddedDailyRange(requestedStartDate, requestedEndDate)
 
         backgroundExecutor.execute {
             // Same reasoning as loadAndShowProgression's try/catch - an
@@ -507,6 +579,14 @@ class ProgressionActivity : AppCompatActivity() {
                     try {
                         inDailyMode = true
                         points = dailyPoints
+                        // Recorded from the ACTUAL returned data, not the
+                        // padded request - the backend may have clamped
+                        // to available history or to today, and this
+                        // must reflect what's truly loaded for
+                        // onChartWindowChanged's boundary check to be
+                        // correct.
+                        dailyDataStart = dailyPoints.first().date
+                        dailyDataEnd = dailyPoints.last().date
                         seekBar.max = (dailyPoints.size - 1).coerceAtLeast(0)
                         chart.setPoints(dailyPoints)
                         resetZoomButton.visibility = View.VISIBLE
@@ -532,6 +612,8 @@ class ProgressionActivity : AppCompatActivity() {
         pendingDailyModeRunnable?.let { dailyModeHandler.removeCallbacks(it) }
         if (inDailyMode) {
             inDailyMode = false
+            dailyDataStart = null
+            dailyDataEnd = null
             points = weeklySpine
             seekBar.max = (weeklySpine.size - 1).coerceAtLeast(0)
             chart.setPoints(weeklySpine)
