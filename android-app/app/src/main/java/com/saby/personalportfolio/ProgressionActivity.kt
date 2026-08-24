@@ -462,29 +462,33 @@ class ProgressionActivity : AppCompatActivity() {
      * continuous pinch/pan gesture doesn't fire a Bridge call on every
      * frame.
      *
-     * Triggers a NEW fetch whenever the visible window has reached
-     * (touches) either edge of whatever daily data is already loaded
-     * (dailyDataStart/End) - not just the first time daily mode is
-     * entered. The previous version of this check compared startDate/
-     * endDate against loadedStart/loadedEnd with `>=`/`<=` and skipped
-     * the fetch when "contained" - but startDate/endDate come from
-     * points[windowStart]/points[windowEnd], and windowStart/windowEnd
-     * are ALWAYS clamped by the chart view to stay inside the currently-
-     * loaded array (see ProgressionChartView's window clamping) - so
-     * that comparison was true BY CONSTRUCTION, every single time, and
-     * could never detect "panned/zoomed to the edge of what's loaded".
-     * In practice this meant the very first daily-mode fetch (crossing
-     * the 180-day threshold from weekly) was the ONLY fetch that ever
-     * happened - any further pan or zoom-in within that one 6-month
-     * window silently never widened it, which is exactly what pinned a
-     * person at that window's edges with nowhere further to go.
-     * Comparing for EQUALITY at either edge instead correctly detects
-     * "the window has been pushed all the way to what's loaded" (the
-     * chart can't report a date past that, so equality is the true
-     * signal, not `>`/`<`), and re-fetches a fresh padded range
-     * recentered on the current position - which is also why the
-     * padding in paddedDailyRange matters: it's what gives the NEXT pan
-     * real room before this fires again.
+     * Triggers a NEW fetch only when the visible window is genuinely
+     * NARROWER than what's already loaded AND has reached (touches)
+     * one edge of it - i.e. the person zoomed in and panned to the
+     * limit of the currently-loaded data. Two earlier versions of this
+     * check were both wrong in opposite directions:
+     *   1. Comparing dates with `>=`/`<=` and skipping when "contained"
+     *      - but startDate/endDate come from points[windowStart]/
+     *      points[windowEnd], which the chart always clamps inside the
+     *      loaded array, so that was true by construction on every
+     *      call and could NEVER detect "pinned at the edge" (spotted
+     *      when zooming further into an already-loaded 6-month window
+     *      never widened it).
+     *   2. Fixing that by triggering on equality-at-either-edge alone -
+     *      but immediately after any successful fetch, setPoints()
+     *      resets the window to the FULL newly-loaded range
+     *      (windowStart=0, windowEnd=size-1), which trivially touches
+     *      BOTH edges at once by definition, not because the person
+     *      panned anywhere. That fired another fetch immediately,
+     *      which again reset to full range and touched both edges
+     *      again - an infinite self-triggering loop with no touch
+     *      input involved, seen as the chart "drifting on its own"
+     *      and periodically snapping back to the full 6-month view.
+     * The fix is requiring isZoomedWithinLoaded: spanDays must be
+     * meaningfully less than the full loaded range's own span. A
+     * freshly-loaded full-width view has spanDays == the loaded span
+     * (not less), so it no longer re-triggers itself - only an actual
+     * zoomed-in window pinned at an edge does.
      */
     private fun onChartWindowChanged(startDate: String, endDate: String, spanDays: Int) {
         pendingDailyModeRunnable?.let { dailyModeHandler.removeCallbacks(it) }
@@ -495,13 +499,22 @@ class ProgressionActivity : AppCompatActivity() {
         if (inDailyMode) {
             val loadedStart = dailyDataStart
             val loadedEnd = dailyDataEnd
-            // Plain string comparison is safe here - every date is
-            // "yyyy-MM-dd", where lexicographic order already matches
-            // chronological order.
-            val atLeftEdge = loadedStart != null && startDate <= loadedStart
-            val atRightEdge = loadedEnd != null && endDate >= loadedEnd
-            if (loadedStart != null && loadedEnd != null && !atLeftEdge && !atRightEdge) {
-                return // comfortably inside what's already loaded, no need for a wider fetch
+            if (loadedStart != null && loadedEnd != null) {
+                val loadedSpanDays = daysBetween(loadedStart, loadedEnd)
+                // Plain string comparison is safe here - every date is
+                // "yyyy-MM-dd", where lexicographic order already
+                // matches chronological order.
+                val atLeftEdge = startDate <= loadedStart
+                val atRightEdge = endDate >= loadedEnd
+                // Strictly less-than: a full-width view of exactly
+                // what's loaded has spanDays == loadedSpanDays, and
+                // must NOT count as "zoomed in", or it re-triggers
+                // itself the instant it's loaded (see doc comment).
+                val isZoomedWithinLoaded = loadedSpanDays != null && spanDays < loadedSpanDays
+                val pinnedAtLoadedEdge = isZoomedWithinLoaded && (atLeftEdge || atRightEdge)
+                if (!pinnedAtLoadedEdge) {
+                    return // comfortably inside what's loaded, or just viewing the full loaded range as-is
+                }
             }
         }
 
@@ -509,6 +522,15 @@ class ProgressionActivity : AppCompatActivity() {
         pendingDailyModeRunnable = runnable
         dailyModeHandler.postDelayed(runnable, dailyZoomDebounceMillis)
     }
+
+    /** Whole-day difference between two "yyyy-MM-dd" dates, or null if either fails to parse (shouldn't happen - both always come from the bridge in this format). */
+    private fun daysBetween(startDate: String, endDate: String): Int? {
+        val fmt = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+        val start = try { fmt.parse(startDate) } catch (e: Exception) { null } ?: return null
+        val end = try { fmt.parse(endDate) } catch (e: Exception) { null } ?: return null
+        return ((end.time - start.time) / (1000L * 60 * 60 * 24)).toInt()
+    }
+
 
     /**
      * Widens a requested daily-fetch range well beyond exactly what's
