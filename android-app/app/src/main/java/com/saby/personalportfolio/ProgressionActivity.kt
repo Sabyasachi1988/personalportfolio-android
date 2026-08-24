@@ -37,7 +37,7 @@ class ProgressionActivity : AppCompatActivity() {
     private val dailyModeHandler = Handler(Looper.getMainLooper())
     private var pendingDailyModeRunnable: Runnable? = null
     private val dailyZoomDebounceMillis = 400L
-    private val dailyZoomThresholdDays = 90
+    private val dailyZoomThresholdDays = 180
 
     private lateinit var memberTab: TextView
     private lateinit var axisTab: TextView
@@ -139,6 +139,14 @@ class ProgressionActivity : AppCompatActivity() {
         }
         chart.onZoomChanged = { zoomed ->
             resetZoomButton.visibility = if (zoomed || inDailyMode) View.VISIBLE else View.GONE
+        }
+        chart.onZoomOutBeyondBounds = {
+            // Only meaningful while showing a bounded daily-zoom window -
+            // if we're already on the weekly spine, this IS the outer
+            // bound and there's genuinely nothing wider to fall back to.
+            if (inDailyMode) {
+                resetToWeeklyView()
+            }
         }
         chart.onWindowChanged = { startDate, endDate, spanDays ->
             onChartWindowChanged(startDate, endDate, spanDays)
