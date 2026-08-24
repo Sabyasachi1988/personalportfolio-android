@@ -36,7 +36,23 @@ type Asset struct {
 	Type       string // "MutualFund", "Stock", "ETF"
 	Symbol     string // Yahoo-style symbol for stocks/ETFs, e.g. "RELIANCE.NS"
 	AssetClass string // AMFI/SEBI category, e.g. "Equity", "Debt", "Other" (set on price refresh)
-	ETMoneyURL string `json:",omitempty"` // full ETMoney fund page URL (e.g. https://www.etmoney.com/mutual-funds/<slug>/<id>), entered once so cap composition can be auto-fetched from it; empty means "not linked, manual entry only"
+	// ETMoneyURL and GroupLabel are deliberately NOT omitempty, despite
+	// being newer, optional-feeling fields - Gson's default Kotlin
+	// deserialization uses unsafe field allocation (bypasses the actual
+	// Kotlin constructor for performance), which means it does NOT
+	// apply a Kotlin data class's `= ""` default for a JSON key that's
+	// genuinely ABSENT - it silently leaves the field as null instead,
+	// despite the Kotlin type system declaring it a non-null String.
+	// Every other field here has no omitempty and is therefore always
+	// present in the JSON (as "" when unset), which is what makes them
+	// safe. omitempty on these two meant the key was completely missing
+	// for every asset that had never had one set - which was EVERY
+	// asset for GroupLabel, confirmed as a real crash: Kotlin code that
+	// trusts its own non-null type (no defensive null-check, since
+	// there was no reason to expect one) called a method directly on
+	// the "always non-null" field and got an immediate
+	// NullPointerException the moment it actually was null at runtime.
+	ETMoneyURL string // full ETMoney fund page URL (e.g. https://www.etmoney.com/mutual-funds/<slug>/<id>), entered once so cap composition can be auto-fetched from it; empty means "not linked, manual entry only"
 	// GroupLabel is a free-text bucket the person assigns themselves,
 	// e.g. "Nifty 50" - so several DIFFERENT real assets (different
 	// AMC, different ISIN - e.g. a Nippon India Nifty 50 fund, a Navi
@@ -48,7 +64,13 @@ type Asset struct {
 	// finance.GroupHoldingsByLabel). Empty means "not grouped, show
 	// individually" - the default and current behavior for everything
 	// until the person deliberately labels something.
-	GroupLabel string `json:",omitempty"`
+	//
+	// Deliberately NOT omitempty - see ETMoneyURL's comment above for
+	// why: this exact field, with omitempty, caused a confirmed real
+	// crash (a Kotlin NullPointerException from Gson leaving a
+	// "non-null" field actually null when its JSON key was missing,
+	// which it was for every asset until one was explicitly labeled).
+	GroupLabel string
 }
 
 // StoredTransaction is a confirmed transaction attached to a real
