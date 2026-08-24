@@ -72,7 +72,19 @@ class ProgressionActivity : AppCompatActivity() {
     // of ComputeProgression (see loadAndShowProgression). Null means the
     // normal axis-based (whole portfolio / equity split) mode.
     private var selectedAssetId: String? = null
+    // When set, the picker is in "fund group" mode - browsing several
+    // same-labeled funds' COMBINED growth story (see
+    // finance.ComputeGroupProgression and store.Asset.GroupLabel's doc
+    // comment, e.g. several different-AMC "Nifty 50" funds). Mutually
+    // exclusive with selectedAssetId - selecting one always clears the
+    // other, same convention as axis-vs-asset mode already had.
+    private var selectedGroupLabel: String? = null
     private var assets: List<AssetSummary> = emptyList()
+    // Distinct, non-blank GroupLabel values present among `assets`, in
+    // first-seen order - populated in loadAssetList, shown in the
+    // picker only when at least one fund has actually been labeled
+    // (see Settings → Manage Fund Groups).
+    private var groupLabels: List<String> = emptyList()
     // AssetID -> Account currency, so "Native" currency display resolves
     // correctly for a specific foreign-brokerage fund in fund mode (see
     // loadAndShowProgression's use of this).
@@ -180,11 +192,13 @@ class ProgressionActivity : AppCompatActivity() {
     }
 
     /**
-     * One combined picker: the 4 whole-portfolio/equity axes, followed
-     * by every individual fund - so browsing a single holding's own
-     * growth story is one tap away from where you'd naturally look for
-     * "what am I viewing", rather than a separate control competing for
-     * the same limited row width.
+     * One combined picker: the 4 whole-portfolio/equity axes, then every
+     * individual fund, then every fund GROUP (if any funds have been
+     * labeled via Settings → Manage Fund Groups) - so browsing a single
+     * holding's own growth story, or a consolidated group's (e.g.
+     * several different-AMC "Nifty 50" funds combined), is one tap away
+     * from where you'd naturally look for "what am I viewing", rather
+     * than a separate control competing for the same limited row width.
      */
     private fun showAxisOrFundPicker() {
         val popup = PopupMenu(this, axisTab)
@@ -200,17 +214,36 @@ class ProgressionActivity : AppCompatActivity() {
             }
         }
 
+        val groupIdBase = fundIdBase + 1 + assets.size
+        if (groupLabels.isNotEmpty()) {
+            val header = popup.menu.add(0, groupIdBase, groupIdBase, "── Fund group ──")
+            header.isEnabled = false
+            groupLabels.forEachIndexed { i, label ->
+                val itemId = groupIdBase + 1 + i
+                popup.menu.add(0, itemId, itemId, label)
+            }
+        }
+
         popup.setOnMenuItemClickListener { item ->
             val id = item.itemId
             if (id < ProgressionAxis.entries.size) {
                 selectedAssetId = null
+                selectedGroupLabel = null
                 selectedAxisIndex = id
                 axisTab.text = ProgressionAxis.entries[id].label
-            } else if (id > fundIdBase) {
+            } else if (id in (fundIdBase + 1) until groupIdBase) {
                 val asset = assets.getOrNull(id - fundIdBase - 1)
                 if (asset != null) {
                     selectedAssetId = asset.id
+                    selectedGroupLabel = null
                     axisTab.text = FundNameFormatter.shorten(asset.name).ifBlank { "(unnamed asset)" }
+                }
+            } else if (id > groupIdBase) {
+                val label = groupLabels.getOrNull(id - groupIdBase - 1)
+                if (label != null) {
+                    selectedGroupLabel = label
+                    selectedAssetId = null
+                    axisTab.text = label
                 }
             }
             loadAndShowProgression()
@@ -262,6 +295,7 @@ class ProgressionActivity : AppCompatActivity() {
         assets = snapshot.assets.orEmpty()
         val currencyByAccountId = snapshot.accounts.orEmpty().associate { it.id to it.currency }
         accountCurrencyByAssetId = assets.associate { it.id to (currencyByAccountId[it.accountId] ?: "INR") }
+        groupLabels = assets.mapNotNull { it.groupLabel.takeIf { label -> label.isNotBlank() } }.distinct()
     }
 
     private fun isBridgeError(json: String): Boolean = json.trimStart().startsWith("{\"error\"")
@@ -272,6 +306,7 @@ class ProgressionActivity : AppCompatActivity() {
         inDailyMode = false
 
         val assetId = selectedAssetId
+        val groupLabel = selectedGroupLabel
         val memberId = memberIds.getOrElse(selectedMemberIndex) { "" }
         val axisForFetch = ProgressionAxis.entries[selectedAxisIndex.coerceIn(0, ProgressionAxis.entries.size - 1)]
 
@@ -280,11 +315,21 @@ class ProgressionActivity : AppCompatActivity() {
         backgroundExecutor.execute {
             val portfolioPath = PortfolioStorage.filePath(this)
             val portfolioJson = Bridge.loadPortfolio(portfolioPath)
+            val cachePath = PortfolioStorage.progressionCachePath(this)
             val today = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
 
             val resolvedAxis: ProgressionAxis
             val resultJson: String
-            if (assetId != null) {
+            if (groupLabel != null) {
+                // Group mode: several same-labeled funds combined - see
+                // finance.ComputeGroupProgression. Currency-native
+                // resolution defaults to INR (WHOLE_PORTFOLIO), same
+                // reasoning as fund mode's INR default below - a fund
+                // group is overwhelmingly likely to be same-currency in
+                // practice (e.g. several Indian "Nifty 50" funds).
+                resolvedAxis = ProgressionAxis.WHOLE_PORTFOLIO
+                resultJson = Bridge.computeGroupProgression(portfolioJson, memberId, groupLabel, today, cachePath)
+            } else if (assetId != null) {
                 // Fund mode: a single fund is already fully scoped, so the
                 // axis/member pickers don't apply - the currency picker's
                 // "Native" option still needs to know whether this
@@ -297,20 +342,20 @@ class ProgressionActivity : AppCompatActivity() {
                 } else {
                     ProgressionAxis.INTERNATIONAL_EQUITY
                 }
-                resultJson = Bridge.computeAssetProgression(portfolioJson, assetId, today)
+                resultJson = Bridge.computeAssetProgression(portfolioJson, assetId, today, cachePath)
             } else {
                 resolvedAxis = axisForFetch
-                resultJson = Bridge.computeProgression(portfolioJson, memberId, resolvedAxis.bridgeValue, today)
+                resultJson = Bridge.computeProgression(portfolioJson, memberId, resolvedAxis.bridgeValue, today, cachePath)
             }
 
             mainThread.post {
                 currentAxis = resolvedAxis
-                applyLoadedProgression(resultJson, assetId != null)
+                applyLoadedProgression(resultJson, isFundMode = assetId != null, isGroupMode = groupLabel != null, groupLabel = groupLabel)
             }
         }
     }
 
-    private fun applyLoadedProgression(resultJson: String, isFundMode: Boolean) {
+    private fun applyLoadedProgression(resultJson: String, isFundMode: Boolean, isGroupMode: Boolean = false, groupLabel: String? = null) {
         if (isBridgeError(resultJson)) {
             statusText.text = "Could not compute progression: $resultJson"
             points = emptyList()
@@ -342,7 +387,11 @@ class ProgressionActivity : AppCompatActivity() {
 
         weeklySpine = loaded
         points = loaded
-        statusText.text = if (isFundMode) "Weekly checkpoints for this fund" else "Weekly checkpoints"
+        statusText.text = when {
+            isGroupMode -> "Weekly checkpoints for $groupLabel (combined)"
+            isFundMode -> "Weekly checkpoints for this fund"
+            else -> "Weekly checkpoints"
+        }
         seekBar.max = (loaded.size - 1).coerceAtLeast(0)
         chart.setPoints(loaded) // triggers onScrub for the last point, which updates the detail card
     }
@@ -370,13 +419,16 @@ class ProgressionActivity : AppCompatActivity() {
 
     private fun fetchAndSwitchToDailyRange(startDate: String, endDate: String) {
         val assetId = selectedAssetId
+        val groupLabel = selectedGroupLabel
         val memberId = memberIds.getOrElse(selectedMemberIndex) { "" }
         val axisForFetch = currentAxis
 
         backgroundExecutor.execute {
             val portfolioPath = PortfolioStorage.filePath(this)
             val portfolioJson = Bridge.loadPortfolio(portfolioPath)
-            val resultJson = if (assetId != null) {
+            val resultJson = if (groupLabel != null) {
+                Bridge.computeGroupProgressionDailyRange(portfolioJson, memberId, groupLabel, startDate, endDate)
+            } else if (assetId != null) {
                 Bridge.computeAssetProgressionDailyRange(portfolioJson, assetId, startDate, endDate)
             } else {
                 Bridge.computeProgressionDailyRange(portfolioJson, memberId, axisForFetch.bridgeValue, startDate, endDate)
@@ -397,7 +449,11 @@ class ProgressionActivity : AppCompatActivity() {
                 seekBar.max = (dailyPoints.size - 1).coerceAtLeast(0)
                 chart.setPoints(dailyPoints)
                 resetZoomButton.visibility = View.VISIBLE
-                statusText.text = if (assetId != null) "Daily detail for this fund" else "Daily detail"
+                statusText.text = when {
+                    groupLabel != null -> "Daily detail for $groupLabel (combined)"
+                    assetId != null -> "Daily detail for this fund"
+                    else -> "Daily detail"
+                }
             }
         }
     }
@@ -410,7 +466,11 @@ class ProgressionActivity : AppCompatActivity() {
             points = weeklySpine
             seekBar.max = (weeklySpine.size - 1).coerceAtLeast(0)
             chart.setPoints(weeklySpine)
-            statusText.text = if (selectedAssetId != null) "Weekly checkpoints for this fund" else "Weekly checkpoints"
+            statusText.text = when {
+                selectedGroupLabel != null -> "Weekly checkpoints for ${selectedGroupLabel} (combined)"
+                selectedAssetId != null -> "Weekly checkpoints for this fund"
+                else -> "Weekly checkpoints"
+            }
         } else {
             chart.resetZoom()
         }
