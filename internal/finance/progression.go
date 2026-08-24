@@ -201,6 +201,53 @@ func assetProgressionWeights(p *store.Portfolio, accountByID map[string]store.Ac
 	return weights
 }
 
+// DailyDatesInRange returns every calendar date from start to end
+// inclusive - both explicitly bounded by the caller, unlike WeeklyDates
+// (which always starts at the portfolio's earliest transaction and ends
+// today). Used for the zoomed-in daily view: the caller already knows
+// exactly which narrow window it wants (see ComputeProgressionDailyRange
+// / ComputeAssetProgressionDailyRange), so there's no need to scan the
+// whole portfolio for an earliest-transaction date the way WeeklyDates
+// does.
+//
+// Returns "YYYY-MM-DD" strings, ascending, one per calendar day
+// (weekends included - a fund simply won't have a price on a non-trading
+// day, which computeProgressionPoint already handles the same way it
+// handles any date with no PriceRecord). Returns nil if start is after
+// end.
+func DailyDatesInRange(start, end time.Time) []string {
+	start = time.Date(start.Year(), start.Month(), start.Day(), 0, 0, 0, 0, time.UTC)
+	end = time.Date(end.Year(), end.Month(), end.Day(), 0, 0, 0, 0, time.UTC)
+	if start.After(end) {
+		return nil
+	}
+	var dates []string
+	for d := start; !d.After(end); d = d.AddDate(0, 0, 1) {
+		dates = append(dates, d.Format(dateLayout))
+	}
+	return dates
+}
+
+// computeProgressionSeries is the shared core behind ComputeProgression,
+// ComputeAssetProgression, and their DailyRange counterparts - only the
+// `dates` list differs between weekly (WeeklyDates) and bounded-daily
+// (DailyDatesInRange) callers; every point itself is computed identically
+// regardless of which calendar granularity produced its date.
+func computeProgressionSeries(
+	p *store.Portfolio,
+	accountByID map[string]store.Account,
+	assetByID map[string]store.Asset,
+	included map[string]bool,
+	weights map[string]float64,
+	dates []string,
+) []ProgressionPoint {
+	points := make([]ProgressionPoint, 0, len(dates))
+	for _, date := range dates {
+		points = append(points, computeProgressionPoint(p, accountByID, assetByID, included, weights, date))
+	}
+	return points
+}
+
 // ComputeAssetProgression computes a weekly (plus today) progression
 // series for exactly ONE asset (a single fund), letting someone browse
 // a specific holding's own growth story rather than only ever seeing it
@@ -209,6 +256,24 @@ func assetProgressionWeights(p *store.Portfolio, accountByID map[string]store.Ac
 // single fund is already fully scoped by definition - and always weighs
 // that one asset at 1.0.
 func ComputeAssetProgression(p *store.Portfolio, assetID string, today time.Time) []ProgressionPoint {
+	accountByID, assetByID, included, weights := singleAssetProgressionInputs(p, assetID)
+	dates := WeeklyDates(p, today)
+	return computeProgressionSeries(p, accountByID, assetByID, included, weights, dates)
+}
+
+// ComputeAssetProgressionDailyRange is ComputeAssetProgression's
+// daily-granularity counterpart, bounded to [start, end] - see
+// DailyDatesInRange's doc comment. Intended for a zoomed-in chart
+// window, not full-history browsing (which would mean thousands of
+// points for a fund with many years of history - see this package's
+// benchmark for the actual cost at scale).
+func ComputeAssetProgressionDailyRange(p *store.Portfolio, assetID string, start, end time.Time) []ProgressionPoint {
+	accountByID, assetByID, included, weights := singleAssetProgressionInputs(p, assetID)
+	dates := DailyDatesInRange(start, end)
+	return computeProgressionSeries(p, accountByID, assetByID, included, weights, dates)
+}
+
+func singleAssetProgressionInputs(p *store.Portfolio, assetID string) (map[string]store.Account, map[string]store.Asset, map[string]bool, map[string]float64) {
 	accountByID := make(map[string]store.Account, len(p.Accounts))
 	for _, a := range p.Accounts {
 		accountByID[a.ID] = a
@@ -217,16 +282,9 @@ func ComputeAssetProgression(p *store.Portfolio, assetID string, today time.Time
 	for _, a := range p.Assets {
 		assetByID[a.ID] = a
 	}
-
 	included := map[string]bool{assetID: true}
 	weights := map[string]float64{assetID: 1.0}
-
-	dates := WeeklyDates(p, today)
-	points := make([]ProgressionPoint, 0, len(dates))
-	for _, date := range dates {
-		points = append(points, computeProgressionPoint(p, accountByID, assetByID, included, weights, date))
-	}
-	return points
+	return accountByID, assetByID, included, weights
 }
 
 // ComputeProgression computes a currency-aware weekly (plus today)
@@ -241,6 +299,22 @@ func ComputeAssetProgression(p *store.Portfolio, assetID string, today time.Time
 // point (rather than guessed) - run "Update History" with an earlier
 // `since` date if a point looks incomplete.
 func ComputeProgression(p *store.Portfolio, memberID string, axis ProgressionAxis, today time.Time) []ProgressionPoint {
+	accountByID, assetByID, included, weights := progressionInputs(p, memberID, axis)
+	dates := WeeklyDates(p, today)
+	return computeProgressionSeries(p, accountByID, assetByID, included, weights, dates)
+}
+
+// ComputeProgressionDailyRange is ComputeProgression's daily-granularity
+// counterpart, bounded to [start, end] - see DailyDatesInRange's doc
+// comment and ComputeAssetProgressionDailyRange's caveat about scope
+// (this is for a zoomed-in window, not full-history daily browsing).
+func ComputeProgressionDailyRange(p *store.Portfolio, memberID string, axis ProgressionAxis, start, end time.Time) []ProgressionPoint {
+	accountByID, assetByID, included, weights := progressionInputs(p, memberID, axis)
+	dates := DailyDatesInRange(start, end)
+	return computeProgressionSeries(p, accountByID, assetByID, included, weights, dates)
+}
+
+func progressionInputs(p *store.Portfolio, memberID string, axis ProgressionAxis) (map[string]store.Account, map[string]store.Asset, map[string]bool, map[string]float64) {
 	accountByID := make(map[string]store.Account, len(p.Accounts))
 	for _, a := range p.Accounts {
 		accountByID[a.ID] = a
@@ -266,12 +340,7 @@ func ComputeProgression(p *store.Portfolio, memberID string, axis ProgressionAxi
 		}
 	}
 
-	dates := WeeklyDates(p, today)
-	points := make([]ProgressionPoint, 0, len(dates))
-	for _, date := range dates {
-		points = append(points, computeProgressionPoint(p, accountByID, assetByID, included, weights, date))
-	}
-	return points
+	return accountByID, assetByID, included, weights
 }
 
 func computeProgressionPoint(
