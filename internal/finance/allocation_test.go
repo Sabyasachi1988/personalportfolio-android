@@ -108,6 +108,55 @@ func TestAllocationByMarketCapSegment_BlendedFundSplitsAcrossTwoBuckets(t *testi
 	}
 }
 
+// TestToSlices_OrderIsFixedAcrossManyCalls covers the reported
+// "the pie chart and card keep swapping up and down" bug: Go
+// deliberately randomizes map iteration order, and toSlices used to
+// build its output straight from ranging over one - meaning the exact
+// same underlying totals could come back in a different label order on
+// every single call, with nothing in the actual portfolio data having
+// changed. Running this many times catches non-determinism that a
+// single call could miss just by chance.
+func TestToSlices_OrderIsFixedAcrossManyCalls(t *testing.T) {
+	holdings := []Holding{
+		{AssetName: "NIPPON INDIA SMALL CAP FUND", HasPrice: true, CurrentValue: 100},
+		{AssetName: "NIPPON INDIA GROWTH MID CAP FUND", HasPrice: true, CurrentValue: 100},
+		{AssetName: "NIPPON INDIA NIFTY 50 VALUE 20 INDEX FUND", HasPrice: true, CurrentValue: 100},
+		{AssetName: "NIPPON INDIA MULTI CAP FUND", HasPrice: true, CurrentValue: 100},
+	}
+	compositions := map[string]store.CapComposition{}
+
+	var firstOrder []string
+	for i := 0; i < 50; i++ {
+		slices := AllocationByMarketCapSegment(holdings, compositions)
+		order := make([]string, len(slices))
+		for j, s := range slices {
+			order[j] = s.Label
+		}
+		if i == 0 {
+			firstOrder = order
+			continue
+		}
+		if len(order) != len(firstOrder) {
+			t.Fatalf("call %d: got %d slices, want %d", i, len(order), len(firstOrder))
+		}
+		for j := range order {
+			if order[j] != firstOrder[j] {
+				t.Fatalf("call %d: order = %v, want %v (order changed between calls with identical input)", i, order, firstOrder)
+			}
+		}
+	}
+
+	want := []string{"Large Cap", "Mid Cap", "Small Cap", "Multi Cap"}
+	if len(firstOrder) != len(want) {
+		t.Fatalf("order = %v, want %v", firstOrder, want)
+	}
+	for i := range want {
+		if firstOrder[i] != want[i] {
+			t.Errorf("order = %v, want %v (Large, Mid, Small before Multi/Flexi/Cash)", firstOrder, want)
+		}
+	}
+}
+
 func TestAllocationByMarketCapSegment(t *testing.T) {
 	holdings := []Holding{
 		{AssetName: "NIPPON INDIA NIFTY SMALLCAP 250 INDEX FUND", HasPrice: true, CurrentValue: 100},
