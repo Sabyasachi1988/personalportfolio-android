@@ -12,7 +12,8 @@ data class AssetSummary(
     @SerializedName("ISIN") val isin: String,
     @SerializedName("Symbol") val symbol: String = "",
     @SerializedName("Type") val type: String = "",
-    @SerializedName("ETMoneyURL") val etMoneyUrl: String = ""
+    @SerializedName("ETMoneyURL") val etMoneyUrl: String = "",
+    @SerializedName("GroupLabel") val groupLabel: String = ""
 )
 
 data class AccountSummary(
