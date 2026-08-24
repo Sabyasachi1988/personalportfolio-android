@@ -313,44 +313,63 @@ class ProgressionActivity : AppCompatActivity() {
         statusText.text = "Loading…"
 
         backgroundExecutor.execute {
-            val portfolioPath = PortfolioStorage.filePath(this)
-            val portfolioJson = Bridge.loadPortfolio(portfolioPath)
-            val cachePath = PortfolioStorage.progressionCachePath(this)
-            val today = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
+            // Every other screen in this app wraps its background Bridge
+            // calls in try/catch (CapCompositionActivity, HoldingsActivity,
+            // etc.) - this one didn't, which was a real gap: an uncaught
+            // exception on ANY thread crashes the whole Android process by
+            // default, no per-thread isolation. That's consistent with
+            // exactly what was reported - the app abruptly disappearing
+            // when opening Progression, and needing to unlock again right
+            // after even with a grace period configured, since a process
+            // crash wipes AppLockManager's in-memory state regardless of
+            // that setting. This doesn't identify what specifically threw
+            // (if anything still does after this fix, the message below
+            // will say so precisely, rather than the whole app vanishing
+            // with no diagnostic trail at all).
+            try {
+                val portfolioPath = PortfolioStorage.filePath(this)
+                val portfolioJson = Bridge.loadPortfolio(portfolioPath)
+                val cachePath = PortfolioStorage.progressionCachePath(this)
+                val today = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
 
-            val resolvedAxis: ProgressionAxis
-            val resultJson: String
-            if (groupLabel != null) {
-                // Group mode: several same-labeled funds combined - see
-                // finance.ComputeGroupProgression. Currency-native
-                // resolution defaults to INR (WHOLE_PORTFOLIO), same
-                // reasoning as fund mode's INR default below - a fund
-                // group is overwhelmingly likely to be same-currency in
-                // practice (e.g. several Indian "Nifty 50" funds).
-                resolvedAxis = ProgressionAxis.WHOLE_PORTFOLIO
-                resultJson = Bridge.computeGroupProgression(portfolioJson, memberId, groupLabel, today, cachePath)
-            } else if (assetId != null) {
-                // Fund mode: a single fund is already fully scoped, so the
-                // axis/member pickers don't apply - the currency picker's
-                // "Native" option still needs to know whether this
-                // particular fund is INR or foreign, so the axis is set
-                // here purely as ProgressionCurrency's existing INR/CAD
-                // switch (see ProgressionCurrency.nativeCurrencyFor), not
-                // because this is really an "International Equity" view.
-                resolvedAxis = if (accountCurrencyByAssetId[assetId] == "INR") {
-                    ProgressionAxis.WHOLE_PORTFOLIO
+                val resolvedAxis: ProgressionAxis
+                val resultJson: String
+                if (groupLabel != null) {
+                    // Group mode: several same-labeled funds combined - see
+                    // finance.ComputeGroupProgression. Currency-native
+                    // resolution defaults to INR (WHOLE_PORTFOLIO), same
+                    // reasoning as fund mode's INR default below - a fund
+                    // group is overwhelmingly likely to be same-currency in
+                    // practice (e.g. several Indian "Nifty 50" funds).
+                    resolvedAxis = ProgressionAxis.WHOLE_PORTFOLIO
+                    resultJson = Bridge.computeGroupProgression(portfolioJson, memberId, groupLabel, today, cachePath)
+                } else if (assetId != null) {
+                    // Fund mode: a single fund is already fully scoped, so the
+                    // axis/member pickers don't apply - the currency picker's
+                    // "Native" option still needs to know whether this
+                    // particular fund is INR or foreign, so the axis is set
+                    // here purely as ProgressionCurrency's existing INR/CAD
+                    // switch (see ProgressionCurrency.nativeCurrencyFor), not
+                    // because this is really an "International Equity" view.
+                    resolvedAxis = if (accountCurrencyByAssetId[assetId] == "INR") {
+                        ProgressionAxis.WHOLE_PORTFOLIO
+                    } else {
+                        ProgressionAxis.INTERNATIONAL_EQUITY
+                    }
+                    resultJson = Bridge.computeAssetProgression(portfolioJson, assetId, today, cachePath)
                 } else {
-                    ProgressionAxis.INTERNATIONAL_EQUITY
+                    resolvedAxis = axisForFetch
+                    resultJson = Bridge.computeProgression(portfolioJson, memberId, resolvedAxis.bridgeValue, today, cachePath)
                 }
-                resultJson = Bridge.computeAssetProgression(portfolioJson, assetId, today, cachePath)
-            } else {
-                resolvedAxis = axisForFetch
-                resultJson = Bridge.computeProgression(portfolioJson, memberId, resolvedAxis.bridgeValue, today, cachePath)
-            }
 
-            mainThread.post {
-                currentAxis = resolvedAxis
-                applyLoadedProgression(resultJson, isFundMode = assetId != null, isGroupMode = groupLabel != null, groupLabel = groupLabel)
+                mainThread.post {
+                    currentAxis = resolvedAxis
+                    applyLoadedProgression(resultJson, isFundMode = assetId != null, isGroupMode = groupLabel != null, groupLabel = groupLabel)
+                }
+            } catch (e: Exception) {
+                mainThread.post {
+                    statusText.text = "Could not load progression: ${e.javaClass.simpleName}: ${e.message}"
+                }
             }
         }
     }
@@ -424,36 +443,50 @@ class ProgressionActivity : AppCompatActivity() {
         val axisForFetch = currentAxis
 
         backgroundExecutor.execute {
-            val portfolioPath = PortfolioStorage.filePath(this)
-            val portfolioJson = Bridge.loadPortfolio(portfolioPath)
-            val resultJson = if (groupLabel != null) {
-                Bridge.computeGroupProgressionDailyRange(portfolioJson, memberId, groupLabel, startDate, endDate)
-            } else if (assetId != null) {
-                Bridge.computeAssetProgressionDailyRange(portfolioJson, assetId, startDate, endDate)
-            } else {
-                Bridge.computeProgressionDailyRange(portfolioJson, memberId, axisForFetch.bridgeValue, startDate, endDate)
-            }
-
-            if (isBridgeError(resultJson)) return@execute // silently keep the weekly view - this is a background enhancement, not a required load
-            val pointType = object : TypeToken<List<ProgressionPoint>>() {}.type
-            val dailyPoints: List<ProgressionPoint> = try {
-                gson.fromJson(resultJson, pointType) ?: emptyList()
-            } catch (e: Exception) {
-                emptyList()
-            }
-            if (dailyPoints.size < 2) return@execute // not enough to show a meaningful chart - stay on weekly
-
-            mainThread.post {
-                inDailyMode = true
-                points = dailyPoints
-                seekBar.max = (dailyPoints.size - 1).coerceAtLeast(0)
-                chart.setPoints(dailyPoints)
-                resetZoomButton.visibility = View.VISIBLE
-                statusText.text = when {
-                    groupLabel != null -> "Daily detail for $groupLabel (combined)"
-                    assetId != null -> "Daily detail for this fund"
-                    else -> "Daily detail"
+            // Same reasoning as loadAndShowProgression's try/catch - an
+            // uncaught exception here (this fires on every pinch-zoom
+            // gesture past the daily threshold, debounced) would also
+            // crash the whole app. Failing silently here (not even an
+            // error message) is deliberate and matches the existing
+            // isBridgeError early-return just below - this is a
+            // background enhancement to an already-showing weekly view,
+            // not a required load, so the right failure behavior is
+            // "stay on what's already on screen", same as it already was
+            // for a Bridge-level error.
+            try {
+                val portfolioPath = PortfolioStorage.filePath(this)
+                val portfolioJson = Bridge.loadPortfolio(portfolioPath)
+                val resultJson = if (groupLabel != null) {
+                    Bridge.computeGroupProgressionDailyRange(portfolioJson, memberId, groupLabel, startDate, endDate)
+                } else if (assetId != null) {
+                    Bridge.computeAssetProgressionDailyRange(portfolioJson, assetId, startDate, endDate)
+                } else {
+                    Bridge.computeProgressionDailyRange(portfolioJson, memberId, axisForFetch.bridgeValue, startDate, endDate)
                 }
+
+                if (isBridgeError(resultJson)) return@execute // silently keep the weekly view - this is a background enhancement, not a required load
+                val pointType = object : TypeToken<List<ProgressionPoint>>() {}.type
+                val dailyPoints: List<ProgressionPoint> = try {
+                    gson.fromJson(resultJson, pointType) ?: emptyList()
+                } catch (e: Exception) {
+                    emptyList()
+                }
+                if (dailyPoints.size < 2) return@execute // not enough to show a meaningful chart - stay on weekly
+
+                mainThread.post {
+                    inDailyMode = true
+                    points = dailyPoints
+                    seekBar.max = (dailyPoints.size - 1).coerceAtLeast(0)
+                    chart.setPoints(dailyPoints)
+                    resetZoomButton.visibility = View.VISIBLE
+                    statusText.text = when {
+                        groupLabel != null -> "Daily detail for $groupLabel (combined)"
+                        assetId != null -> "Daily detail for this fund"
+                        else -> "Daily detail"
+                    }
+                }
+            } catch (e: Exception) {
+                // Stay on the weekly view, same as a Bridge-level error above.
             }
         }
     }
