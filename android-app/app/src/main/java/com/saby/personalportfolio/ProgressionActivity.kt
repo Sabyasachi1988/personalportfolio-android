@@ -462,16 +462,29 @@ class ProgressionActivity : AppCompatActivity() {
      * continuous pinch/pan gesture doesn't fire a Bridge call on every
      * frame.
      *
-     * Triggers a NEW fetch whenever the visible window isn't fully
-     * covered by whatever daily data is already loaded (dailyDataStart/
-     * End) - not just the first time daily mode is entered. Panning
-     * used to get silently stuck at the edge of the originally-fetched
-     * daily range, with nothing checking whether the person had panned
-     * to dates outside it - the old guard here (`if (inDailyMode)
-     * return`) was written for "zooming further within already-loaded
-     * data needs no new fetch" (still true, and still avoided below via
-     * the containment check) but incorrectly also blocked "panned past
-     * what's loaded", which very much does need a new fetch.
+     * Triggers a NEW fetch whenever the visible window has reached
+     * (touches) either edge of whatever daily data is already loaded
+     * (dailyDataStart/End) - not just the first time daily mode is
+     * entered. The previous version of this check compared startDate/
+     * endDate against loadedStart/loadedEnd with `>=`/`<=` and skipped
+     * the fetch when "contained" - but startDate/endDate come from
+     * points[windowStart]/points[windowEnd], and windowStart/windowEnd
+     * are ALWAYS clamped by the chart view to stay inside the currently-
+     * loaded array (see ProgressionChartView's window clamping) - so
+     * that comparison was true BY CONSTRUCTION, every single time, and
+     * could never detect "panned/zoomed to the edge of what's loaded".
+     * In practice this meant the very first daily-mode fetch (crossing
+     * the 180-day threshold from weekly) was the ONLY fetch that ever
+     * happened - any further pan or zoom-in within that one 6-month
+     * window silently never widened it, which is exactly what pinned a
+     * person at that window's edges with nowhere further to go.
+     * Comparing for EQUALITY at either edge instead correctly detects
+     * "the window has been pushed all the way to what's loaded" (the
+     * chart can't report a date past that, so equality is the true
+     * signal, not `>`/`<`), and re-fetches a fresh padded range
+     * recentered on the current position - which is also why the
+     * padding in paddedDailyRange matters: it's what gives the NEXT pan
+     * real room before this fires again.
      */
     private fun onChartWindowChanged(startDate: String, endDate: String, spanDays: Int) {
         pendingDailyModeRunnable?.let { dailyModeHandler.removeCallbacks(it) }
@@ -485,8 +498,10 @@ class ProgressionActivity : AppCompatActivity() {
             // Plain string comparison is safe here - every date is
             // "yyyy-MM-dd", where lexicographic order already matches
             // chronological order.
-            if (loadedStart != null && loadedEnd != null && startDate >= loadedStart && endDate <= loadedEnd) {
-                return // still fully within what's already loaded
+            val atLeftEdge = loadedStart != null && startDate <= loadedStart
+            val atRightEdge = loadedEnd != null && endDate >= loadedEnd
+            if (loadedStart != null && loadedEnd != null && !atLeftEdge && !atRightEdge) {
+                return // comfortably inside what's already loaded, no need for a wider fetch
             }
         }
 
