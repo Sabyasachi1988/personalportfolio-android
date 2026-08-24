@@ -8,34 +8,58 @@
 // SoC would likely be 2-4x slower single-thread, so treat these as a
 // lower bound, not an on-device measurement):
 //
-//	Scale                    JSON size   Marshal+Unmarshal   Weekly full-range   Daily 90-day window
-//	Current (15 assets, 2y)  0.66 MB     13 ms               297 ms              265 ms
-//	Future  (30 assets, 15y) 9.97 MB     283 ms              29.8 SECONDS        5.4 seconds
+//	Scale                    JSON size   Marshal+Unmarshal   Weekly full-range   Daily 90-day window   Weekly, REPEATED (cached, unchanged data)
+//	Current (15 assets, 2y)  0.66 MB     19 ms               255 ms              255 ms                6 ms
+//	Future  (30 assets, 15y) 9.97 MB     300 ms              19.4 SECONDS        4.4 seconds           119 ms
 //
-// Two conclusions drawn from this:
+// Three rounds of investigation went into these numbers, in order:
 //
-//  1. The bounded 90-day daily view is NOT meaningfully more expensive
-//     than what's already running today (weekly full-range) - both
-//     produce a similar point count (~86-90), and computeProgressionPoint's
-//     cost is dominated by per-point transaction/price scanning, not by
-//     which calendar granularity picked the dates. This is why the
-//     zoomed-daily-detail feature was judged safe to build.
+//  1. store.PriceAsOf/FXRateAsOf were doing a full linear scan over the
+//     ENTIRE Prices/FXRates slice on every single call (once per asset
+//     per checkpoint) - indexed by asset/currency with a sorted,
+//     binary-searched lookup instead. This gave a real but modest
+//     improvement (~34% faster at future scale) - it was NOT the
+//     dominant cost, which the next finding explains.
 //
-//  2. The EXISTING weekly full-range view has its own, separate, more
-//     urgent scaling problem: computeProgressionPoint rescans the
-//     portfolio's full transaction history for every checkpoint, so its
-//     cost grows with (checkpoints x transactions x prices) - at the
-//     15-year/30-asset projection this hits ~30 seconds even on a fast
-//     desktop CPU, which would be an on-device ANR (Android kills a
-//     main-thread-blocked app after ~5s unresponsive). This is NOT
-//     something the daily-view feature introduced - it already existed
-//     as a latent risk. Moving Progression's computation to a background
-//     thread (see ProgressionActivity) avoids the ANR crash, but doesn't
-//     fix the underlying scaling - a real fix would mean either caching
-//     computed points incrementally (only recompute what's new since the
-//     last save) or moving off one-JSON-blob-per-load storage entirely.
-//     Flagged here as a known future problem, out of scope for this
-//     feature.
+//  2. The actual dominant cost turned out to be XIRR: it re-solves via
+//     Newton-Raphson (up to 200 iterations, each an O(len(flows)) pass)
+//     independently for EVERY checkpoint, and flows grows with total
+//     transaction count over time. A "warm-start each checkpoint's
+//     solve from the previous checkpoint's converged rate" optimization
+//     was attempted and MEASURED to make things worse, not better - it
+//     was reverted rather than shipped on unverified theory. This
+//     remains a known, real, unsolved cost - see XIRR's own doc comment
+//     for where the O(iterations x flows) cost lives.
+//
+//  3. The user (Saby) pointed out that a HISTORICAL checkpoint's
+//     computation is fixed in time once nothing that feeds it changes
+//     again - only the checkpoint representing "today" is genuinely
+//     always moving. See ProgressionCache: historical points are
+//     persisted to a sidecar file keyed by a fingerprint of exactly the
+//     data that feeds a progression computation (invalidated whole-sale
+//     on any real change to that data, deliberately coarse rather than
+//     risk a subtly-wrong surgical invalidation), while the final
+//     "today" point is always recomputed fresh, never cached. This is
+//     what "weekly_full_range_repeated_with_cache" measures - the
+//     REPEATED-OPEN case (browse/close/reopen without any data change
+//     in between), which is the actual common case for this screen.
+//     Result: 19.4s -> 119ms at future scale (~163x), 255ms -> 6ms at
+//     current scale (~42x) - by far the largest win of the three, and
+//     directly addresses the underlying (checkpoints x transactions x
+//     prices) scaling problem for the case that matters most, without
+//     needing to fix XIRR's own per-call cost or restructure storage.
+//
+// Two things NOT fixed by any of the above, left as known open items:
+//   - XIRR's per-checkpoint cost itself (finding #2) - still paid in
+//     full on every CACHE-MISS computation (first open, or after any
+//     data change), just no longer paid redundantly on every repeat.
+//   - The bounded 90-day daily-zoom view (finding #1's original
+//     motivation) is NOT cached at all - deliberately out of scope,
+//     since a zoomed window's `end` isn't guaranteed to be "today" (you
+//     can zoom into a purely historical stretch), so there's no
+//     "which point is always-fresh" convention to apply the same way.
+//     It remains bounded-and-cheap on its own (see the numbers above),
+//     just not sped up further by caching.
 package mobile_bench
 
 import (
@@ -166,7 +190,7 @@ func benchmarkProgression(b *testing.B, p *store.Portfolio) {
 	b.Run("weekly_full_range", func(b *testing.B) {
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			finance.ComputeProgression(p, "", finance.AxisWholePortfolio, today)
+			finance.ComputeProgression(p, "", finance.AxisWholePortfolio, today, nil)
 		}
 	})
 
@@ -175,6 +199,24 @@ func benchmarkProgression(b *testing.B, p *store.Portfolio) {
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			finance.ComputeProgressionDailyRange(p, "", finance.AxisWholePortfolio, start, today)
+		}
+	})
+
+	// The scenario the progression cache is actually for: the person
+	// opens Progression, browses/scrubs/zooms (no data changes), closes
+	// the app, reopens it later - repeated calls against UNCHANGED data.
+	// First call is a real cold-cache computation (same cost as
+	// weekly_full_range above); every call after that should only ever
+	// compute ONE fresh point (today) plus a cheap fingerprint check,
+	// regardless of how many historical checkpoints exist.
+	b.Run("weekly_full_range_repeated_with_cache", func(b *testing.B) {
+		cache := finance.LoadProgressionCache(b.TempDir() + "/progression-cache.json") // empty cache, same as a fresh install
+		// Prime it once so the reported b.N loop measures steady-state
+		// repeated-open behavior, not the one-time cold cost.
+		finance.ComputeProgression(p, "", finance.AxisWholePortfolio, today, cache)
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			finance.ComputeProgression(p, "", finance.AxisWholePortfolio, today, cache)
 		}
 	})
 }
