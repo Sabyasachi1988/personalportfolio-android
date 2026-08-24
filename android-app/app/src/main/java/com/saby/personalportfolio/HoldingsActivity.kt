@@ -1,5 +1,6 @@
 package com.saby.personalportfolio
 
+import android.app.AlertDialog
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -17,6 +18,7 @@ import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import com.google.android.material.switchmaterial.SwitchMaterial
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import com.ledger.bridge.Bridge
@@ -47,6 +49,7 @@ class HoldingsActivity : AppCompatActivity() {
     private lateinit var sortSpinner: Spinner
     private lateinit var segmentFilterBar: View
     private lateinit var segmentFilterLabel: TextView
+    private lateinit var groupByLabelSwitch: SwitchMaterial
 
     // Set when arriving from a tapped segment slice on the Allocation
     // screen (see AllocationActivity). Null means "no segment filter -
@@ -61,6 +64,9 @@ class HoldingsActivity : AppCompatActivity() {
     // totals and XIRR are always computed from this, so they stay stable
     // while searching rather than confusingly changing as you type.
     private var allHoldings: List<Holding> = emptyList()
+
+    // Populated only when groupByLabelSwitch is on - see loadAndShowHoldings.
+    private var allGroupedHoldings: List<GroupedHolding> = emptyList()
 
     private val sortOptions = listOf(
         "Value (high to low)", "Value (low to high)",
@@ -91,6 +97,8 @@ class HoldingsActivity : AppCompatActivity() {
         sortSpinner = findViewById(R.id.holdingsSortSpinner)
         segmentFilterBar = findViewById(R.id.segmentFilterBar)
         segmentFilterLabel = findViewById(R.id.segmentFilterLabel)
+        groupByLabelSwitch = findViewById(R.id.groupByLabelSwitch)
+        groupByLabelSwitch.setOnCheckedChangeListener { _, _ -> showHoldingsForSelectedMember() }
 
         segmentFilter = intent.getStringExtra(EXTRA_SEGMENT_FILTER)
         updateSegmentFilterBar()
@@ -188,9 +196,14 @@ class HoldingsActivity : AppCompatActivity() {
         val filter = segmentFilter
         if (filter == null) {
             segmentFilterBar.visibility = View.GONE
+            groupByLabelSwitch.isEnabled = true
         } else {
             segmentFilterBar.visibility = View.VISIBLE
             segmentFilterLabel.text = "Showing: $filter"
+            // Grouped view isn't wired up for a segment filter yet - avoid
+            // a silently-inconsistent state rather than half-supporting it.
+            groupByLabelSwitch.isChecked = false
+            groupByLabelSwitch.isEnabled = false
         }
     }
 
@@ -214,6 +227,18 @@ class HoldingsActivity : AppCompatActivity() {
         }
 
         allHoldings = holdings
+
+        allGroupedHoldings = if (groupByLabelSwitch.isChecked && filter == null) {
+            val groupedJson = Bridge.computeGroupedHoldings(portfolioJson, memberId)
+            val groupedType = object : TypeToken<List<GroupedHolding>>() {}.type
+            try {
+                gson.fromJson(groupedJson, groupedType) ?: emptyList()
+            } catch (e: Exception) {
+                emptyList()
+            }
+        } else {
+            emptyList()
+        }
 
         if (holdings.isEmpty()) {
             summary.text = readError ?: "No holdings yet for this filter."
@@ -277,6 +302,25 @@ class HoldingsActivity : AppCompatActivity() {
 
     private fun applyFilterAndSort() {
         val query = searchInput.text?.toString()?.trim().orEmpty()
+
+        if (groupByLabelSwitch.isChecked && segmentFilter == null) {
+            var grouped = if (query.isBlank()) {
+                allGroupedHoldings
+            } else {
+                allGroupedHoldings.filter { it.displayName.contains(query, ignoreCase = true) }
+            }
+            grouped = when (sortSpinner.selectedItemPosition) {
+                0 -> grouped.sortedByDescending { it.currentValue }
+                1 -> grouped.sortedBy { it.currentValue }
+                2 -> grouped.sortedByDescending { it.gainPercent }
+                3 -> grouped.sortedBy { it.gainPercent }
+                4 -> grouped.sortedBy { it.displayName }
+                else -> grouped
+            }
+            recyclerView.adapter = GroupedHoldingsAdapter(grouped) { row -> showGroupDrillDown(row) }
+            return
+        }
+
         var result = if (query.isBlank()) {
             allHoldings
         } else {
@@ -293,6 +337,28 @@ class HoldingsActivity : AppCompatActivity() {
         }
 
         recyclerView.adapter = HoldingsAdapter(result)
+    }
+
+    /**
+     * Shows exactly which individual funds a consolidated row is made
+     * of, with each one's own current value - the point of grouping is
+     * a cleaner top-level view, not losing the ability to tell a
+     * Nippon-India-sourced fund apart from a Navi one, so this is one
+     * tap away from any grouped row.
+     */
+    private fun showGroupDrillDown(row: GroupedHolding) {
+        val byAssetId = allHoldings.associateBy { it.assetId }
+        val lines = row.assetIds.mapNotNull { id -> byAssetId[id] }
+            .sortedByDescending { it.currentValue }
+            .joinToString("\n\n") { h ->
+                val valueLine = if (h.hasPrice) IndianCurrencyFormatter.format(h.currentValue, decimals = 0) else "Price not available"
+                "${FundNameFormatter.shorten(h.assetName)}\n$valueLine"
+            }
+        AlertDialog.Builder(this)
+            .setTitle(row.displayName)
+            .setMessage(lines.ifBlank { "No constituent funds found." })
+            .setPositiveButton("Close", null)
+            .show()
     }
 
     private fun refreshPrices() {
