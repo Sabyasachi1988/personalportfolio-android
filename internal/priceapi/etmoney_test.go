@@ -16,26 +16,53 @@ func TestHtmlToPlainTextStripsScriptsAndTags(t *testing.T) {
 	}
 }
 
-func TestFirstPercentAfterFindsNearbyValue(t *testing.T) {
+func TestPercentNearAnyOccurrence_FindsNearbyValue(t *testing.T) {
 	text := "Asset Allocation Large Cap : 62.30 % Mid Cap : 21.5% Small Cap 10%"
-	large, ok := firstPercentAfter(text, []string{"Large Cap"}, 60)
+	large, ok := percentNearAnyOccurrence(text, []string{"Large Cap"}, 60)
 	if !ok || large != 62.3 {
 		t.Fatalf("Large Cap: got %v ok=%v, want 62.3", large, ok)
 	}
-	mid, ok := firstPercentAfter(text, []string{"Mid Cap"}, 60)
+	mid, ok := percentNearAnyOccurrence(text, []string{"Mid Cap"}, 60)
 	if !ok || mid != 21.5 {
 		t.Fatalf("Mid Cap: got %v ok=%v, want 21.5", mid, ok)
 	}
-	small, ok := firstPercentAfter(text, []string{"Small Cap"}, 60)
+	small, ok := percentNearAnyOccurrence(text, []string{"Small Cap"}, 60)
 	if !ok || small != 10 {
 		t.Fatalf("Small Cap: got %v ok=%v, want 10", small, ok)
 	}
 }
 
-func TestFirstPercentAfterMissingLabel(t *testing.T) {
-	_, ok := firstPercentAfter("nothing relevant here", []string{"Large Cap"}, 60)
+func TestPercentNearAnyOccurrence_MissingLabel(t *testing.T) {
+	_, ok := percentNearAnyOccurrence("nothing relevant here", []string{"Large Cap"}, 60)
 	if ok {
 		t.Fatalf("expected no match, got a match")
+	}
+}
+
+// TestPercentNearAnyOccurrence_SkipsHeadingAndFindsRealTable reproduces
+// the exact reported bug: a fund named "Nippon India Growth Mid Cap
+// Fund" has its FIRST "Mid Cap" occurrence in the page's own heading -
+// not followed by a percentage - with the real allocation table's
+// "Mid Cap: 65.85%" appearing only later in the page. The earlier
+// first-occurrence-only version of this function gave up at the
+// heading and never found the real number; this version must keep
+// scanning past a non-matching occurrence.
+func TestPercentNearAnyOccurrence_SkipsHeadingAndFindsRealTable(t *testing.T) {
+	text := "Nippon India Growth Mid Cap Fund - Direct Growth Plan " +
+		"Overview Returns Portfolio " +
+		"Asset Allocation Large Cap 21.98 % Mid Cap 65.85 % Small Cap 11.26 %"
+	large, largeOK := percentNearAnyOccurrence(text, []string{"Large Cap"}, 60)
+	mid, midOK := percentNearAnyOccurrence(text, []string{"Mid Cap"}, 60)
+	small, smallOK := percentNearAnyOccurrence(text, []string{"Small Cap"}, 60)
+
+	if !largeOK || large != 21.98 {
+		t.Errorf("Large Cap: got %v ok=%v, want 21.98", large, largeOK)
+	}
+	if !midOK || mid != 65.85 {
+		t.Errorf("Mid Cap: got %v ok=%v, want 65.85 (the heading's bare 'Mid Cap' with no nearby percent must be skipped)", mid, midOK)
+	}
+	if !smallOK || small != 11.26 {
+		t.Errorf("Small Cap: got %v ok=%v, want 11.26", small, smallOK)
 	}
 }
 
