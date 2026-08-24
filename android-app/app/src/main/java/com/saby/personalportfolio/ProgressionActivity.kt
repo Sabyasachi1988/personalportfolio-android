@@ -363,8 +363,27 @@ class ProgressionActivity : AppCompatActivity() {
                 }
 
                 mainThread.post {
-                    currentAxis = resolvedAxis
-                    applyLoadedProgression(resultJson, isFundMode = assetId != null, isGroupMode = groupLabel != null, groupLabel = groupLabel)
+                    // A try/catch wrapped only around the code that
+                    // SCHEDULES this block (see the outer try above)
+                    // does NOT protect the block's own contents - this
+                    // Runnable executes later, on its own call stack,
+                    // once the main thread's Looper gets to it. If
+                    // applyLoadedProgression (or anything it triggers
+                    // synchronously - chart.setPoints fires onScrub,
+                    // which updates the detail card) throws, that's a
+                    // separate crash the outer catch below never sees.
+                    // Confirmed the hard way: the outer try/catch alone
+                    // did NOT stop the crash - Android's own generic
+                    // crash dialog still appeared instead of this
+                    // screen's error text, which is exactly what a
+                    // throw happening here, unprotected, would look
+                    // like.
+                    try {
+                        currentAxis = resolvedAxis
+                        applyLoadedProgression(resultJson, isFundMode = assetId != null, isGroupMode = groupLabel != null, groupLabel = groupLabel)
+                    } catch (e: Exception) {
+                        statusText.text = "Could not display progression: ${e.javaClass.simpleName}: ${e.message}"
+                    }
                 }
             } catch (e: Exception) {
                 mainThread.post {
@@ -474,15 +493,24 @@ class ProgressionActivity : AppCompatActivity() {
                 if (dailyPoints.size < 2) return@execute // not enough to show a meaningful chart - stay on weekly
 
                 mainThread.post {
-                    inDailyMode = true
-                    points = dailyPoints
-                    seekBar.max = (dailyPoints.size - 1).coerceAtLeast(0)
-                    chart.setPoints(dailyPoints)
-                    resetZoomButton.visibility = View.VISIBLE
-                    statusText.text = when {
-                        groupLabel != null -> "Daily detail for $groupLabel (combined)"
-                        assetId != null -> "Daily detail for this fund"
-                        else -> "Daily detail"
+                    // Same gap as loadAndShowProgression's mainThread.post
+                    // - protecting the code that SCHEDULES this block does
+                    // not protect what's INSIDE it once it actually runs.
+                    try {
+                        inDailyMode = true
+                        points = dailyPoints
+                        seekBar.max = (dailyPoints.size - 1).coerceAtLeast(0)
+                        chart.setPoints(dailyPoints)
+                        resetZoomButton.visibility = View.VISIBLE
+                        statusText.text = when {
+                            groupLabel != null -> "Daily detail for $groupLabel (combined)"
+                            assetId != null -> "Daily detail for this fund"
+                            else -> "Daily detail"
+                        }
+                    } catch (e: Exception) {
+                        // Same "stay on what's already on screen" reasoning
+                        // as the isBridgeError early-return above - this is
+                        // a background enhancement, not a required load.
                     }
                 }
             } catch (e: Exception) {
