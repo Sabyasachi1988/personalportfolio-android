@@ -106,8 +106,9 @@ func progressionFingerprint(p *store.Portfolio) string {
 // counterpart, used by the WEEKLY (not daily-zoom-range) progression
 // entry points - ComputeProgression, ComputeAssetProgression,
 // ComputeGroupProgression. Daily zoomed-window queries deliberately
-// don't use this: they're already bounded to ~90 days (cheap - see
-// internal/benchmark), and critically, a zoomed window's `end` date
+// don't use this: they're bounded to ~180 days (see
+// ProgressionActivity.dailyZoomThresholdDays and internal/benchmark's
+// doc comment for the measured cost at that width), and critically, a zoomed window's `end` date
 // isn't guaranteed to be "today" (you can zoom into a past stretch
 // entirely), so there's no single "always-fresh final point" convention
 // that would make sense there the way it does for a series that always
