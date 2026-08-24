@@ -20,12 +20,40 @@
                 android:orientation="vertical"
                 android:padding="24dp">
 
-                <TextView
+                <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="Personal Portfolio"
-                    android:textSize="22sp"
-                    android:textStyle="bold" />
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical">
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="Personal Portfolio"
+                        android:textSize="22sp"
+                        android:textStyle="bold" />
+
+                    <ImageButton
+                        android:id="@+id/dashboardRefreshButton"
+                        android:layout_width="40dp"
+                        android:layout_height="40dp"
+                        android:padding="8dp"
+                        android:background="?attr/selectableItemBackgroundBorderless"
+                        android:src="@drawable/ic_refresh"
+                        android:contentDescription="Refresh prices" />
+
+                    <ImageButton
+                        android:id="@+id/dashboardSettingsButton"
+                        android:layout_width="40dp"
+                        android:layout_height="40dp"
+                        android:layout_marginStart="4dp"
+                        android:padding="8dp"
+                        android:background="?attr/selectableItemBackgroundBorderless"
+                        android:src="@drawable/ic_settings_gear"
+                        android:contentDescription="Settings" />
+
+                </LinearLayout>
 
                 <Spinner
                     android:id="@+id/dashboardMemberSpinner"
@@ -197,13 +225,6 @@
                     android:textColor="#757575"
                     android:gravity="center"
                     android:text="Swipe for more · tap Allocation below for target comparison and fund composition editing" />
-
-                <Button
-                    android:id="@+id/settingsButton"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="24dp"
-                    android:text="Settings (Backup / Theme)" />
 
                 <!-- Spacer so the FAB never overlaps the last item -->
                 <View
