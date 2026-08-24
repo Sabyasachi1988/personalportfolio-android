@@ -2,21 +2,28 @@ package com.saby.personalportfolio
 
 import android.content.Intent
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.view.View
 import android.widget.AdapterView
 import android.widget.ArrayAdapter
+import android.widget.ImageButton
 import android.widget.Spinner
 import android.widget.TextView
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import com.google.android.material.floatingactionbutton.FloatingActionButton
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import com.ledger.bridge.Bridge
 import java.util.Locale
+import java.util.concurrent.Executors
 
 class MainActivity : AppCompatActivity() {
 
     private val gson = Gson()
+    private val backgroundExecutor = Executors.newSingleThreadExecutor()
+    private val mainThread = Handler(Looper.getMainLooper())
     private lateinit var totalValue: TextView
     private lateinit var gainLine: TextView
     private lateinit var xirrLine: TextView
@@ -28,6 +35,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var donutClass: DonutChartView
     private lateinit var donutLegendClass: DonutLegendView
     private lateinit var memberSpinner: Spinner
+    private lateinit var refreshButton: ImageButton
     private var donutToast: android.widget.Toast? = null
 
     // Index 0 is always "All (family)" (empty memberID); indices 1.. map
@@ -54,6 +62,7 @@ class MainActivity : AppCompatActivity() {
         donutClass = findViewById(R.id.dashboardDonutClass)
         donutLegendClass = findViewById(R.id.dashboardDonutLegendClass)
         memberSpinner = findViewById(R.id.dashboardMemberSpinner)
+        refreshButton = findViewById(R.id.dashboardRefreshButton)
         donutMarketCap.onSliceTapped = { label, percent -> showSliceToast(label, percent) }
         donutOrigin.onSliceTapped = { label, percent -> showSliceToast(label, percent) }
         donutClass.onSliceTapped = { label, percent -> showSliceToast(label, percent) }
@@ -68,9 +77,10 @@ class MainActivity : AppCompatActivity() {
         findViewById<FloatingActionButton>(R.id.importFab).setOnClickListener {
             startActivity(Intent(this, ImportActivity::class.java))
         }
-        findViewById<android.widget.Button>(R.id.settingsButton).setOnClickListener {
+        findViewById<ImageButton>(R.id.dashboardSettingsButton).setOnClickListener {
             startActivity(Intent(this, SettingsActivity::class.java))
         }
+        refreshButton.setOnClickListener { refreshAllPrices() }
 
         BottomNavHelper.setup(this, findViewById(R.id.bottomNav), BottomNavDestination.DASHBOARD)
     }
@@ -222,4 +232,91 @@ class MainActivity : AppCompatActivity() {
         chart.setSlices(chartSlices)
         legend.setSlices(chartSlices)
     }
+
+    private fun isBridgeError(json: String): Boolean = json.trimStart().startsWith("{\"error\"")
+
+    /**
+     * Refreshes today's price for EVERYTHING in one tap - both AMFI-NAV
+     * mutual funds and Yahoo-symbol ETFs/stocks, unlike Holdings' own
+     * "Refresh Prices" button, which only ever covered the AMFI side.
+     * Lightweight (today's price only), not the full multi-year history
+     * fetch Settings → Update Price History does.
+     */
+    private fun refreshAllPrices() {
+        refreshButton.isEnabled = false
+
+        backgroundExecutor.execute {
+            try {
+                val portfolioPath = PortfolioStorage.filePath(this)
+                var portfolioJson = Bridge.loadPortfolio(portfolioPath)
+                if (isBridgeError(portfolioJson)) {
+                    mainThread.post { failRefresh("Failed to load portfolio: $portfolioJson") }
+                    return@execute
+                }
+
+                val amfiResult = Bridge.refreshAmfiPrices(portfolioJson)
+                var amfiMatched = 0
+                if (isBridgeError(amfiResult)) {
+                    mainThread.post { failRefresh("AMFI refresh failed: $amfiResult") }
+                    return@execute
+                }
+                val amfiParsed = try {
+                    gson.fromJson(amfiResult, RefreshAmfiResult::class.java)
+                } catch (e: Exception) {
+                    mainThread.post { failRefresh("AMFI refresh returned unexpected data: ${e.message}") }
+                    return@execute
+                }
+                portfolioJson = gson.toJson(amfiParsed.portfolio)
+                amfiMatched = amfiParsed.matchedCount
+
+                val symbolResult = Bridge.refreshSymbolPrices(portfolioJson)
+                var symbolMatched = 0
+                if (!isBridgeError(symbolResult)) {
+                    val symbolParsed = try {
+                        gson.fromJson(symbolResult, RefreshSymbolResult::class.java)
+                    } catch (e: Exception) {
+                        null
+                    }
+                    if (symbolParsed != null) {
+                        portfolioJson = gson.toJson(symbolParsed.portfolio)
+                        symbolMatched = symbolParsed.matchedCount
+                    }
+                }
+
+                val saveResult = Bridge.savePortfolio(portfolioPath, portfolioJson)
+                if (isBridgeError(saveResult)) {
+                    mainThread.post { failRefresh("Failed to save refreshed prices: $saveResult") }
+                    return@execute
+                }
+
+                mainThread.post {
+                    refreshButton.isEnabled = true
+                    Toast.makeText(
+                        this,
+                        "Refreshed $amfiMatched fund(s), $symbolMatched ETF/stock(s)",
+                        Toast.LENGTH_LONG
+                    ).show()
+                    loadDashboard()
+                }
+            } catch (e: Exception) {
+                mainThread.post { failRefresh("Refresh failed: ${e.message}") }
+            }
+        }
+    }
+
+    private fun failRefresh(message: String) {
+        refreshButton.isEnabled = true
+        Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+    }
 }
+
+private data class RefreshAmfiResult(
+    val matchedCount: Int,
+    val portfolio: com.google.gson.JsonObject
+)
+
+private data class RefreshSymbolResult(
+    val matchedCount: Int,
+    val failures: List<String>?,
+    val portfolio: com.google.gson.JsonObject
+)
