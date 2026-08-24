@@ -625,7 +625,13 @@ class ProgressionActivity : AppCompatActivity() {
                         dailyDataStart = dailyPoints.first().date
                         dailyDataEnd = dailyPoints.last().date
                         seekBar.max = (dailyPoints.size - 1).coerceAtLeast(0)
-                        chart.setPoints(dailyPoints)
+                        // Preserve whatever zoom level the person was
+                        // actually at (requestedStartDate/EndDate) rather
+                        // than showing the full, deliberately-wider-than-
+                        // requested padded range that was just fetched -
+                        // see ProgressionChartView.setPoints' doc comment
+                        // for the "snapping back out" bug this fixes.
+                        chart.setPoints(dailyPoints, requestedStartDate to requestedEndDate)
                         resetZoomButton.visibility = View.VISIBLE
                         statusText.text = when {
                             groupLabel != null -> "Daily detail for $groupLabel (combined)"
