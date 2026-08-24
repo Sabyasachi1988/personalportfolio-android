@@ -9,6 +9,71 @@ import (
 
 func units(v float64) *float64 { return &v }
 
+func TestDailyDatesInRange_BasicRange(t *testing.T) {
+	start := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
+	end := time.Date(2026, 8, 5, 0, 0, 0, 0, time.UTC)
+	dates := DailyDatesInRange(start, end)
+	want := []string{"2026-08-01", "2026-08-02", "2026-08-03", "2026-08-04", "2026-08-05"}
+	if len(dates) != len(want) {
+		t.Fatalf("got %v, want %v", dates, want)
+	}
+	for i := range want {
+		if dates[i] != want[i] {
+			t.Errorf("dates[%d] = %q, want %q", i, dates[i], want[i])
+		}
+	}
+}
+
+func TestDailyDatesInRange_StartAfterEndReturnsNil(t *testing.T) {
+	start := time.Date(2026, 8, 5, 0, 0, 0, 0, time.UTC)
+	end := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
+	if got := DailyDatesInRange(start, end); got != nil {
+		t.Errorf("expected nil, got %v", got)
+	}
+}
+
+func TestComputeProgressionDailyRange_MatchesPlainComputationForSameDates(t *testing.T) {
+	p := buildMixedPortfolio()
+	start := time.Date(2024, 1, 16, 0, 0, 0, 0, time.UTC)
+	end := time.Date(2024, 1, 22, 0, 0, 0, 0, time.UTC)
+
+	points := ComputeProgressionDailyRange(p, "", AxisWholePortfolio, start, end)
+	// 2024-01-16 through 2024-01-22 inclusive = 7 daily points.
+	if len(points) != 7 {
+		t.Fatalf("expected 7 daily points, got %d", len(points))
+	}
+	if points[0].Date != "2024-01-16" {
+		t.Errorf("first point date = %q, want 2024-01-16", points[0].Date)
+	}
+	last := points[len(points)-1]
+	if last.Date != "2024-01-22" {
+		t.Errorf("last point date = %q, want 2024-01-22", last.Date)
+	}
+	// Same expected totals as TestComputeProgression_WholePortfolio_CombinesBothCurrenciesInINR
+	// for its one weekly checkpoint on this same date - confirms the
+	// shared computeProgressionSeries core produces identical results
+	// for the same date regardless of which calendar granularity
+	// requested it. Invested: 10000 INR + 1000 CAD * 60 INR/CAD = 70000.
+	if last.Invested != 70000 {
+		t.Errorf("last point Invested = %v, want 70000", last.Invested)
+	}
+}
+
+func TestComputeAssetProgressionDailyRange_ScopedToOneAsset(t *testing.T) {
+	p := buildMixedPortfolio()
+	start := time.Date(2024, 1, 20, 0, 0, 0, 0, time.UTC)
+	end := time.Date(2024, 1, 22, 0, 0, 0, 0, time.UTC)
+
+	points := ComputeAssetProgressionDailyRange(p, "a-in", start, end)
+	if len(points) != 3 {
+		t.Fatalf("expected 3 daily points, got %d", len(points))
+	}
+	last := points[len(points)-1]
+	if last.Invested != 10000 {
+		t.Errorf("last point Invested = %v, want 10000 (only asset a-in, not the Canadian holding)", last.Invested)
+	}
+}
+
 func TestWeeklyDates_BasicRange(t *testing.T) {
 	p := &store.Portfolio{
 		Transactions: []store.StoredTransaction{
