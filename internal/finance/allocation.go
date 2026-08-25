@@ -140,6 +140,35 @@ var canonicalSliceOrder = map[string]int{
 	"Commodity":            10,
 	"Others":               11,
 	"Unclassified":         12,
+	"Untagged":             13,
+}
+
+// AllocationByTag groups current value by each holding's EffectiveTag
+// (see store.Asset.EffectiveTag's doc comment) - the mutually-exclusive
+// resolution of a fund's possibly-several Tags down to the one slice it
+// contributes to here. A fund with no tags at all falls under
+// "Untagged", same convention as AllocationByAssetClass's
+// "Unclassified" catch-all. This is a fixed, deliberately unfiltered
+// breakdown across EVERY tag currently in use (not a single
+// caller-chosen tag) - the person doesn't pick a tag to view here, they
+// see the whole tag-based split at once, the same way Equity Origin
+// always shows Indian vs. International as one complete picture rather
+// than a picker over "show me just Indian".
+func AllocationByTag(holdings []Holding) []AllocationSlice {
+	totals := make(map[string]float64)
+	var total float64
+	for _, h := range holdings {
+		if !h.HasPrice {
+			continue
+		}
+		label := h.EffectiveTag
+		if label == "" {
+			label = "Untagged"
+		}
+		totals[label] += h.CurrentValue
+		total += h.CurrentValue
+	}
+	return toSlices(totals, total)
 }
 
 func sortSlicesCanonically(slices []AllocationSlice) {
