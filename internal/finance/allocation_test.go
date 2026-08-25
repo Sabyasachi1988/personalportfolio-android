@@ -559,3 +559,39 @@ func TestHoldingsInSegment_UnpricedHoldingsExcluded(t *testing.T) {
 		t.Fatalf("expected unpriced holdings to be excluded (they have no meaningful current value), got %d", len(result))
 	}
 }
+
+func TestAllocationByTag(t *testing.T) {
+	holdings := []Holding{
+		// EffectiveTag is precomputed by ComputeHoldings in real use (see
+		// asset.EffectiveTag()) - this test exercises AllocationByTag in
+		// isolation, so it's set directly here as ComputeHoldings would.
+		{AssetName: "Nippon India Growth Mid Cap Fund", HasPrice: true, CurrentValue: 100, EffectiveTag: "Mid Cap"},
+		{AssetName: "HDFC Mid Cap Opportunities Fund", HasPrice: true, CurrentValue: 200, EffectiveTag: "Mid Cap"},
+		{AssetName: "Parag Parikh Flexi Cap Fund", HasPrice: true, CurrentValue: 300, EffectiveTag: "Flexi Cap"},
+		{AssetName: "Some stock with no tags yet", HasPrice: true, CurrentValue: 400, EffectiveTag: ""},
+		{AssetName: "Not priced yet fund", HasPrice: false, CurrentValue: 0, EffectiveTag: "Mid Cap"},
+	}
+	slices := AllocationByTag(holdings)
+
+	total := 0.0
+	for _, s := range slices {
+		total += s.Value
+	}
+	if total != 1000 {
+		t.Errorf("total value = %v, want 1000 (unpriced holding must be excluded)", total)
+	}
+
+	byLabel := make(map[string]AllocationSlice)
+	for _, s := range slices {
+		byLabel[s.Label] = s
+	}
+	if byLabel["Mid Cap"].Value != 300 || byLabel["Mid Cap"].Percent != 30 {
+		t.Errorf("Mid Cap slice = %+v, want value=300 percent=30 (two priced holdings summed, unpriced one excluded)", byLabel["Mid Cap"])
+	}
+	if byLabel["Flexi Cap"].Value != 300 || byLabel["Flexi Cap"].Percent != 30 {
+		t.Errorf("Flexi Cap slice = %+v, want value=300 percent=30", byLabel["Flexi Cap"])
+	}
+	if byLabel["Untagged"].Value != 400 || byLabel["Untagged"].Percent != 40 {
+		t.Errorf("Untagged slice = %+v, want value=400 percent=40 (empty EffectiveTag falls under Untagged)", byLabel["Untagged"])
+	}
+}
