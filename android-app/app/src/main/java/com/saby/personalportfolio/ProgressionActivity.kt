@@ -90,12 +90,27 @@ class ProgressionActivity : AppCompatActivity() {
     // exclusive with selectedAssetId - selecting one always clears the
     // other, same convention as axis-vs-asset mode already had.
     private var selectedGroupLabel: String? = null
+    // When set, the picker is in "tag" mode - browsing every asset
+    // carrying a given tag's COMBINED growth story (see
+    // finance.ComputeTagProgression and store.Asset.Tags' doc comment,
+    // e.g. every fund tagged "Mid Cap" regardless of AMC or fund group).
+    // Mutually exclusive with selectedAssetId/selectedGroupLabel -
+    // selecting one always clears the other two, same convention as
+    // fund-vs-group mode already had. Unlike GroupLabel, a fund can
+    // carry several tags and correctly appear in more than one tag's
+    // progression - that's the whole point of tags vs. the exclusive
+    // GroupLabel concept, see store.Asset.Tags' doc comment.
+    private var selectedTag: String? = null
     private var assets: List<AssetSummary> = emptyList()
     // Distinct, non-blank GroupLabel values present among `assets`, in
     // first-seen order - populated in loadAssetList, shown in the
     // picker only when at least one fund has actually been labeled
     // (see Settings → Manage Fund Groups).
     private var groupLabels: List<String> = emptyList()
+    // Every distinct tag present among `assets`, sorted alphabetically -
+    // populated in loadAssetList, shown in the picker only when at least
+    // one fund has actually been tagged (see Settings → Manage Tags).
+    private var allTags: List<String> = emptyList()
     // AssetID -> Account currency, so "Native" currency display resolves
     // correctly for a specific foreign-brokerage fund in fund mode (see
     // loadAndShowProgression's use of this).
@@ -213,11 +228,14 @@ class ProgressionActivity : AppCompatActivity() {
     /**
      * One combined picker: the 4 whole-portfolio/equity axes, then every
      * individual fund, then every fund GROUP (if any funds have been
-     * labeled via Settings → Manage Fund Groups) - so browsing a single
-     * holding's own growth story, or a consolidated group's (e.g.
-     * several different-AMC "Nifty 50" funds combined), is one tap away
-     * from where you'd naturally look for "what am I viewing", rather
-     * than a separate control competing for the same limited row width.
+     * labeled via Settings → Manage Fund Groups), then every TAG (if any
+     * funds have been tagged via Settings → Manage Tags) - so browsing a
+     * single holding's own growth story, a consolidated group's (e.g.
+     * several different-AMC "Nifty 50" funds combined), or a tag's (e.g.
+     * every "Mid Cap"-tagged fund combined, regardless of group) is one
+     * tap away from where you'd naturally look for "what am I viewing",
+     * rather than a separate control competing for the same limited row
+     * width.
      */
     private fun showAxisOrFundPicker() {
         val popup = PopupMenu(this, axisTab)
@@ -243,11 +261,22 @@ class ProgressionActivity : AppCompatActivity() {
             }
         }
 
+        val tagIdBase = groupIdBase + 1 + groupLabels.size
+        if (allTags.isNotEmpty()) {
+            val header = popup.menu.add(0, tagIdBase, tagIdBase, "── Tag ──")
+            header.isEnabled = false
+            allTags.forEachIndexed { i, tag ->
+                val itemId = tagIdBase + 1 + i
+                popup.menu.add(0, itemId, itemId, tag)
+            }
+        }
+
         popup.setOnMenuItemClickListener { item ->
             val id = item.itemId
             if (id < ProgressionAxis.entries.size) {
                 selectedAssetId = null
                 selectedGroupLabel = null
+                selectedTag = null
                 selectedAxisIndex = id
                 axisTab.text = ProgressionAxis.entries[id].label
             } else if (id in (fundIdBase + 1) until groupIdBase) {
@@ -255,14 +284,24 @@ class ProgressionActivity : AppCompatActivity() {
                 if (asset != null) {
                     selectedAssetId = asset.id
                     selectedGroupLabel = null
+                    selectedTag = null
                     axisTab.text = FundNameFormatter.shorten(asset.name).ifBlank { "(unnamed asset)" }
                 }
-            } else if (id > groupIdBase) {
+            } else if (id in (groupIdBase + 1) until tagIdBase) {
                 val label = groupLabels.getOrNull(id - groupIdBase - 1)
                 if (label != null) {
                     selectedGroupLabel = label
                     selectedAssetId = null
+                    selectedTag = null
                     axisTab.text = label
+                }
+            } else if (id > tagIdBase) {
+                val tag = allTags.getOrNull(id - tagIdBase - 1)
+                if (tag != null) {
+                    selectedTag = tag
+                    selectedAssetId = null
+                    selectedGroupLabel = null
+                    axisTab.text = "Tag: $tag"
                 }
             }
             loadAndShowProgression()
@@ -315,6 +354,7 @@ class ProgressionActivity : AppCompatActivity() {
         val currencyByAccountId = snapshot.accounts.orEmpty().associate { it.id to it.currency }
         accountCurrencyByAssetId = assets.associate { it.id to (currencyByAccountId[it.accountId] ?: "INR") }
         groupLabels = assets.mapNotNull { it.groupLabel.takeIf { label -> label.isNotBlank() } }.distinct()
+        allTags = assets.flatMap { it.tags }.distinct().sorted()
     }
 
     private fun isBridgeError(json: String): Boolean = json.trimStart().startsWith("{\"error\"")
@@ -328,6 +368,7 @@ class ProgressionActivity : AppCompatActivity() {
 
         val assetId = selectedAssetId
         val groupLabel = selectedGroupLabel
+        val tag = selectedTag
         val memberId = memberIds.getOrElse(selectedMemberIndex) { "" }
         val axisForFetch = ProgressionAxis.entries[selectedAxisIndex.coerceIn(0, ProgressionAxis.entries.size - 1)]
 
@@ -364,6 +405,12 @@ class ProgressionActivity : AppCompatActivity() {
                     // practice (e.g. several Indian "Nifty 50" funds).
                     resolvedAxis = ProgressionAxis.WHOLE_PORTFOLIO
                     resultJson = Bridge.computeGroupProgression(portfolioJson, memberId, groupLabel, today, cachePath)
+                } else if (tag != null) {
+                    // Tag mode: every asset carrying this tag combined -
+                    // see finance.ComputeTagProgression. Same INR-default
+                    // reasoning as group mode above.
+                    resolvedAxis = ProgressionAxis.WHOLE_PORTFOLIO
+                    resultJson = Bridge.computeTagProgression(portfolioJson, memberId, tag, today, cachePath)
                 } else if (assetId != null) {
                     // Fund mode: a single fund is already fully scoped, so the
                     // axis/member pickers don't apply - the currency picker's
@@ -401,7 +448,14 @@ class ProgressionActivity : AppCompatActivity() {
                     // like.
                     try {
                         currentAxis = resolvedAxis
-                        applyLoadedProgression(resultJson, isFundMode = assetId != null, isGroupMode = groupLabel != null, groupLabel = groupLabel)
+                        applyLoadedProgression(
+                            resultJson,
+                            isFundMode = assetId != null,
+                            isGroupMode = groupLabel != null,
+                            groupLabel = groupLabel,
+                            isTagMode = tag != null,
+                            tag = tag
+                        )
                     } catch (e: Exception) {
                         statusText.text = "Could not display progression: ${e.javaClass.simpleName}: ${e.message}"
                     }
@@ -414,7 +468,14 @@ class ProgressionActivity : AppCompatActivity() {
         }
     }
 
-    private fun applyLoadedProgression(resultJson: String, isFundMode: Boolean, isGroupMode: Boolean = false, groupLabel: String? = null) {
+    private fun applyLoadedProgression(
+        resultJson: String,
+        isFundMode: Boolean,
+        isGroupMode: Boolean = false,
+        groupLabel: String? = null,
+        isTagMode: Boolean = false,
+        tag: String? = null
+    ) {
         if (isBridgeError(resultJson)) {
             statusText.text = "Could not compute progression: $resultJson"
             points = emptyList()
@@ -448,6 +509,7 @@ class ProgressionActivity : AppCompatActivity() {
         points = loaded
         statusText.text = when {
             isGroupMode -> "Weekly checkpoints for $groupLabel (combined)"
+            isTagMode -> "Weekly checkpoints for tag: $tag (combined)"
             isFundMode -> "Weekly checkpoints for this fund"
             else -> "Weekly checkpoints"
         }
@@ -574,6 +636,7 @@ class ProgressionActivity : AppCompatActivity() {
     private fun fetchAndSwitchToDailyRange(requestedStartDate: String, requestedEndDate: String) {
         val assetId = selectedAssetId
         val groupLabel = selectedGroupLabel
+        val tag = selectedTag
         val memberId = memberIds.getOrElse(selectedMemberIndex) { "" }
         val axisForFetch = currentAxis
         val (startDate, endDate) = paddedDailyRange(requestedStartDate, requestedEndDate)
@@ -594,6 +657,8 @@ class ProgressionActivity : AppCompatActivity() {
                 val portfolioJson = Bridge.loadPortfolio(portfolioPath)
                 val resultJson = if (groupLabel != null) {
                     Bridge.computeGroupProgressionDailyRange(portfolioJson, memberId, groupLabel, startDate, endDate)
+                } else if (tag != null) {
+                    Bridge.computeTagProgressionDailyRange(portfolioJson, memberId, tag, startDate, endDate)
                 } else if (assetId != null) {
                     Bridge.computeAssetProgressionDailyRange(portfolioJson, assetId, startDate, endDate)
                 } else {
@@ -635,6 +700,7 @@ class ProgressionActivity : AppCompatActivity() {
                         resetZoomButton.visibility = View.VISIBLE
                         statusText.text = when {
                             groupLabel != null -> "Daily detail for $groupLabel (combined)"
+                            tag != null -> "Daily detail for tag: $tag (combined)"
                             assetId != null -> "Daily detail for this fund"
                             else -> "Daily detail"
                         }
@@ -662,6 +728,7 @@ class ProgressionActivity : AppCompatActivity() {
             chart.setPoints(weeklySpine)
             statusText.text = when {
                 selectedGroupLabel != null -> "Weekly checkpoints for ${selectedGroupLabel} (combined)"
+                selectedTag != null -> "Weekly checkpoints for tag: ${selectedTag} (combined)"
                 selectedAssetId != null -> "Weekly checkpoints for this fund"
                 else -> "Weekly checkpoints"
             }
