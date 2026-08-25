@@ -248,6 +248,105 @@ func computeProgressionSeries(
 	return points
 }
 
+// PeriodGain is one rolling-window "how's it doing lately" summary - see
+// ComputePeriodGains' doc comment for exactly what Gain/Percent do (and
+// deliberately don't) include.
+type PeriodGain struct {
+	Label   string  // "Day", "Week", "Month", "Year"
+	Gain    float64 // INR, market-movement only - contributions during the window excluded, see doc comment
+	Percent float64 // Gain / start-of-window Value * 100
+	HasData bool    // false if the portfolio's history doesn't yet reach back to this window's start date
+}
+
+// ComputePeriodGains computes rolling Day (24h) / Week (7d) / Month
+// (30d) / Year (365d) gains for the WHOLE portfolio (always
+// AxisWholePortfolio - a dashboard-level summary, not scoped to any one
+// axis/fund/group/tag) as of today, for a compact "how's it doing
+// lately" strip.
+//
+// Gain is DELIBERATELY net of contributions - money added or withdrawn
+// during the window is excluded, so a fresh SIP or lump-sum investment
+// this week doesn't inflate "gain", and a redemption doesn't look like
+// a loss. Concretely:
+//
+//	Gain = (ValueEnd - ValueStart) - (InvestedEnd - InvestedStart)
+//
+// where (InvestedEnd - InvestedStart) is exactly the net contribution
+// during the window - computeProgressionPoint already tracks Invested
+// this way for the same reason XIRR needs it. Percent is
+// Gain / ValueStart * 100 - the market return on whatever was ALREADY
+// invested at the start of the window, ignoring both the timing and the
+// size of any contribution made during it. This is a simplification of
+// the standard Modified Dietz method (which would time-weight a
+// mid-period contribution by the fraction of the period it was actually
+// invested for) - acceptable here because excluding contributions from
+// the numerator already prevents the one distortion that would matter
+// for a glance-level figure (a same-day lump sum inflating "gain"); a
+// full Modified Dietz treatment would be more precise but isn't worth
+// the added complexity here the way it already IS worth it for the
+// dedicated Progression/XIRR screens, which do this properly per-flow.
+//
+// HasData is false (Gain/Percent are then meaningless zeros, and the
+// caller should show something like "Not enough history yet" rather
+// than a misleading 0.00%) when the portfolio's earliest transaction
+// doesn't reach back to the window's start date - e.g. requesting a
+// Year gain for a portfolio that's only 2 months old.
+func ComputePeriodGains(p *store.Portfolio, memberID string, today time.Time) []PeriodGain {
+	accountByID, assetByID, included, weights := progressionInputs(p, memberID, AxisWholePortfolio)
+	earliestDate := earliestIncludedTransactionDate(p, included)
+
+	windows := []struct {
+		label string
+		days  int
+	}{
+		{"Day", 1},
+		{"Week", 7},
+		{"Month", 30},
+		{"Year", 365},
+	}
+
+	endPoint := computeProgressionPoint(p, accountByID, assetByID, included, weights, today.Format(dateLayout))
+
+	results := make([]PeriodGain, 0, len(windows))
+	for _, w := range windows {
+		startDateStr := today.AddDate(0, 0, -w.days).Format(dateLayout)
+		if earliestDate == "" || startDateStr < earliestDate {
+			results = append(results, PeriodGain{Label: w.label, HasData: false})
+			continue
+		}
+		startPoint := computeProgressionPoint(p, accountByID, assetByID, included, weights, startDateStr)
+		gain := (endPoint.Value - startPoint.Value) - (endPoint.Invested - startPoint.Invested)
+		var percent float64
+		if startPoint.Value != 0 {
+			percent = gain / startPoint.Value * 100
+		}
+		results = append(results, PeriodGain{Label: w.label, Gain: round2(gain), Percent: round2(percent), HasData: true})
+	}
+	return results
+}
+
+// earliestIncludedTransactionDate returns the earliest transaction date
+// among only the assets in `included` (i.e. respecting whatever
+// member/axis scope the caller already resolved), or "" if there are
+// none - used by ComputePeriodGains to tell "genuinely no history that
+// far back yet" apart from "there's history, it just happens to be flat
+// that far back". Deliberately scoped, unlike WeeklyDates' earliest-
+// transaction scan (see its own doc comment), because HasData needs to
+// reflect what THIS caller can actually see, not the whole file's
+// earliest transaction regardless of member/axis scope.
+func earliestIncludedTransactionDate(p *store.Portfolio, included map[string]bool) string {
+	earliest := ""
+	for _, t := range p.Transactions {
+		if !included[t.AssetID] {
+			continue
+		}
+		if earliest == "" || t.Date < earliest {
+			earliest = t.Date
+		}
+	}
+	return earliest
+}
+
 // ComputeGroupProgression computes a weekly (plus today) progression
 // series for every asset sharing the same fund-group label (see
 // store.Asset.GroupLabel's doc comment and GroupHoldingsByLabel) -
