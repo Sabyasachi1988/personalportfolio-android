@@ -1887,3 +1887,27 @@ func ComputeTagProgressionDailyRange(portfolioJSON string, memberID string, tag 
 	}
 	return string(out)
 }
+
+// ComputePeriodGains returns a JSON array of finance.PeriodGain - rolling
+// Day/Week/Month/Year gains for the whole portfolio, net of
+// contributions during each window - see finance.ComputePeriodGains' doc
+// comment for exactly what that means. memberID scopes to one member;
+// empty means the whole family. today is "yyyy-MM-dd".
+func ComputePeriodGains(portfolioJSON string, memberID string, today string) string {
+	var p store.Portfolio
+	if portfolioJSON != "" {
+		if err := json.Unmarshal([]byte(portfolioJSON), &p); err != nil {
+			return fmt.Sprintf(`{"error":%q}`, "invalid portfolio JSON: "+err.Error())
+		}
+	}
+	t, err := time.Parse("2006-01-02", today)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, "invalid today date: "+err.Error())
+	}
+	gains := finance.ComputePeriodGains(&p, memberID, t)
+	out, err := json.Marshal(gains)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+	return string(out)
+}
