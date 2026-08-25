@@ -313,6 +313,80 @@ func groupProgressionInputs(p *store.Portfolio, memberID, groupLabel string) (ma
 	return accountByID, assetByID, included, weights
 }
 
+// ComputeTagProgression computes a weekly (plus today) progression series
+// for every asset carrying the given tag (see store.Asset.Tags' doc
+// comment) - letting someone browse a tag's combined growth story (e.g.
+// every fund tagged "Mid Cap", regardless of AMC or GroupLabel) the same
+// way ComputeGroupProgression does for a GroupLabel. All matching assets
+// are weighted 1.0 (fully summed together) - same "add these up"
+// convention as GroupLabel grouping. Unlike a pie/donut chart, this
+// deliberately does NOT use EffectiveTag/PrimaryTag exclusivity - an
+// asset carrying several tags correctly contributes to each of THEIR
+// progression lines independently; that's not a collision the way it
+// would be for a single pie slice, so nothing here needs to pick a
+// "winning" tag. memberID scopes to one member's assets first (empty =
+// whole family), same convention as ComputeGroupProgression.
+//
+// cache may be nil - see ComputeProgression's doc comment.
+func ComputeTagProgression(p *store.Portfolio, memberID, tag string, today time.Time, cache *ProgressionCache) []ProgressionPoint {
+	accountByID, assetByID, included, weights := tagProgressionInputs(p, memberID, tag)
+	dates := WeeklyDates(p, today)
+	if cache == nil {
+		return computeProgressionSeries(p, accountByID, assetByID, included, weights, dates)
+	}
+	cacheKey := "tag:" + memberID + ":" + tag
+	return computeProgressionSeriesCached(p, accountByID, assetByID, included, weights, dates, cache, cacheKey)
+}
+
+// ComputeTagProgressionDailyRange is ComputeTagProgression's
+// daily-granularity counterpart, bounded to [start, end] - see
+// DailyDatesInRange's doc comment and ComputeAssetProgressionDailyRange's
+// caveat about scope (a zoomed-in window, not full-history browsing).
+func ComputeTagProgressionDailyRange(p *store.Portfolio, memberID, tag string, start, end time.Time) []ProgressionPoint {
+	accountByID, assetByID, included, weights := tagProgressionInputs(p, memberID, tag)
+	dates := DailyDatesInRange(start, end)
+	return computeProgressionSeries(p, accountByID, assetByID, included, weights, dates)
+}
+
+func tagProgressionInputs(p *store.Portfolio, memberID, tag string) (map[string]store.Account, map[string]store.Asset, map[string]bool, map[string]float64) {
+	accountByID := make(map[string]store.Account, len(p.Accounts))
+	for _, a := range p.Accounts {
+		accountByID[a.ID] = a
+	}
+	assetByID := make(map[string]store.Asset, len(p.Assets))
+	for _, a := range p.Assets {
+		assetByID[a.ID] = a
+	}
+
+	included := make(map[string]bool)
+	weights := make(map[string]float64)
+	for _, a := range p.Assets {
+		if !containsTag(a.Tags, tag) {
+			continue
+		}
+		acct, ok := accountByID[a.AccountID]
+		if !ok {
+			continue
+		}
+		if memberID != "" && acct.MemberID != memberID {
+			continue
+		}
+		included[a.ID] = true
+		weights[a.ID] = 1.0
+	}
+
+	return accountByID, assetByID, included, weights
+}
+
+func containsTag(tags []string, tag string) bool {
+	for _, t := range tags {
+		if t == tag {
+			return true
+		}
+	}
+	return false
+}
+
 // ComputeAssetProgression computes a weekly (plus today) progression
 // series for exactly ONE asset (a single fund), letting someone browse
 // a specific holding's own growth story rather than only ever seeing it
