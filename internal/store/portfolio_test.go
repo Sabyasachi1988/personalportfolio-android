@@ -1,8 +1,10 @@
 package store
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -35,6 +37,110 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 	if len(loaded.Transactions) != 1 || loaded.Transactions[0].Units == nil || *loaded.Transactions[0].Units != 5.409 {
 		t.Errorf("transaction units not round-tripped: %+v", loaded.Transactions)
 	}
+}
+
+func TestLoadNormalizesNilTagsToEmptySlice(t *testing.T) {
+	// Simulates a portfolio.json saved before Asset.Tags existed - no
+	// "Tags" key at all for the asset, exactly the scenario Load() must
+	// guard against (see its doc comment: a nil slice re-marshals to
+	// JSON `null`, which is the same Gson-unsafe-allocation crash
+	// GroupLabel/ETMoneyURL already hit once for a missing key).
+	dir := t.TempDir()
+	path := filepath.Join(dir, "portfolio.json")
+	oldFormatJSON := `{"Assets":[{"ID":"as1","AccountID":"a1","Name":"Nippon India Growth Mid Cap Fund","ISIN":"INF204K01E54","Type":"MutualFund"}]}`
+	if err := os.WriteFile(path, []byte(oldFormatJSON), 0644); err != nil {
+		t.Fatalf("writing fixture: %v", err)
+	}
+
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if loaded.Assets[0].Tags == nil {
+		t.Fatalf("Tags is nil after Load, want normalized empty slice")
+	}
+	if len(loaded.Assets[0].Tags) != 0 {
+		t.Errorf("Tags = %v, want empty", loaded.Assets[0].Tags)
+	}
+
+	out, err := json.Marshal(loaded)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	if strings.Contains(string(out), `"Tags":null`) {
+		t.Errorf("marshaled portfolio still contains \"Tags\":null - the exact landmine this normalization exists to prevent: %s", out)
+	}
+}
+
+func TestAssetEffectiveTag(t *testing.T) {
+	cases := []struct {
+		name       string
+		tags       []string
+		primaryTag string
+		want       string
+	}{
+		{"no tags at all", nil, "", ""},
+		{"single tag, no override", []string{"Mid Cap"}, "", "Mid Cap"},
+		{"several tags, no override falls back to first (insertion order)", []string{"Mid Cap", "Growth", "Long Term"}, "", "Mid Cap"},
+		{"override present in tags wins over first", []string{"Mid Cap", "Growth", "Long Term"}, "Growth", "Growth"},
+		{"stale override no longer in tags falls back to first", []string{"Mid Cap", "Growth"}, "Long Term", "Mid Cap"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			a := Asset{Tags: c.tags, PrimaryTag: c.primaryTag}
+			if got := a.EffectiveTag(); got != c.want {
+				t.Errorf("EffectiveTag() = %q, want %q", got, c.want)
+			}
+		})
+	}
+}
+
+func TestSetAssetTagsAndAllTags(t *testing.T) {
+	p := &Portfolio{
+		Assets: []Asset{
+			{ID: "as1", Name: "Nippon India Growth Mid Cap Fund"},
+			{ID: "as2", Name: "HDFC Mid Cap Opportunities Fund"},
+		},
+	}
+
+	p.SetAssetTags("as1", []string{"Mid Cap", "Growth"})
+	p.SetAssetTags("as2", []string{"Mid Cap", "Long Term"})
+
+	if got := p.Assets[0].Tags; len(got) != 2 || got[0] != "Mid Cap" || got[1] != "Growth" {
+		t.Errorf("as1 Tags = %v, want [Mid Cap Growth] in that order", got)
+	}
+
+	allTags := p.AllTags()
+	want := []string{"Growth", "Long Term", "Mid Cap"} // alphabetical, deduped
+	if len(allTags) != len(want) {
+		t.Fatalf("AllTags() = %v, want %v", allTags, want)
+	}
+	for i, tag := range want {
+		if allTags[i] != tag {
+			t.Errorf("AllTags()[%d] = %q, want %q", i, allTags[i], tag)
+		}
+	}
+
+	// Clearing (nil, matching a "select nothing" save from the UI) must
+	// normalize to an empty, non-nil slice - same reasoning as Load().
+	p.SetAssetTags("as1", nil)
+	if p.Assets[0].Tags == nil {
+		t.Errorf("SetAssetTags(nil) left Tags nil, want normalized empty slice")
+	}
+}
+
+func TestSetAssetPrimaryTag(t *testing.T) {
+	p := &Portfolio{Assets: []Asset{{ID: "as1", Tags: []string{"Mid Cap", "Growth"}}}}
+	p.SetAssetPrimaryTag("as1", "Growth")
+	if p.Assets[0].PrimaryTag != "Growth" {
+		t.Errorf("PrimaryTag = %q, want Growth", p.Assets[0].PrimaryTag)
+	}
+	p.SetAssetPrimaryTag("as1", "")
+	if p.Assets[0].PrimaryTag != "" {
+		t.Errorf("PrimaryTag = %q, want cleared to empty", p.Assets[0].PrimaryTag)
+	}
+	// No-op for an unknown asset ID - should not panic or affect anything.
+	p.SetAssetPrimaryTag("nonexistent", "Growth")
 }
 
 func TestLoadMissingFileReturnsEmptyPortfolio(t *testing.T) {
