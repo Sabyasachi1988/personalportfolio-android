@@ -138,6 +138,72 @@ func TestComputeGroupProgression_DifferentMembersNeverSummed(t *testing.T) {
 	}
 }
 
+func TestComputeTagProgression_SumsEveryAssetCarryingTheTag(t *testing.T) {
+	p := &store.Portfolio{
+		Members:  []store.Member{{ID: "m1", Name: "Saby"}},
+		Accounts: []store.Account{{ID: "acc-in", MemberID: "m1", Name: "Nippon India Mutual Fund", Currency: "INR"}},
+		Assets: []store.Asset{
+			{ID: "a-nippon", AccountID: "acc-in", Name: "Nippon India Growth Mid Cap Fund", Tags: []string{"Mid Cap", "Growth"}},
+			{ID: "a-hdfc", AccountID: "acc-in", Name: "HDFC Mid Cap Opportunities Fund", Tags: []string{"Mid Cap"}},
+			{ID: "a-other", AccountID: "acc-in", Name: "Some Large Cap Fund", Tags: []string{"Large Cap"}}, // no "Mid Cap" tag - must be excluded
+		},
+		Transactions: []store.StoredTransaction{
+			{ID: "t1", AccountID: "acc-in", AssetID: "a-nippon", Date: "2024-01-16", Type: store.Purchase, Amount: 10000, Units: units(100)},
+			{ID: "t2", AccountID: "acc-in", AssetID: "a-hdfc", Date: "2024-01-16", Type: store.Purchase, Amount: 5000, Units: units(50)},
+			{ID: "t3", AccountID: "acc-in", AssetID: "a-other", Date: "2024-01-16", Type: store.Purchase, Amount: 99999, Units: units(999)},
+		},
+		Prices: []store.PriceRecord{
+			{AssetID: "a-nippon", Date: "2024-01-22", Price: 110},
+			{AssetID: "a-hdfc", Date: "2024-01-22", Price: 105},
+			{AssetID: "a-other", Date: "2024-01-22", Price: 1},
+		},
+	}
+	today := time.Date(2024, 1, 22, 0, 0, 0, 0, time.UTC)
+
+	points := ComputeTagProgression(p, "", "Mid Cap", today, nil)
+	if len(points) != 1 {
+		t.Fatalf("expected 1 point, got %d", len(points))
+	}
+	pt := points[0]
+	if pt.Invested != 15000 {
+		t.Errorf("Invested = %v, want 15000 (10000+5000 - the two Mid Cap-tagged assets, Large Cap's 99999 excluded)", pt.Invested)
+	}
+	wantValue := 100.0*110 + 50.0*105 // 11000 + 5250
+	if pt.Value != wantValue {
+		t.Errorf("Value = %v, want %v", pt.Value, wantValue)
+	}
+}
+
+func TestComputeTagProgression_AssetWithMultipleTagsContributesToEach(t *testing.T) {
+	// Unlike GroupLabel (exclusive), an asset carrying several tags must
+	// contribute FULLY to each tag's own progression line independently
+	// - see ComputeTagProgression's doc comment on why this is correct,
+	// not a double-count.
+	p := &store.Portfolio{
+		Members:  []store.Member{{ID: "m1", Name: "Saby"}},
+		Accounts: []store.Account{{ID: "acc-in", MemberID: "m1", Name: "Nippon India Mutual Fund", Currency: "INR"}},
+		Assets: []store.Asset{
+			{ID: "a1", AccountID: "acc-in", Name: "Nippon India Growth Mid Cap Fund", Tags: []string{"Mid Cap", "Growth"}},
+		},
+		Transactions: []store.StoredTransaction{
+			{ID: "t1", AccountID: "acc-in", AssetID: "a1", Date: "2024-01-16", Type: store.Purchase, Amount: 10000, Units: units(100)},
+		},
+		Prices: []store.PriceRecord{
+			{AssetID: "a1", Date: "2024-01-22", Price: 110},
+		},
+	}
+	today := time.Date(2024, 1, 22, 0, 0, 0, 0, time.UTC)
+
+	midCapPoints := ComputeTagProgression(p, "", "Mid Cap", today, nil)
+	growthPoints := ComputeTagProgression(p, "", "Growth", today, nil)
+	if len(midCapPoints) != 1 || midCapPoints[0].Invested != 10000 {
+		t.Errorf("Mid Cap progression = %+v, want Invested=10000", midCapPoints)
+	}
+	if len(growthPoints) != 1 || growthPoints[0].Invested != 10000 {
+		t.Errorf("Growth progression = %+v, want Invested=10000 (same asset, full amount, independently)", growthPoints)
+	}
+}
+
 func TestWeeklyDates_BasicRange(t *testing.T) {
 	p := &store.Portfolio{
 		Transactions: []store.StoredTransaction{
