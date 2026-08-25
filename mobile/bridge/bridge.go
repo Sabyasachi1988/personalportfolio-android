@@ -254,6 +254,94 @@ func SetAssetGroupLabel(portfolioJSON string, assetID string, label string) stri
 	return string(out)
 }
 
+// SetAssetTags replaces the full tag list for an asset - see
+// store.Asset.Tags' doc comment and store.Portfolio.SetAssetTags.
+// tagsJSON is a JSON-encoded array of strings, e.g. ["Mid Cap","Growth"]
+// - gomobile bind can't pass a Go/Kotlin string list directly across the
+// bridge (only basic scalar types and strings), so this follows the same
+// JSON-string convention every other non-trivial bridge parameter/return
+// already uses here. An empty tagsJSON clears all tags. Returns the
+// updated portfolio as JSON.
+func SetAssetTags(portfolioJSON string, assetID string, tagsJSON string) string {
+	var p store.Portfolio
+	if portfolioJSON != "" {
+		if err := json.Unmarshal([]byte(portfolioJSON), &p); err != nil {
+			return fmt.Sprintf(`{"error":%q}`, "invalid portfolio JSON: "+err.Error())
+		}
+	}
+	var tags []string
+	if tagsJSON != "" {
+		if err := json.Unmarshal([]byte(tagsJSON), &tags); err != nil {
+			return fmt.Sprintf(`{"error":%q}`, "invalid tags JSON: "+err.Error())
+		}
+	}
+	p.SetAssetTags(assetID, tags)
+	out, err := json.Marshal(p)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+	return string(out)
+}
+
+// SetAssetPrimaryTag records (or clears, if tag is "") the pie-chart
+// exclusivity override for an asset - see store.Asset.PrimaryTag's doc
+// comment. Returns the updated portfolio as JSON.
+func SetAssetPrimaryTag(portfolioJSON string, assetID string, tag string) string {
+	var p store.Portfolio
+	if portfolioJSON != "" {
+		if err := json.Unmarshal([]byte(portfolioJSON), &p); err != nil {
+			return fmt.Sprintf(`{"error":%q}`, "invalid portfolio JSON: "+err.Error())
+		}
+	}
+	p.SetAssetPrimaryTag(assetID, tag)
+	out, err := json.Marshal(p)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+	return string(out)
+}
+
+// ComputeAllTags returns a JSON array of every distinct tag currently
+// used by at least one asset, sorted alphabetically - see
+// store.Portfolio.AllTags. Used to populate a "pick an existing tag"
+// list in the tag-editing UI, so the person isn't forced to retype (and
+// risks mis-spelling into a silently different) a tag they've already
+// used elsewhere.
+func ComputeAllTags(portfolioJSON string) string {
+	var p store.Portfolio
+	if portfolioJSON != "" {
+		if err := json.Unmarshal([]byte(portfolioJSON), &p); err != nil {
+			return fmt.Sprintf(`{"error":%q}`, "invalid portfolio JSON: "+err.Error())
+		}
+	}
+	out, err := json.Marshal(p.AllTags())
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+	return string(out)
+}
+
+// ComputeAllocationByTag takes a JSON-serialized store.Portfolio and
+// returns a JSON array of finance.AllocationSlice, one slice per
+// distinct tag currently in use (plus "Untagged") - see
+// finance.AllocationByTag's doc comment. memberID scopes to one member's
+// holdings; empty means the whole family.
+func ComputeAllocationByTag(portfolioJSON string, memberID string) string {
+	var p store.Portfolio
+	if portfolioJSON != "" {
+		if err := json.Unmarshal([]byte(portfolioJSON), &p); err != nil {
+			return fmt.Sprintf(`{"error":%q}`, "invalid portfolio JSON: "+err.Error())
+		}
+	}
+	holdings := finance.FilterHoldingsByMember(finance.ComputeHoldings(&p), memberID)
+	slices := finance.AllocationByTag(holdings)
+	out, err := json.Marshal(slices)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+	return string(out)
+}
+
 // Ping is the minimal smoke-test function: call this first from Kotlin to
 // confirm the .aar loaded and the JNI bridge works at all, before trying
 // anything that touches real data.
@@ -1743,6 +1831,56 @@ func ComputeGroupProgressionDailyRange(portfolioJSON string, memberID string, gr
 		return fmt.Sprintf(`{"error":%q}`, "invalid end date: "+err.Error())
 	}
 	points := finance.ComputeGroupProgressionDailyRange(&p, memberID, groupLabel, start, end)
+	out, err := json.Marshal(points)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+	return string(out)
+}
+
+// ComputeTagProgression is ComputeProgression's tag counterpart - see
+// finance.ComputeTagProgression's doc comment. tag is one value assigned
+// via SetAssetTags (e.g. "Mid Cap").
+func ComputeTagProgression(portfolioJSON string, memberID string, tag string, today string, cachePath string) string {
+	var p store.Portfolio
+	if portfolioJSON != "" {
+		if err := json.Unmarshal([]byte(portfolioJSON), &p); err != nil {
+			return fmt.Sprintf(`{"error":%q}`, "invalid portfolio JSON: "+err.Error())
+		}
+	}
+	t, err := time.Parse("2006-01-02", today)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, "invalid today date: "+err.Error())
+	}
+	cache := loadProgressionCacheIfRequested(cachePath)
+	points := finance.ComputeTagProgression(&p, memberID, tag, t, cache)
+	saveProgressionCacheIfRequested(cache, cachePath)
+	out, err := json.Marshal(points)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+	return string(out)
+}
+
+// ComputeTagProgressionDailyRange is ComputeTagProgression's
+// daily-granularity counterpart, bounded to [startDate, endDate] - see
+// finance.ComputeTagProgressionDailyRange's doc comment.
+func ComputeTagProgressionDailyRange(portfolioJSON string, memberID string, tag string, startDate string, endDate string) string {
+	var p store.Portfolio
+	if portfolioJSON != "" {
+		if err := json.Unmarshal([]byte(portfolioJSON), &p); err != nil {
+			return fmt.Sprintf(`{"error":%q}`, "invalid portfolio JSON: "+err.Error())
+		}
+	}
+	start, err := time.Parse("2006-01-02", startDate)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, "invalid start date: "+err.Error())
+	}
+	end, err := time.Parse("2006-01-02", endDate)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, "invalid end date: "+err.Error())
+	}
+	points := finance.ComputeTagProgressionDailyRange(&p, memberID, tag, start, end)
 	out, err := json.Marshal(points)
 	if err != nil {
 		return fmt.Sprintf(`{"error":%q}`, err.Error())
