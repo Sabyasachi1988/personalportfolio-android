@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="20dp">
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Manage Tags"
+        android:textSize="20sp"
+        android:textStyle="bold" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:textSize="13sp"
+        android:textColor="@color/colorNeutral"
+        android:text="Give a fund any number of characteristics (e.g. &quot;Mid Cap, Growth, Long Term&quot;), comma-separated - unlike Fund Groups, a fund can carry several tags at once. Progression can show any one tag's combined growth story; the Allocation screen's Tags tab shows every tag as one pie. If a fund's tags would collide in that pie (e.g. it's both Mid Cap and Growth), set a Primary Tag to choose which one wins there - leave it blank to just use whichever tag was entered first." />
+
+    <TextView
+        android:id="@+id/tagsExistingCaption"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
+        android:textSize="12sp"
+        android:textStyle="italic"
+        android:textColor="@color/colorNeutral"
+        android:text="Existing tags: none yet" />
+
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/tagsRecyclerView"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:layout_marginTop="16dp" />
+
+</LinearLayout>
