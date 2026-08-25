@@ -13,7 +13,14 @@ data class AssetSummary(
     @SerializedName("Symbol") val symbol: String = "",
     @SerializedName("Type") val type: String = "",
     @SerializedName("ETMoneyURL") val etMoneyUrl: String = "",
-    @SerializedName("GroupLabel") val groupLabel: String = ""
+    @SerializedName("GroupLabel") val groupLabel: String = "",
+    // Tags/PrimaryTag are always present (never a missing/null key) on
+    // the Go side by the time this reaches Kotlin - see
+    // store.Asset.Tags' doc comment and Load()'s normalization. The `=
+    // emptyList()` default here is a safety net for older cached JSON
+    // only, not something this screen relies on for correctness.
+    @SerializedName("Tags") val tags: List<String> = emptyList(),
+    @SerializedName("PrimaryTag") val primaryTag: String = ""
 )
 
 data class AccountSummary(
