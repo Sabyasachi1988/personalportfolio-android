@@ -71,6 +71,67 @@ type Asset struct {
 	// "non-null" field actually null when its JSON key was missing,
 	// which it was for every asset until one was explicitly labeled).
 	GroupLabel string
+	// Tags is a free-text, MANY-TO-MANY set of characteristics the person
+	// assigns themselves - e.g. a "Nippon India Growth Mid Cap Fund"
+	// might carry ["Mid Cap", "Growth", "Long Term"] all at once. This is
+	// deliberately a separate concept from GroupLabel above: GroupLabel
+	// means "this is the same underlying exposure as that other asset"
+	// (one label, used to consolidate/sum), Tags means "this asset HAS
+	// these characteristics" (many tags, used to slice/filter) - a fund
+	// can belong to at most one GroupLabel bucket but any number of tag
+	// buckets simultaneously. Order matters: it's insertion order (new
+	// tags append to the end, never resorted), which is what
+	// EffectiveTag falls back to when PrimaryTag isn't set - see its own
+	// doc comment. Nil is normalized to an empty (non-nil) slice by
+	// Load() - see PrimaryTag's comment just below for why a genuinely
+	// nil/missing slice here is dangerous, not just untidy.
+	//
+	// Deliberately NOT omitempty - same Gson-unsafe-allocation landmine
+	// as GroupLabel above: a missing "Tags" key would leave a Kotlin
+	// `List<String> = emptyList()` field null instead of applying that
+	// default, and a nil Go slice marshals to JSON `null` (not `[]`)
+	// without omitempty, which is the SAME landmine even with the key
+	// present - hence Load() additionally normalizes nil to []string{}
+	// on every load, so this field is never nil by the time anything
+	// marshals it back out to Kotlin.
+	Tags []string
+	// PrimaryTag optionally overrides which single tag represents this
+	// asset for MUTUALLY EXCLUSIVE groupings (a pie/donut chart, where a
+	// fund can only contribute to exactly one slice) - see EffectiveTag.
+	// Empty means "no override, use the first tag in Tags" - the
+	// common case; this field exists only for the rarer moment two tags
+	// on the same fund would otherwise collide in the same pie chart and
+	// the person wants to deliberately choose which one wins, rather
+	// than relying on insertion order. Progression grouping never uses
+	// this - a fund contributing to several tags' progression lines
+	// simultaneously is correct, not a collision, so only pie/donut-style
+	// views need an exclusive choice at all.
+	//
+	// Deliberately NOT omitempty - same reasoning as GroupLabel/Tags
+	// above.
+	PrimaryTag string
+}
+
+// EffectiveTag resolves the single tag used for mutually-exclusive
+// (pie/donut-style) groupings - see PrimaryTag's doc comment. Resolution
+// order: PrimaryTag if it's set AND still actually present in Tags
+// (guards against a stale override left over after the tag itself was
+// removed), else the first tag in Tags (insertion order), else "" if the
+// asset has no tags at all ("Untagged" is applied by the caller, e.g.
+// AllocationByTag - kept out of this function so it stays a pure
+// resolver over this asset's own data, not a display concern).
+func (a Asset) EffectiveTag() string {
+	if a.PrimaryTag != "" {
+		for _, t := range a.Tags {
+			if t == a.PrimaryTag {
+				return a.PrimaryTag
+			}
+		}
+	}
+	if len(a.Tags) > 0 {
+		return a.Tags[0]
+	}
+	return ""
 }
 
 // StoredTransaction is a confirmed transaction attached to a real
@@ -252,6 +313,20 @@ func Load(path string) (*Portfolio, error) {
 	var p Portfolio
 	if err := json.Unmarshal(data, &p); err != nil {
 		return nil, fmt.Errorf("parsing portfolio file: %w", err)
+	}
+	// A portfolio.json saved before Asset.Tags existed simply has no
+	// "Tags" key at all for any asset, which unmarshals to a nil slice -
+	// and a nil slice marshals right back out as JSON `null`, not `[]`,
+	// which is the exact Gson-unsafe-allocation landmine documented on
+	// Asset.Tags itself. Normalizing here, once, right after every load,
+	// means every OTHER code path in this app (every bridge function
+	// that receives an already-loaded portfolio's JSON and re-marshals
+	// it) never has to think about this again - see LoadPortfolio's
+	// position as the one true entry point for on-disk data.
+	for i := range p.Assets {
+		if p.Assets[i].Tags == nil {
+			p.Assets[i].Tags = []string{}
+		}
 	}
 	return &p, nil
 }
@@ -508,6 +583,60 @@ func (p *Portfolio) SetAssetGroupLabel(assetID, label string) {
 			return
 		}
 	}
+}
+
+// SetAssetTags replaces the full tag list for an asset - see Asset.Tags'
+// doc comment. tags is stored exactly as given, INCLUDING order (the
+// caller, not this method, is responsible for appending new tags to the
+// end rather than reordering - see Asset.Tags on why order matters for
+// EffectiveTag's fallback). A nil tags is normalized to an empty slice,
+// same reasoning as Load(). No-op if the asset ID isn't found.
+func (p *Portfolio) SetAssetTags(assetID string, tags []string) {
+	if tags == nil {
+		tags = []string{}
+	}
+	for i := range p.Assets {
+		if p.Assets[i].ID == assetID {
+			p.Assets[i].Tags = tags
+			return
+		}
+	}
+}
+
+// SetAssetPrimaryTag records (or clears, if tag is "") the pie-chart
+// exclusivity override for an asset - see Asset.PrimaryTag's doc
+// comment. Deliberately does NOT validate that tag is actually present
+// in the asset's current Tags - EffectiveTag already guards against a
+// stale override at read time, so a person can freely reorder/remove
+// tags without this call needing to happen in lockstep. No-op if the
+// asset ID isn't found.
+func (p *Portfolio) SetAssetPrimaryTag(assetID, tag string) {
+	for i := range p.Assets {
+		if p.Assets[i].ID == assetID {
+			p.Assets[i].PrimaryTag = tag
+			return
+		}
+	}
+}
+
+// AllTags returns every distinct tag currently used by at least one
+// asset, sorted alphabetically - used to populate a "pick an existing
+// tag" list so the person isn't forced to retype/re-spell a tag they've
+// already used elsewhere (e.g. "Mid Cap" vs "Midcap" silently becoming
+// two different tags).
+func (p *Portfolio) AllTags() []string {
+	seen := make(map[string]bool)
+	for _, a := range p.Assets {
+		for _, t := range a.Tags {
+			seen[t] = true
+		}
+	}
+	out := make([]string, 0, len(seen))
+	for t := range seen {
+		out = append(out, t)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // GetEquityOriginComposition returns the saved Indian/International
