@@ -484,3 +484,98 @@ func TestComputeProgression_MemberScoping(t *testing.T) {
 		t.Errorf("Invested = %v, want 10000 (m2's Canadian holding must be excluded)", points[0].Invested)
 	}
 }
+
+func TestComputePeriodGains_ExcludesContributionsMadeDuringTheWindow(t *testing.T) {
+	p := &store.Portfolio{
+		Members:  []store.Member{{ID: "m1", Name: "Saby"}},
+		Accounts: []store.Account{{ID: "acc-in", MemberID: "m1", Name: "Nippon India Mutual Fund", Currency: "INR"}},
+		Assets: []store.Asset{
+			{ID: "a1", AccountID: "acc-in", Name: "Nippon India Growth Mid Cap Fund"},
+		},
+		Transactions: []store.StoredTransaction{
+			// Bought long before any window below, so windows that don't
+			// reach back this far still have a well-defined starting Value.
+			{ID: "t1", AccountID: "acc-in", AssetID: "a1", Date: "2023-01-01", Type: store.Purchase, Amount: 10000, Units: units(100)},
+			// A fresh top-up 3 days ago, INSIDE the Week/Month/Year windows
+			// but not the Day window - this is the contribution that must
+			// NOT show up as "gain".
+			{ID: "t2", AccountID: "acc-in", AssetID: "a1", Date: "2024-01-19", Type: store.Purchase, Amount: 5000, Units: units(40)},
+		},
+		Prices: []store.PriceRecord{
+			{AssetID: "a1", Date: "2023-01-01", Price: 100},
+			{AssetID: "a1", Date: "2024-01-18", Price: 110}, // 1 day before "today" below
+			{AssetID: "a1", Date: "2024-01-19", Price: 112},
+			{AssetID: "a1", Date: "2024-01-22", Price: 120}, // "today"
+		},
+	}
+	today := time.Date(2024, 1, 22, 0, 0, 0, 0, time.UTC)
+
+	gains := ComputePeriodGains(p, "", today)
+	byLabel := make(map[string]PeriodGain)
+	for _, g := range gains {
+		byLabel[g.Label] = g
+	}
+
+	day := byLabel["Day"]
+	if !day.HasData {
+		t.Fatalf("Day.HasData = false, want true")
+	}
+	// Day window: 2024-01-21 (no price that day - PriceAsOf carries
+	// forward from 2024-01-19's 112, which is ALSO where t2's 40 units
+	// already landed, since 2024-01-19 is before the window even starts)
+	// to 2024-01-22 (120) - 140 units held throughout the window itself,
+	// pure price movement, nothing to exclude (t2 predates the window).
+	wantDayGain := round2(140 * (120 - 112))
+	if day.Gain != wantDayGain {
+		t.Errorf("Day.Gain = %v, want %v", day.Gain, wantDayGain)
+	}
+
+	week := byLabel["Week"]
+	if !week.HasData {
+		t.Fatalf("Week.HasData = false, want true")
+	}
+	// Week window starts 2024-01-15 (before t2's 2024-01-19 purchase, so
+	// StartValue = 100 units * price as of 2024-01-15, carried forward
+	// from 2023-01-01's 100) to today's EndValue = 140 units * 120.
+	// EndInvested - StartInvested = 5000 (exactly t2) - must be excluded.
+	startValue := 100.0 * 100 // carried-forward price, only 100 units held before t2
+	endValue := 140.0 * 120
+	wantWeekGain := round2((endValue - startValue) - 5000)
+	if week.Gain != wantWeekGain {
+		t.Errorf("Week.Gain = %v, want %v (contribution must be excluded from gain)", week.Gain, wantWeekGain)
+	}
+}
+
+func TestComputePeriodGains_InsufficientHistoryReportsNoData(t *testing.T) {
+	p := &store.Portfolio{
+		Members:  []store.Member{{ID: "m1", Name: "Saby"}},
+		Accounts: []store.Account{{ID: "acc-in", MemberID: "m1", Name: "Nippon India Mutual Fund", Currency: "INR"}},
+		Assets:   []store.Asset{{ID: "a1", AccountID: "acc-in", Name: "Nippon India Growth Mid Cap Fund"}},
+		Transactions: []store.StoredTransaction{
+			// Only 10 days of history - Month (30d) and Year (365d)
+			// windows can't reach back to a real starting point.
+			{ID: "t1", AccountID: "acc-in", AssetID: "a1", Date: "2024-01-12", Type: store.Purchase, Amount: 10000, Units: units(100)},
+		},
+		Prices: []store.PriceRecord{
+			{AssetID: "a1", Date: "2024-01-12", Price: 100},
+			{AssetID: "a1", Date: "2024-01-22", Price: 110},
+		},
+	}
+	today := time.Date(2024, 1, 22, 0, 0, 0, 0, time.UTC)
+
+	gains := ComputePeriodGains(p, "", today)
+	byLabel := make(map[string]PeriodGain)
+	for _, g := range gains {
+		byLabel[g.Label] = g
+	}
+
+	if !byLabel["Week"].HasData {
+		t.Errorf("Week.HasData = false, want true (10 days of history covers a 7-day window)")
+	}
+	if byLabel["Month"].HasData {
+		t.Errorf("Month.HasData = true, want false (only 10 days of history, can't cover a 30-day window)")
+	}
+	if byLabel["Year"].HasData {
+		t.Errorf("Year.HasData = true, want false (only 10 days of history, can't cover a 365-day window)")
+	}
+}
