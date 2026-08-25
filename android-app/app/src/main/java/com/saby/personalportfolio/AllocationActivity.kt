@@ -39,9 +39,19 @@ class AllocationActivity : AppCompatActivity() {
     private lateinit var recyclerViewClass: RecyclerView
     private lateinit var donutChartClass: DonutChartView
 
+    // Section 4: Tags (see store.Asset.Tags' doc comment) - actual only,
+    // no target/drift (not asked for on this axis), and no picker: shows
+    // the COMPLETE breakdown across every tag currently in use at once,
+    // same convention as Equity Origin, rather than a single
+    // caller-chosen tag - see finance.AllocationByTag's doc comment.
+    private lateinit var summaryTags: TextView
+    private lateinit var recyclerViewTags: RecyclerView
+    private lateinit var donutChartTags: DonutChartView
+
     private var lastMarketCapSlices: List<DonutChartView.Slice> = emptyList()
     private var lastOriginSlices: List<DonutChartView.Slice> = emptyList()
     private var lastClassSlices: List<DonutChartView.Slice> = emptyList()
+    private var lastTagSlices: List<DonutChartView.Slice> = emptyList()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -51,6 +61,7 @@ class AllocationActivity : AppCompatActivity() {
         val marketCapPage = inflater.inflate(R.layout.page_allocation_market_cap, null)
         val equityOriginPage = inflater.inflate(R.layout.page_allocation_equity_origin, null)
         val portfolioClassPage = inflater.inflate(R.layout.page_allocation_portfolio_class, null)
+        val tagsPage = inflater.inflate(R.layout.page_allocation_tags, null)
 
         summary = marketCapPage.findViewById(R.id.allocationSummary)
         subCaption = marketCapPage.findViewById(R.id.allocationSubCaption)
@@ -93,18 +104,31 @@ class AllocationActivity : AppCompatActivity() {
             startActivity(Intent(this, PortfolioClassTargetActivity::class.java))
         }
 
+        summaryTags = tagsPage.findViewById(R.id.allocationSummaryTags)
+        recyclerViewTags = tagsPage.findViewById(R.id.allocationRecyclerViewTags)
+        recyclerViewTags.layoutManager = LinearLayoutManager(this, RecyclerView.HORIZONTAL, false)
+        donutChartTags = tagsPage.findViewById(R.id.donutChartTags)
+        donutChartTags.onSliceTapped = { _, _ -> openTagsExpanded() }
+        tagsPage.findViewById<TextView>(R.id.tagsTapHint).setOnClickListener { openTagsExpanded() }
+        tagsPage.findViewById<Button>(R.id.manageTagsFromAllocationButton).setOnClickListener {
+            startActivity(Intent(this, TagsActivity::class.java))
+        }
+        // Deliberately no jump-to-Holdings on this section's slices, same
+        // reasoning as Equity Origin's comment above - HoldingsInSegment
+        // only understands cap-size segment labels today, not tags.
+
         val viewPager = findViewById<ViewPager2>(R.id.allocationViewPager)
-        viewPager.adapter = AllocationPagerAdapter(listOf(marketCapPage, equityOriginPage, portfolioClassPage))
-        // offscreenPageLimit keeps all 3 pages' Views alive simultaneously
+        viewPager.adapter = AllocationPagerAdapter(listOf(marketCapPage, equityOriginPage, portfolioClassPage, tagsPage))
+        // offscreenPageLimit keeps all 4 pages' Views alive simultaneously
         // rather than only the current + immediate neighbor - with just
-        // 3 total pages this is cheap, and it means data bound to a page
+        // 4 total pages this is cheap, and it means data bound to a page
         // that isn't currently visible (e.g. Portfolio Class while
         // showing Market Cap) is never lost or needs re-fetching on swipe.
-        viewPager.offscreenPageLimit = 2
+        viewPager.offscreenPageLimit = 3
 
         val tabLayout = findViewById<TabLayout>(R.id.allocationTabLayout)
-        val tabTitles = listOf("Market Cap", "Equity Origin", "Portfolio Class")
-        val tabIcons = listOf(R.drawable.ic_tab_pie, R.drawable.ic_tab_globe, R.drawable.ic_tab_layers)
+        val tabTitles = listOf("Market Cap", "Equity Origin", "Portfolio Class", "Tags")
+        val tabIcons = listOf(R.drawable.ic_tab_pie, R.drawable.ic_tab_globe, R.drawable.ic_tab_layers, R.drawable.ic_tab_tag)
         TabLayoutMediator(tabLayout, viewPager) { tab, position ->
             tab.text = tabTitles[position]
             tab.setIcon(tabIcons[position])
@@ -126,6 +150,7 @@ class AllocationActivity : AppCompatActivity() {
         loadAndShowMarketCapSection()
         loadAndShowEquityOriginSection()
         loadAndShowPortfolioClassSection()
+        loadAndShowTagsSection()
     }
 
     private fun openMarketCapExpanded() {
@@ -144,6 +169,10 @@ class AllocationActivity : AppCompatActivity() {
             this, "Portfolio Class", lastClassSlices,
             navigationHint = "Tap a segment to view its holdings"
         ) { label -> navigateToHoldingsSegment(label) }
+    }
+
+    private fun openTagsExpanded() {
+        DonutExpansionDialog.show(this, "Tags", lastTagSlices)
     }
 
     private fun navigateToHoldingsSegment(label: String) {
@@ -305,5 +334,43 @@ class AllocationActivity : AppCompatActivity() {
         }
         donutChartClass.setSlices(chartSlices)
         lastClassSlices = chartSlices
+    }
+
+    private fun loadAndShowTagsSection() {
+        val portfolioPath = PortfolioStorage.filePath(this)
+        val portfolioJson = Bridge.loadPortfolio(portfolioPath)
+
+        val allocationJson = Bridge.computeAllocationByTag(portfolioJson, "")
+        val sliceType = object : TypeToken<List<AllocationSlice>>() {}.type
+        val slices: List<AllocationSlice> = try {
+            gson.fromJson(allocationJson, sliceType) ?: emptyList()
+        } catch (e: Exception) {
+            summaryTags.text = "Could not read tags: ${e.message}"
+            recyclerViewTags.adapter = AllocationAdapter(emptyList())
+            donutChartTags.setSlices(emptyList())
+            lastTagSlices = emptyList()
+            return
+        }
+
+        summaryTags.text = if (slices.isEmpty()) {
+            "No allocation data yet — this needs holdings with a current price. Refresh prices from the Holdings screen first."
+        } else if (slices.size == 1 && slices[0].label == "Untagged") {
+            "No funds tagged yet — use \"Manage Tags\" below to get started"
+        } else {
+            "Allocation by tag (funds with no tags fall under \"Untagged\")"
+        }
+
+        // Already in a fixed, canonical order from the Go side (see
+        // finance.sortSlicesCanonically) - re-sorting by percent here would
+        // bring back the exact "reorders itself on every reload" problem
+        // that fix was for, just moved from map-iteration randomness to
+        // percentages naturally drifting between refreshes.
+        val sorted = slices
+        recyclerViewTags.adapter = AllocationAdapter(sorted)
+        val chartSlices = sorted.map {
+            DonutChartView.Slice(it.label, it.percent.toFloat(), CapSegmentColors.forLabel(this, it.label))
+        }
+        donutChartTags.setSlices(chartSlices)
+        lastTagSlices = chartSlices
     }
 }
