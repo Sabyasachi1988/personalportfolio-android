@@ -226,85 +226,106 @@ class ProgressionActivity : AppCompatActivity() {
     }
 
     /**
-     * One combined picker: the 4 whole-portfolio/equity axes, then every
-     * individual fund, then every fund GROUP (if any funds have been
-     * labeled via Settings → Manage Fund Groups), then every TAG (if any
-     * funds have been tagged via Settings → Manage Tags) - so browsing a
-     * single holding's own growth story, a consolidated group's (e.g.
-     * several different-AMC "Nifty 50" funds combined), or a tag's (e.g.
-     * every "Mid Cap"-tagged fund combined, regardless of group) is one
-     * tap away from where you'd naturally look for "what am I viewing",
-     * rather than a separate control competing for the same limited row
-     * width.
+     * Level 1 of a two-level picker: the 4 whole-portfolio/equity axes
+     * stay flat here (small, fixed count, and the most frequent picks -
+     * no reason to add a tap to reach them), followed by one row PER
+     * CATEGORY for the unbounded lists (Specific fund / Fund group /
+     * Tag), each showing a count and only appearing when non-empty.
+     * Tapping a category opens showCategoryPicker for just that list -
+     * see that function's doc comment for why this replaced a single
+     * flat popup mixing all four together. Fund group (Settings →
+     * Manage Fund Groups) and Tag (Settings → Manage Tags) are
+     * different concepts - see store.Asset.GroupLabel and
+     * store.Asset.Tags' doc comments - both surfaced here as their own
+     * categories since neither is a subset of the other.
      */
     private fun showAxisOrFundPicker() {
         val popup = PopupMenu(this, axisTab)
         ProgressionAxis.entries.forEachIndexed { index, axis -> popup.menu.add(0, index, index, axis.label) }
 
-        val fundIdBase = ProgressionAxis.entries.size
+        val fundCategoryId = ProgressionAxis.entries.size
+        val groupCategoryId = fundCategoryId + 1
+        val tagCategoryId = fundCategoryId + 2
+
         if (assets.isNotEmpty()) {
-            val header = popup.menu.add(0, fundIdBase, fundIdBase, "── Specific fund ──")
-            header.isEnabled = false
-            assets.forEachIndexed { i, asset ->
-                val itemId = fundIdBase + 1 + i
-                popup.menu.add(0, itemId, itemId, FundNameFormatter.shorten(asset.name).ifBlank { "(unnamed asset)" })
-            }
+            popup.menu.add(0, fundCategoryId, fundCategoryId, "Specific fund (${assets.size}) ▸")
         }
-
-        val groupIdBase = fundIdBase + 1 + assets.size
         if (groupLabels.isNotEmpty()) {
-            val header = popup.menu.add(0, groupIdBase, groupIdBase, "── Fund group ──")
-            header.isEnabled = false
-            groupLabels.forEachIndexed { i, label ->
-                val itemId = groupIdBase + 1 + i
-                popup.menu.add(0, itemId, itemId, label)
-            }
+            popup.menu.add(0, groupCategoryId, groupCategoryId, "Fund group (${groupLabels.size}) ▸")
         }
-
-        val tagIdBase = groupIdBase + 1 + groupLabels.size
         if (allTags.isNotEmpty()) {
-            val header = popup.menu.add(0, tagIdBase, tagIdBase, "── Tag ──")
-            header.isEnabled = false
-            allTags.forEachIndexed { i, tag ->
-                val itemId = tagIdBase + 1 + i
-                popup.menu.add(0, itemId, itemId, tag)
-            }
+            popup.menu.add(0, tagCategoryId, tagCategoryId, "Tag (${allTags.size}) ▸")
         }
 
         popup.setOnMenuItemClickListener { item ->
-            val id = item.itemId
-            if (id < ProgressionAxis.entries.size) {
-                selectedAssetId = null
-                selectedGroupLabel = null
-                selectedTag = null
-                selectedAxisIndex = id
-                axisTab.text = ProgressionAxis.entries[id].label
-            } else if (id in (fundIdBase + 1) until groupIdBase) {
-                val asset = assets.getOrNull(id - fundIdBase - 1)
-                if (asset != null) {
-                    selectedAssetId = asset.id
-                    selectedGroupLabel = null
-                    selectedTag = null
-                    axisTab.text = FundNameFormatter.shorten(asset.name).ifBlank { "(unnamed asset)" }
-                }
-            } else if (id in (groupIdBase + 1) until tagIdBase) {
-                val label = groupLabels.getOrNull(id - groupIdBase - 1)
-                if (label != null) {
-                    selectedGroupLabel = label
-                    selectedAssetId = null
-                    selectedTag = null
-                    axisTab.text = label
-                }
-            } else if (id > tagIdBase) {
-                val tag = allTags.getOrNull(id - tagIdBase - 1)
-                if (tag != null) {
-                    selectedTag = tag
-                    selectedAssetId = null
-                    selectedGroupLabel = null
-                    axisTab.text = "Tag: $tag"
+            when (val id = item.itemId) {
+                fundCategoryId -> showCategoryPicker(
+                    items = assets.map { FundNameFormatter.shorten(it.name).ifBlank { "(unnamed asset)" } },
+                    onSelected = { i ->
+                        val asset = assets.getOrNull(i)
+                        if (asset != null) {
+                            selectedAssetId = asset.id
+                            selectedGroupLabel = null
+                            selectedTag = null
+                            axisTab.text = FundNameFormatter.shorten(asset.name).ifBlank { "(unnamed asset)" }
+                            loadAndShowProgression()
+                        }
+                    }
+                )
+                groupCategoryId -> showCategoryPicker(
+                    items = groupLabels,
+                    onSelected = { i ->
+                        val label = groupLabels.getOrNull(i)
+                        if (label != null) {
+                            selectedGroupLabel = label
+                            selectedAssetId = null
+                            selectedTag = null
+                            axisTab.text = label
+                            loadAndShowProgression()
+                        }
+                    }
+                )
+                tagCategoryId -> showCategoryPicker(
+                    items = allTags,
+                    onSelected = { i ->
+                        val tag = allTags.getOrNull(i)
+                        if (tag != null) {
+                            selectedTag = tag
+                            selectedAssetId = null
+                            selectedGroupLabel = null
+                            axisTab.text = "Tag: $tag"
+                            loadAndShowProgression()
+                        }
+                    }
+                )
+                else -> {
+                    if (id < ProgressionAxis.entries.size) {
+                        selectedAssetId = null
+                        selectedGroupLabel = null
+                        selectedTag = null
+                        selectedAxisIndex = id
+                        axisTab.text = ProgressionAxis.entries[id].label
+                        loadAndShowProgression()
+                    }
                 }
             }
-            loadAndShowProgression()
+            true
+        }
+        popup.show()
+    }
+
+    /**
+     * Level 2 of the two-level picker (see showAxisOrFundPicker's doc
+     * comment) - a plain popup over just one category's items. Anchored
+     * to axisTab, same as level 1, since level 1's popup is already
+     * dismissed by the time this shows (PopupMenu's own click handling
+     * closes it before onSelected runs).
+     */
+    private fun showCategoryPicker(items: List<String>, onSelected: (index: Int) -> Unit) {
+        val popup = PopupMenu(this, axisTab)
+        items.forEachIndexed { index, label -> popup.menu.add(0, index, index, label) }
+        popup.setOnMenuItemClickListener { item ->
+            onSelected(item.itemId)
             true
         }
         popup.show()
