@@ -146,7 +146,7 @@ class PriceHistoryChartView @JvmOverloads constructor(
         val midPrice = (minPrice + maxPrice) / 2.0
         listOf(maxPrice to chartTop, midPrice to chartTop + chartHeight / 2f, minPrice to chartBottom).forEach { (price, y) ->
             canvas.drawLine(chartLeft, y, chartRight, y, gridlinePaint)
-            canvas.drawText(IndianCurrencyFormatter.format(price, decimals = 2), chartLeft - 12f, y + 8f, axisLabelPaint)
+            canvas.drawText(PricePerUnitFormatter.format(price, decimals = 2), chartLeft - 12f, y + 8f, axisLabelPaint)
         }
 
         // X-axis date labels: start / mid / end of the visible window.
