@@ -46,7 +46,7 @@ class ReturnsActivity : AppCompatActivity() {
 
     private fun loadReturnsTable() {
         val portfolioPath = PortfolioStorage.filePath(this)
-        val portfolioJson = Bridge.loadPortfolio(portfolioPath)
+        val portfolioJson = PortfolioLoadCache.load(portfolioPath)
 
         val resultJson = Bridge.computeReturnsTable(portfolioJson)
         if (isBridgeError(resultJson)) {
