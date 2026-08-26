@@ -1315,7 +1315,188 @@ func UpdateHistoricalPrice(portfolioJSON string, assetID string, symbol string, 
 	return string(out)
 }
 
-// UpdateHistoricalFX fetches daily INR exchange rates for a currency
+// AddBenchmark adds a new tracked market index - see store.Benchmark's
+// doc comment. Returns the updated portfolio JSON.
+func AddBenchmark(portfolioJSON string, name string, yahooTicker string) string {
+	var p store.Portfolio
+	if portfolioJSON != "" {
+		if err := json.Unmarshal([]byte(portfolioJSON), &p); err != nil {
+			return fmt.Sprintf(`{"error":%q}`, "invalid portfolio JSON: "+err.Error())
+		}
+	}
+	if name == "" {
+		return `{"error":"name cannot be empty"}`
+	}
+	if yahooTicker == "" {
+		return `{"error":"yahooTicker cannot be empty"}`
+	}
+	p.AddBenchmark(name, yahooTicker)
+	out, err := json.Marshal(p)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+	return string(out)
+}
+
+// RemoveBenchmark removes a tracked index by ID - see
+// store.Portfolio.RemoveBenchmark. Returns the updated portfolio JSON.
+func RemoveBenchmark(portfolioJSON string, benchmarkID string) string {
+	var p store.Portfolio
+	if portfolioJSON != "" {
+		if err := json.Unmarshal([]byte(portfolioJSON), &p); err != nil {
+			return fmt.Sprintf(`{"error":%q}`, "invalid portfolio JSON: "+err.Error())
+		}
+	}
+	p.RemoveBenchmark(benchmarkID)
+	out, err := json.Marshal(p)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+	return string(out)
+}
+
+// UpdateBenchmarkHistory fetches full historical daily levels for one
+// tracked index via Yahoo Finance (see priceapi.FetchYahooAdjClose's doc
+// comment for the one honesty caveat on this data source, which applies
+// here too) and merges them into the portfolio's cached Prices, keyed by
+// the benchmark's own ID - same "Update History" manual-action pattern
+// as UpdateHistoricalPrice, and see store.Benchmark's doc comment for
+// why this reuses the exact same Prices storage as fund NAV history.
+// Returns the updated portfolio JSON, or a bridge error string if the
+// fetch/parse fails.
+func UpdateBenchmarkHistory(portfolioJSON string, benchmarkID string, since string) string {
+	var p store.Portfolio
+	if portfolioJSON != "" {
+		if err := json.Unmarshal([]byte(portfolioJSON), &p); err != nil {
+			return fmt.Sprintf(`{"error":%q}`, "invalid portfolio JSON: "+err.Error())
+		}
+	}
+	var benchmark *store.Benchmark
+	for i := range p.Benchmarks {
+		if p.Benchmarks[i].ID == benchmarkID {
+			benchmark = &p.Benchmarks[i]
+			break
+		}
+	}
+	if benchmark == nil {
+		return `{"error":"no benchmark with that ID exists"}`
+	}
+
+	points, err := priceapi.FetchYahooAdjClose(benchmark.YahooTicker, since)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+	records := make([]store.PriceRecord, 0, len(points))
+	for _, pt := range points {
+		records = append(records, store.PriceRecord{
+			AssetID: benchmarkID, Date: pt.Date, Price: pt.Price, Source: "YAHOO_HISTORY",
+		})
+	}
+	p.UpsertPrices(records)
+
+	out, err := json.Marshal(p)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+	return string(out)
+}
+
+// ReturnsTableRow is one row of the Returns screen's table - one fund
+// (an actual portfolio holding) or one benchmark index, with its
+// trailing Day/Month figures and full rolling-return distributions for
+// 1/3/5/10 years - see finance.ComputeTrailingReturn and
+// finance.ComputeRollingReturnStats' doc comments for exactly what each
+// figure means.
+type ReturnsTableRow struct {
+	SeriesID    string // an Asset.ID or a Benchmark.ID - pass back to ComputePriceHistory for the tap-to-graph drill-down
+	Name        string
+	IsBenchmark bool
+	Day         finance.TrailingReturn
+	Month       finance.TrailingReturn
+	OneYear     finance.RollingReturnStats
+	ThreeYear   finance.RollingReturnStats
+	FiveYear    finance.RollingReturnStats
+	TenYear     finance.RollingReturnStats
+}
+
+// ComputeReturnsTable builds one ReturnsTableRow per currently-held fund
+// (Type == "MutualFund", the only type with real long-run NAV history
+// via AMFI/TigZig today - see UpdateHistoricalNav) plus one row per
+// tracked Benchmark, for the Returns screen's table. today is
+// "yyyy-MM-dd". Returns a JSON array of ReturnsTableRow, or a bridge
+// error string.
+func ComputeReturnsTable(portfolioJSON string, today string) string {
+	var p store.Portfolio
+	if portfolioJSON != "" {
+		if err := json.Unmarshal([]byte(portfolioJSON), &p); err != nil {
+			return fmt.Sprintf(`{"error":%q}`, "invalid portfolio JSON: "+err.Error())
+		}
+	}
+	t, err := time.Parse("2006-01-02", today)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, "invalid today date: "+err.Error())
+	}
+
+	var rows []ReturnsTableRow
+	for _, a := range p.Assets {
+		if a.Type != "MutualFund" {
+			continue
+		}
+		series := p.PriceSeries(a.ID)
+		if len(series) == 0 {
+			continue // never had a price fetched - nothing to show
+		}
+		rows = append(rows, buildReturnsRow(a.ID, a.Name, false, series, t))
+	}
+	for _, b := range p.Benchmarks {
+		series := p.PriceSeries(b.ID)
+		if len(series) == 0 {
+			continue
+		}
+		rows = append(rows, buildReturnsRow(b.ID, b.Name, true, series, t))
+	}
+
+	out, err := json.Marshal(rows)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+	return string(out)
+}
+
+func buildReturnsRow(seriesID, name string, isBenchmark bool, series []store.PriceRecord, today time.Time) ReturnsTableRow {
+	return ReturnsTableRow{
+		SeriesID:    seriesID,
+		Name:        name,
+		IsBenchmark: isBenchmark,
+		Day:         finance.ComputeTrailingReturn(series, 1, "Day", today),
+		Month:       finance.ComputeTrailingReturn(series, 30, "1 Month", today),
+		OneYear:     finance.ComputeRollingReturnStats(series, 1, "1 Year"),
+		ThreeYear:   finance.ComputeRollingReturnStats(series, 3, "3 Year"),
+		FiveYear:    finance.ComputeRollingReturnStats(series, 5, "5 Year"),
+		TenYear:     finance.ComputeRollingReturnStats(series, 10, "10 Year"),
+	}
+}
+
+// ComputePriceHistory returns the raw historical price series for one
+// fund or benchmark (identified by ReturnsTableRow.SeriesID) as a JSON
+// array of {Date, Price} objects - for the Returns screen's tap-to-graph
+// drill-down. Returns an empty array (not an error) if the series has no
+// data yet.
+func ComputePriceHistory(portfolioJSON string, seriesID string) string {
+	var p store.Portfolio
+	if portfolioJSON != "" {
+		if err := json.Unmarshal([]byte(portfolioJSON), &p); err != nil {
+			return fmt.Sprintf(`{"error":%q}`, "invalid portfolio JSON: "+err.Error())
+		}
+	}
+	series := p.PriceSeries(seriesID)
+	out, err := json.Marshal(series)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+	return string(out)
+}
+
 // from Frankfurter (ECB-sourced, from the given date to today) and
 // merges them into the portfolio's cached FXRates. Manual action, same
 // "Update History" pattern as UpdateHistoricalNav. Returns the updated
