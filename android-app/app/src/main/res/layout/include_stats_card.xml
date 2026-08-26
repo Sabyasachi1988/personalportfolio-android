@@ -44,69 +44,54 @@
             android:textSize="15sp"
             android:textStyle="bold" />
 
-        <!-- Compact rolling Day/Week/Month/Year gain strip - see
-             MainActivity.showPeriodGains' doc comment for exactly what
-             each figure means (net of contributions during the window,
-             not the same thing as statsCardGain's since-inception
-             total above). Default GONE - only Dashboard populates and
-             shows this; Holdings/Progression, which also use this
-             shared card, leave it hidden. -->
+        <!-- Day / 1-Year (rolling) / Calendar-Year (YTD) gain lines,
+             stacked - see MainActivity.showPeriodGains' doc comment for
+             exactly what these mean (net of contributions during each
+             window, not the same thing as statsCardGain's since-
+             inception total above). Rupee amount is the PRIMARY figure
+             here (not percent) - Saby's own preference: a rupee amount
+             is more immediately meaningful at a glance than a bare
+             percent, especially for Day where % alone barely moves.
+             Default GONE - only Dashboard populates and shows this;
+             Holdings/Progression, which also use this shared card,
+             leave it hidden. -->
         <LinearLayout
             android:id="@+id/statsCardPeriodGainsRow"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="10dp"
-            android:orientation="horizontal"
+            android:orientation="vertical"
             android:visibility="gone">
 
             <TextView
                 android:id="@+id/statsCardPeriodGainDay"
-                android:layout_width="0dp"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:gravity="center"
-                android:textSize="12sp"
-                android:textStyle="bold"
-                android:padding="6dp"
-                android:clickable="true"
-                android:focusable="true"
-                android:background="?attr/selectableItemBackground" />
-
-            <TextView
-                android:id="@+id/statsCardPeriodGainWeek"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:gravity="center"
-                android:textSize="12sp"
-                android:textStyle="bold"
-                android:padding="6dp"
-                android:clickable="true"
-                android:focusable="true"
-                android:background="?attr/selectableItemBackground" />
-
-            <TextView
-                android:id="@+id/statsCardPeriodGainMonth"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:gravity="center"
-                android:textSize="12sp"
-                android:textStyle="bold"
-                android:padding="6dp"
+                android:layout_marginTop="4dp"
+                android:textSize="13sp"
+                android:padding="4dp"
                 android:clickable="true"
                 android:focusable="true"
                 android:background="?attr/selectableItemBackground" />
 
             <TextView
                 android:id="@+id/statsCardPeriodGainYear"
-                android:layout_width="0dp"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:gravity="center"
-                android:textSize="12sp"
-                android:textStyle="bold"
-                android:padding="6dp"
+                android:layout_marginTop="4dp"
+                android:textSize="13sp"
+                android:padding="4dp"
+                android:clickable="true"
+                android:focusable="true"
+                android:background="?attr/selectableItemBackground" />
+
+            <TextView
+                android:id="@+id/statsCardPeriodGainCalendarYear"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:textSize="13sp"
+                android:padding="4dp"
                 android:clickable="true"
                 android:focusable="true"
                 android:background="?attr/selectableItemBackground" />
