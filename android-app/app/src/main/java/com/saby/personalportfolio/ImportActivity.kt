@@ -129,7 +129,7 @@ class ImportActivity : AppCompatActivity() {
             try {
                 val portfolioPath = PortfolioStorage.filePath(this)
 
-                val currentPortfolioJson = Bridge.loadPortfolio(portfolioPath)
+                val currentPortfolioJson = PortfolioLoadCache.load(portfolioPath)
                 if (isBridgeError(currentPortfolioJson)) {
                     mainThread.post { failCommit("Failed to load existing portfolio: $currentPortfolioJson") }
                     return@execute
