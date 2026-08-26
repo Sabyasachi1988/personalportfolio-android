@@ -21,6 +21,9 @@ import java.util.concurrent.Executors
 
 class MainActivity : AppCompatActivity() {
 
+    /** The 3 views that make up one period-gain chip (Day/1 Year/Calendar Year) - see bindPeriodGainLine. */
+    private data class PeriodGainChipViews(val container: View, val amount: TextView, val percent: TextView)
+
     private val gson = Gson()
     private val backgroundExecutor = Executors.newSingleThreadExecutor()
     private val mainThread = Handler(Looper.getMainLooper())
@@ -29,9 +32,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var xirrLine: TextView
     private lateinit var holdingsCountLine: TextView
     private lateinit var periodGainsRow: View
-    private lateinit var periodGainDay: TextView
-    private lateinit var periodGainYear: TextView
-    private lateinit var periodGainCalendarYear: TextView
+    private lateinit var periodGainDayChip: PeriodGainChipViews
+    private lateinit var periodGainYearChip: PeriodGainChipViews
+    private lateinit var periodGainCalendarYearChip: PeriodGainChipViews
     private lateinit var donutMarketCap: DonutChartView
     private lateinit var donutLegendMarketCap: DonutLegendView
     private lateinit var donutOrigin: DonutChartView
@@ -60,9 +63,21 @@ class MainActivity : AppCompatActivity() {
         // shared card layout.
         holdingsCountLine.visibility = View.VISIBLE
         periodGainsRow = findViewById(R.id.statsCardPeriodGainsRow)
-        periodGainDay = findViewById(R.id.statsCardPeriodGainDay)
-        periodGainYear = findViewById(R.id.statsCardPeriodGainYear)
-        periodGainCalendarYear = findViewById(R.id.statsCardPeriodGainCalendarYear)
+        periodGainDayChip = PeriodGainChipViews(
+            container = findViewById(R.id.statsCardPeriodGainDayChip),
+            amount = findViewById(R.id.statsCardPeriodGainDayAmount),
+            percent = findViewById(R.id.statsCardPeriodGainDayPercent)
+        )
+        periodGainYearChip = PeriodGainChipViews(
+            container = findViewById(R.id.statsCardPeriodGainYearChip),
+            amount = findViewById(R.id.statsCardPeriodGainYearAmount),
+            percent = findViewById(R.id.statsCardPeriodGainYearPercent)
+        )
+        periodGainCalendarYearChip = PeriodGainChipViews(
+            container = findViewById(R.id.statsCardPeriodGainCalendarYearChip),
+            amount = findViewById(R.id.statsCardPeriodGainCalendarYearAmount),
+            percent = findViewById(R.id.statsCardPeriodGainCalendarYearPercent)
+        )
         periodGainsRow.visibility = View.VISIBLE
         donutMarketCap = findViewById(R.id.dashboardDonutMarketCap)
         donutLegendMarketCap = findViewById(R.id.dashboardDonutLegendMarketCap)
@@ -233,7 +248,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * Populates the Day / 1-Year (rolling) / Calendar Year (YTD) lines
+     * Populates the Day / 1-Year (rolling) / Calendar Year (YTD) chips
      * under the total-value line - see finance.ComputePeriodGains and
      * finance.ComputeCalendarYearGain's doc comments (Go) for exactly
      * what these figures mean: market movement only, NET of any money
@@ -244,9 +259,11 @@ class MainActivity : AppCompatActivity() {
      * and will often disagree in sign, that's expected, not a bug.
      *
      * Rupee amount is shown as the PRIMARY figure (percent alongside,
-     * smaller/secondary) - a rupee amount is more immediately readable
-     * at a glance than a bare percent, especially for Day, where the
-     * percent alone barely moves.
+     * smaller/secondary) - more immediately readable at a glance than a
+     * bare percent, especially for Day, where the percent alone barely
+     * moves. Each chip's own background tints green/red/neutral by its
+     * own gain sign, not just the text - a loss day or a down year reads
+     * as a red chip, not just red text on a plain background.
      */
     private fun showPeriodGains(portfolioJson: String, memberId: String) {
         val today = java.text.SimpleDateFormat("yyyy-MM-dd", Locale.US).format(java.util.Date())
@@ -267,35 +284,46 @@ class MainActivity : AppCompatActivity() {
             null
         }
 
-        bindPeriodGainLine(periodGainDay, "Day", byLabel["Day"])
-        bindPeriodGainLine(periodGainYear, "1 Year", byLabel["Year"])
-        bindPeriodGainLine(periodGainCalendarYear, "This calendar year", calendarYearGain)
+        bindPeriodGainLine(periodGainDayChip, byLabel["Day"])
+        bindPeriodGainLine(periodGainYearChip, byLabel["Year"])
+        bindPeriodGainLine(periodGainCalendarYearChip, calendarYearGain)
     }
 
-    private fun bindPeriodGainLine(view: TextView, displayLabel: String, g: PeriodGain?) {
+    private fun bindPeriodGainLine(chip: PeriodGainChipViews, g: PeriodGain?) {
+        val bgColorRes: Int
+        val textColorRes: Int
         if (g == null || !g.hasData) {
-            view.text = "$displayLabel: not enough history yet"
-            view.setTextColor(androidx.core.content.ContextCompat.getColor(this, R.color.colorNeutral))
-            view.setOnClickListener(null)
-            return
+            bgColorRes = R.color.colorNeutralBg
+            textColorRes = R.color.colorNeutral
+            chip.amount.text = "—"
+            chip.percent.text = "Not enough history"
+            chip.container.setOnClickListener(null)
+        } else {
+            val isGain = g.gain >= 0
+            bgColorRes = if (isGain) R.color.colorGainBg else R.color.colorLossBg
+            textColorRes = if (isGain) R.color.colorGain else R.color.colorLoss
+            // Rounded to the nearest rupee - see IndianCurrencyFormatter's
+            // default decimals, changed app-wide for exactly this reason:
+            // paise-level precision on a summary figure like this adds
+            // visual noise without adding real information.
+            chip.amount.text = IndianCurrencyFormatter.formatSigned(g.gain, decimals = 0)
+            chip.percent.text = String.format(Locale.getDefault(), "%+.1f%%", g.percent)
+            chip.container.setOnClickListener {
+                donutToast?.cancel()
+                val toast = Toast.makeText(
+                    this,
+                    "Market movement only - excludes any money added or withdrawn during this period",
+                    Toast.LENGTH_LONG
+                )
+                donutToast = toast
+                toast.show()
+            }
         }
-        view.text = String.format(
-            Locale.getDefault(), "%s: %s (%+.1f%%)",
-            displayLabel, IndianCurrencyFormatter.formatSigned(g.gain), g.percent
-        )
-        view.setTextColor(
-            androidx.core.content.ContextCompat.getColor(this, if (g.gain >= 0) R.color.colorGain else R.color.colorLoss)
-        )
-        view.setOnClickListener {
-            donutToast?.cancel()
-            val toast = Toast.makeText(
-                this,
-                "Market movement only - excludes any money added or withdrawn during this period",
-                Toast.LENGTH_LONG
-            )
-            donutToast = toast
-            toast.show()
-        }
+        val bgColor = androidx.core.content.ContextCompat.getColor(this, bgColorRes)
+        (chip.container.background?.mutate() as? android.graphics.drawable.GradientDrawable)?.setColor(bgColor)
+        val textColor = androidx.core.content.ContextCompat.getColor(this, textColorRes)
+        chip.amount.setTextColor(textColor)
+        chip.percent.setTextColor(textColor)
     }
 
     private fun setDonut(chart: DonutChartView, legend: DonutLegendView, allocationJson: String) {
