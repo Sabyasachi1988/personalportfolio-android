@@ -35,6 +35,9 @@ class ReturnsActivity : AppCompatActivity() {
         findViewById<View>(R.id.returnsManageBenchmarksButton).setOnClickListener {
             startActivity(Intent(this, BenchmarksActivity::class.java))
         }
+        findViewById<View>(R.id.returnsCompareButton).setOnClickListener {
+            startActivity(Intent(this, ComparisonActivity::class.java))
+        }
     }
 
     override fun onResume() {
@@ -102,6 +105,7 @@ class ReturnsActivity : AppCompatActivity() {
             val intent = Intent(this, ReturnsDetailActivity::class.java)
             intent.putExtra(ReturnsDetailActivity.EXTRA_SERIES_ID, row.seriesId)
             intent.putExtra(ReturnsDetailActivity.EXTRA_NAME, row.name)
+            intent.putExtra(ReturnsDetailActivity.EXTRA_IS_BENCHMARK, row.isBenchmark)
             startActivity(intent)
         }
         cardContainer.removeAllViews()
