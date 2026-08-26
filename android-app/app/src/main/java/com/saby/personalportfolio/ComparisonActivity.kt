@@ -1,8 +1,18 @@
 package com.saby.personalportfolio
 
 import android.app.AlertDialog
+import android.graphics.Typeface
 import android.os.Bundle
+import android.text.Editable
+import android.text.SpannableStringBuilder
+import android.text.TextWatcher
+import android.text.style.ForegroundColorSpan
+import android.text.style.StyleSpan
 import android.view.View
+import android.widget.ArrayAdapter
+import android.widget.EditText
+import android.widget.LinearLayout
+import android.widget.ListView
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
@@ -48,15 +58,31 @@ class ComparisonActivity : AppCompatActivity() {
         lockSwitch.setOnCheckedChangeListener { _, checked -> chart.setLockBaseDate(checked) }
 
         chart.onScrubbed = { date, values ->
-            val displayDate = formatDisplayDate(date)
-            val parts = values.mapNotNull { (series, v) ->
-                if (v == null) null else "${FundNameFormatter.shorten(series.name).ifBlank { series.name }}: " +
-                    String.format(Locale.getDefault(), "%.1f", v)
-            }
-            scrubbedView.text = if (parts.isEmpty()) displayDate else "$displayDate — ${parts.joinToString("   ")}"
+            scrubbedView.text = buildLegendText(date, values)
         }
 
         loadRows()
+    }
+
+    /**
+     * One line per series, each prefixed with a colored "●" matching its
+     * line color on the chart, so which line is which reads at a glance
+     * instead of a single long inline sentence that ran fund names into
+     * each other on longer names / more series - the reported "text at
+     * the top... running into each other" issue.
+     */
+    private fun buildLegendText(date: String, values: List<Pair<OverlaySeries, Double?>>): CharSequence {
+        val builder = SpannableStringBuilder()
+        val dateLine = formatDisplayDate(date) + "\n"
+        builder.append(dateLine, StyleSpan(Typeface.BOLD), 0)
+        values.forEach { (series, v) ->
+            val valueText = if (v == null) "no data yet" else String.format(Locale.getDefault(), "%.1f", v)
+            val line = "●  ${FundNameFormatter.shorten(series.name).ifBlank { series.name }}: $valueText\n"
+            val start = builder.length
+            builder.append(line)
+            builder.setSpan(ForegroundColorSpan(series.color), start, start + 1, 0) // colors just the "●"
+        }
+        return builder
     }
 
     private fun isBridgeError(json: String): Boolean = json.trimStart().startsWith("{\"error\"")
@@ -106,17 +132,59 @@ class ComparisonActivity : AppCompatActivity() {
     }
 
     private fun showPicker() {
-        val labels = rows.map {
-            val prefix = if (it.isBenchmark) "[Index] " else "[Fund] "
-            prefix + FundNameFormatter.shorten(it.name).ifBlank { it.name }
-        }.toTypedArray()
-        val checked = rows.map { selectedSeriesIds.contains(it.seriesId) }.toBooleanArray()
+        val dialogPadding = (20 * resources.displayMetrics.density).toInt()
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dialogPadding, dialogPadding / 2, dialogPadding, 0)
+        }
+        val searchBox = EditText(this).apply {
+            hint = "Search funds/indices"
+        }
+        val listView = ListView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                (360 * resources.displayMetrics.density).toInt()
+            )
+        }
+        container.addView(searchBox)
+        container.addView(listView)
+
+        var visibleRows = rows
+        val adapter = object : ArrayAdapter<ReturnsTableRow>(this, android.R.layout.simple_list_item_multiple_choice, visibleRows) {
+            override fun getView(position: Int, convertView: View?, parent: android.view.ViewGroup): View {
+                val view = super.getView(position, convertView, parent) as android.widget.CheckedTextView
+                val row = getItem(position) ?: return view
+                val prefix = if (row.isBenchmark) "[Index] " else "[Fund] "
+                view.text = prefix + FundNameFormatter.shorten(row.name).ifBlank { row.name }
+                view.isChecked = selectedSeriesIds.contains(row.seriesId)
+                return view
+            }
+        }
+        listView.adapter = adapter
+        // Checked state lives in selectedSeriesIds (keyed by seriesId),
+        // NOT in ListView's own position-based checked-state tracking -
+        // positions shift as the search box filters the list, so
+        // anything keyed by position would silently lose or misapply
+        // selections across a filter change.
+        listView.setOnItemClickListener { _, itemView, position, _ ->
+            val row = adapter.getItem(position) ?: return@setOnItemClickListener
+            if (selectedSeriesIds.contains(row.seriesId)) selectedSeriesIds.remove(row.seriesId) else selectedSeriesIds.add(row.seriesId)
+            (itemView as? android.widget.CheckedTextView)?.isChecked = selectedSeriesIds.contains(row.seriesId)
+        }
+        searchBox.addTextChangedListener(object : TextWatcher {
+            override fun afterTextChanged(s: Editable?) {
+                val query = s?.toString()?.trim()?.lowercase(Locale.getDefault()).orEmpty()
+                visibleRows = if (query.isEmpty()) rows else rows.filter { it.name.lowercase(Locale.getDefault()).contains(query) }
+                adapter.clear()
+                adapter.addAll(visibleRows)
+            }
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+        })
 
         AlertDialog.Builder(this)
             .setTitle("Pick funds/indices to compare")
-            .setMultiChoiceItems(labels, checked) { _, which, isChecked ->
-                if (isChecked) selectedSeriesIds.add(rows[which].seriesId) else selectedSeriesIds.remove(rows[which].seriesId)
-            }
+            .setView(container)
             .setPositiveButton("Done") { _, _ -> loadChart() }
             .setNegativeButton("Cancel", null)
             .show()
