@@ -44,7 +44,7 @@ class UpdateHistoryActivity : AppCompatActivity() {
         backgroundExecutor.execute {
             try {
                 val portfolioPath = PortfolioStorage.filePath(this)
-                var portfolioJson = Bridge.loadPortfolio(portfolioPath)
+                var portfolioJson = PortfolioLoadCache.load(portfolioPath)
                 if (isBridgeError(portfolioJson)) {
                     mainThread.post { fail("Failed to load portfolio: $portfolioJson") }
                     return@execute
