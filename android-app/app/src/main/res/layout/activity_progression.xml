@@ -5,6 +5,50 @@
     android:layout_height="match_parent"
     android:orientation="vertical">
 
+    <!-- Groups Progression together with the new Returns screen (fund
+         and benchmark historical returns table - see ReturnsActivity)
+         under the same bottom-nav "Progress" destination, the same
+         pill-tab pattern Allocation already uses. Deliberately NOT a
+         ViewPager2 like Allocation's - Progression's chart gesture code
+         (pinch-zoom/pan, daily-range refetch) is intricate and recently
+         stabilized, so this just launches ReturnsActivity as its own
+         screen on tap rather than risk restructuring Progression's
+         internals to host it as a swipeable page. "Progression" tapped
+         while already here is a no-op. -->
+    <com.google.android.material.tabs.TabLayout
+        android:id="@+id/progressionSectionTabLayout"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_margin="16dp"
+        android:layout_marginBottom="0dp"
+        android:background="@drawable/tab_bar_background"
+        android:padding="4dp"
+        app:tabBackground="@android:color/transparent"
+        app:tabIndicator="@drawable/tab_indicator_pill"
+        app:tabIndicatorAnimationMode="elastic"
+        app:tabIndicatorFullWidth="true"
+        app:tabIndicatorGravity="stretch"
+        app:tabIndicatorColor="@color/colorPrimary"
+        app:tabRippleColor="@null"
+        app:tabPaddingTop="6dp"
+        app:tabPaddingBottom="6dp"
+        app:tabTextColor="@color/colorNeutral"
+        app:tabSelectedTextColor="@color/colorOnPrimary"
+        app:tabMode="fixed"
+        app:tabGravity="fill">
+
+        <com.google.android.material.tabs.TabItem
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Progression" />
+
+        <com.google.android.material.tabs.TabItem
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Returns" />
+
+    </com.google.android.material.tabs.TabLayout>
+
     <androidx.core.widget.NestedScrollView
         android:layout_width="match_parent"
         android:layout_height="0dp"
