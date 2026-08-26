@@ -1507,6 +1507,180 @@ func ComputePriceHistory(portfolioJSON string, seriesID string) string {
 	return string(out)
 }
 
+// MultiSeriesHistoryItem is one entry of ComputeMultiSeriesHistory's
+// result - one requested series' identity plus its raw price points, for
+// the multi-series overlay comparison chart. Points are the fund/
+// benchmark's raw price levels, NOT pre-normalized to a common base -
+// normalization happens client-side (see OverlayChartView on the
+// Kotlin side), since which base date to normalize against changes
+// dynamically as the person zooms/pans the chart. Sending raw prices
+// once and letting the client re-normalize on every zoom step avoids a
+// bridge round-trip per zoom gesture.
+type MultiSeriesHistoryItem struct {
+	SeriesID    string
+	Name        string
+	IsBenchmark bool
+	Points      []store.PriceRecord
+}
+
+// ComputeMultiSeriesHistory is ComputePriceHistory generalized to several
+// series in one call, for the multi-series overlay comparison chart -
+// avoids N separate bridge round-trips (JSON parse + JNI crossing each)
+// for an N-fund/index comparison. seriesIDsJSON is a JSON array of
+// strings (Asset.IDs and/or Benchmark.IDs). Unknown IDs are silently
+// skipped (produce a zero-point entry) rather than erroring the whole
+// call - one bad/stale ID shouldn't block seeing the others. Returns a
+// JSON array of MultiSeriesHistoryItem, or a bridge error string only
+// for a malformed portfolio or seriesIDsJSON itself.
+func ComputeMultiSeriesHistory(portfolioJSON string, seriesIDsJSON string) string {
+	var p store.Portfolio
+	if portfolioJSON != "" {
+		if err := json.Unmarshal([]byte(portfolioJSON), &p); err != nil {
+			return fmt.Sprintf(`{"error":%q}`, "invalid portfolio JSON: "+err.Error())
+		}
+	}
+	var seriesIDs []string
+	if err := json.Unmarshal([]byte(seriesIDsJSON), &seriesIDs); err != nil {
+		return fmt.Sprintf(`{"error":%q}`, "invalid series id list: "+err.Error())
+	}
+
+	nameAndKind := map[string]struct {
+		name        string
+		isBenchmark bool
+	}{}
+	for _, a := range p.Assets {
+		nameAndKind[a.ID] = struct {
+			name        string
+			isBenchmark bool
+		}{a.Name, false}
+	}
+	for _, b := range p.Benchmarks {
+		nameAndKind[b.ID] = struct {
+			name        string
+			isBenchmark bool
+		}{b.Name, true}
+	}
+
+	items := make([]MultiSeriesHistoryItem, 0, len(seriesIDs))
+	for _, id := range seriesIDs {
+		info := nameAndKind[id]
+		items = append(items, MultiSeriesHistoryItem{
+			SeriesID:    id,
+			Name:        info.name,
+			IsBenchmark: info.isBenchmark,
+			Points:      p.PriceSeries(id),
+		})
+	}
+
+	out, err := json.Marshal(items)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+	return string(out)
+}
+
+// FundMetricsResult is ComputeFundMetrics' JSON shape - the computed
+// finance.FundMetrics plus which benchmark was actually used, so the
+// UI can show "Compared against: Nifty 50 (auto)" and let the person
+// override it. Empty BenchmarkID/BenchmarkName means no benchmark
+// comparison was possible (no default match, e.g. a debt fund, AND
+// none was explicitly requested) - Max Drawdown alone may still have
+// data in that case (see finance.FundMetrics' own doc comment).
+type FundMetricsResult struct {
+	finance.FundMetrics
+	BenchmarkID   string
+	BenchmarkName string
+	AutoSelected  bool // true if BenchmarkID was picked by DefaultBenchmarkTicker, not chosen by the person
+}
+
+// ComputeFundMetrics computes Beta/Information Ratio/Up-Down Capture/Max
+// Drawdown for one fund (seriesID must be an Asset.ID - benchmarks don't
+// get compared against themselves). If benchmarkID is empty, a default
+// benchmark is auto-picked via finance.DefaultBenchmarkTicker matched
+// against the portfolio's own already-added Benchmarks by YahooTicker -
+// if the person hasn't added that ticker yet (see BenchmarksActivity's
+// quick-add chips), no default is available and only Max Drawdown will
+// have data; pass an explicit benchmarkID (from the person manually
+// picking one) to override. Returns a bridge error string only for
+// malformed portfolio JSON or an unrecognized seriesID.
+func ComputeFundMetrics(portfolioJSON string, seriesID string, benchmarkID string) string {
+	var p store.Portfolio
+	if portfolioJSON != "" {
+		if err := json.Unmarshal([]byte(portfolioJSON), &p); err != nil {
+			return fmt.Sprintf(`{"error":%q}`, "invalid portfolio JSON: "+err.Error())
+		}
+	}
+
+	var fundName string
+	found := false
+	for _, a := range p.Assets {
+		if a.ID == seriesID {
+			fundName = a.Name
+			found = true
+			break
+		}
+	}
+	if !found {
+		return fmt.Sprintf(`{"error":%q}`, "unknown seriesID: "+seriesID)
+	}
+	fundSeries := p.PriceSeries(seriesID)
+
+	result := FundMetricsResult{}
+	if dd, ok := finance.ComputeMaxDrawdown(fundSeries); ok {
+		result.MaxDrawdown = dd
+		result.MaxDrawdownHasData = true
+	}
+
+	autoSelected := false
+	if benchmarkID == "" {
+		wantTicker := finance.DefaultBenchmarkTicker(fundName)
+		if wantTicker != "" {
+			for _, b := range p.Benchmarks {
+				if b.YahooTicker == wantTicker {
+					benchmarkID = b.ID
+					autoSelected = true
+					break
+				}
+			}
+		}
+	}
+
+	if benchmarkID != "" {
+		for _, b := range p.Benchmarks {
+			if b.ID == benchmarkID {
+				result.BenchmarkID = b.ID
+				result.BenchmarkName = b.Name
+				result.AutoSelected = autoSelected
+				benchSeries := p.PriceSeries(b.ID)
+				if beta, ok := finance.ComputeBeta(fundSeries, benchSeries); ok {
+					result.Beta = beta
+					result.BetaHasData = true
+				}
+				if ir, ok := finance.ComputeInformationRatio(fundSeries, benchSeries); ok {
+					result.InformationRatio = ir
+					result.InfoRatioHasData = true
+				}
+				up, down, upOK, downOK := finance.ComputeCaptureRatios(fundSeries, benchSeries)
+				if upOK {
+					result.UpCapture = up
+					result.UpCaptureHasData = true
+				}
+				if downOK {
+					result.DownCapture = down
+					result.DownCaptureHasData = true
+				}
+				break
+			}
+		}
+	}
+
+	out, err := json.Marshal(result)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+	return string(out)
+}
+
 // from Frankfurter (ECB-sourced, from the given date to today) and
 // merges them into the portfolio's cached FXRates. Manual action, same
 // "Update History" pattern as UpdateHistoricalNav. Returns the updated
