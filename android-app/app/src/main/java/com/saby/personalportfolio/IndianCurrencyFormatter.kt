@@ -23,7 +23,16 @@ import java.util.Locale
 object IndianCurrencyFormatter {
     private val indiaLocale = Locale("en", "IN")
 
+    // Fixed-length, not proportional to the real amount's digit count -
+    // a mask whose length varied with the actual number (e.g. via
+    // "•".repeat(digits)) would itself leak the portfolio's order of
+    // magnitude (lakhs vs crores) even with every digit hidden. See
+    // IncognitoMode's doc comment for why this lives here rather than
+    // at each of the 15+ call sites.
+    private const val MASK = "₹••••••"
+
     fun format(amount: Double, decimals: Int = 0): String {
+        if (IncognitoMode.isEnabled) return MASK
         val nf = NumberFormat.getNumberInstance(indiaLocale)
         nf.minimumFractionDigits = decimals
         nf.maximumFractionDigits = decimals
@@ -32,6 +41,7 @@ object IndianCurrencyFormatter {
 
     /** Same as [format] but prefixes a "+" for non-negative amounts - for gain/loss lines. */
     fun formatSigned(amount: Double, decimals: Int = 0): String {
+        if (IncognitoMode.isEnabled) return (if (amount >= 0) "+" else "-") + MASK
         val sign = if (amount >= 0) "+" else ""
         return sign + format(amount, decimals)
     }
