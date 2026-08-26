@@ -162,6 +162,26 @@ type FXRate struct {
 	INRPerUnit float64
 }
 
+// Benchmark is a market index (Nifty 50, Sensex, etc.) tracked purely
+// for return comparison - NOT a portfolio holding: it has no
+// transactions, no units, no member ownership, and is never counted in
+// any value/allocation/XIRR calculation. Its historical daily levels are
+// stored in the exact SAME Prices slice as every fund's NAV history,
+// keyed by Benchmark.ID instead of an Asset.ID - PriceRecord.AssetID is
+// just an opaque lookup key (see PriceAsOf's doc comment, which never
+// validates it against a real Asset), so this reuses the existing
+// storage/lookup/binary-search machinery rather than inventing a
+// parallel one for what is, structurally, the same problem: "a series of
+// dated price points for some identifier."
+type Benchmark struct {
+	ID   string
+	Name string // "Nifty 50", "Sensex", etc. - shown to the person
+	// YahooTicker is the Yahoo Finance index ticker (e.g. "^NSEI" for
+	// Nifty 50, "^BSESN" for Sensex) - see priceapi.FetchYahooAdjClose,
+	// the same fetch path already used for ETF/stock price history.
+	YahooTicker string
+}
+
 // PriceRecord is a manually entered or fetched price point for an Asset.
 type PriceRecord struct {
 	AssetID string
@@ -251,6 +271,11 @@ type Portfolio struct {
 	EquityOriginCompositions []EquityOriginComposition
 	PortfolioClassTarget     PortfolioClassTarget
 	FXRates                  []FXRate
+	// Benchmarks is deliberately separate from Assets - see Benchmark's
+	// own doc comment for why (not a holding, never counted in any
+	// portfolio calculation). Nil is normalized to an empty slice by
+	// Load(), same Gson-unsafe-allocation reasoning as Asset.Tags.
+	Benchmarks []Benchmark
 
 	// Lazily-built, per-instance lookup caches for PriceAsOf/FXRateAsOf -
 	// see those methods' doc comments for why they exist (a plain linear
@@ -327,6 +352,9 @@ func Load(path string) (*Portfolio, error) {
 		if p.Assets[i].Tags == nil {
 			p.Assets[i].Tags = []string{}
 		}
+	}
+	if p.Benchmarks == nil {
+		p.Benchmarks = []Benchmark{}
 	}
 	return &p, nil
 }
@@ -453,6 +481,19 @@ func (p *Portfolio) ensurePriceIndex() {
 	}
 	p.priceIndex = index
 	p.priceIndexBuilt = true
+}
+
+// PriceSeries returns every stored price point for one key (an
+// Asset.ID or a Benchmark.ID - see Benchmark's doc comment on why those
+// share the same Prices storage), sorted ascending by date. Reuses the
+// same lazily-built, already-sorted index PriceAsOf relies on, rather
+// than a fresh linear scan+sort per call - same reasoning as PriceAsOf's
+// own doc comment (this is the exact access pattern a rolling-returns
+// computation has: read the WHOLE series once per fund/benchmark, not
+// one date at a time).
+func (p *Portfolio) PriceSeries(seriesID string) []PriceRecord {
+	p.ensurePriceIndex()
+	return p.priceIndex[seriesID]
 }
 
 func (p *Portfolio) ensureFXIndex() {
@@ -614,6 +655,32 @@ func (p *Portfolio) SetAssetPrimaryTag(assetID, tag string) {
 	for i := range p.Assets {
 		if p.Assets[i].ID == assetID {
 			p.Assets[i].PrimaryTag = tag
+			return
+		}
+	}
+}
+
+// AddBenchmark adds a new tracked market index - see Benchmark's doc
+// comment. Deliberately allows duplicate names/tickers (no uniqueness
+// check) - if the person really wants two entries for the same index
+// (e.g. to compare two different data sources), that's their call, not
+// something worth guessing about and blocking.
+func (p *Portfolio) AddBenchmark(name, yahooTicker string) Benchmark {
+	b := Benchmark{ID: NewID("benchmark"), Name: name, YahooTicker: yahooTicker}
+	p.Benchmarks = append(p.Benchmarks, b)
+	return b
+}
+
+// RemoveBenchmark removes a tracked index by ID. Deliberately does NOT
+// remove its price history from Prices (keyed by that same ID) - a
+// re-added benchmark with the same ID would never happen (IDs aren't
+// reused), so the orphaned records are simply inert, not wrong; deleting
+// them isn't worth the extra risk of touching Prices from a path that
+// isn't really about prices. No-op if the ID isn't found.
+func (p *Portfolio) RemoveBenchmark(id string) {
+	for i, b := range p.Benchmarks {
+		if b.ID == id {
+			p.Benchmarks = append(p.Benchmarks[:i], p.Benchmarks[i+1:]...)
 			return
 		}
 	}
