@@ -349,3 +349,48 @@ func TestCapComposition_SetThenGetReturnsLatest(t *testing.T) {
 		t.Errorf("expected exactly 1 stored composition (overwrite, not append), got %d", len(p.CapCompositions))
 	}
 }
+
+func TestAddAndRemoveBenchmark(t *testing.T) {
+	p := &Portfolio{}
+
+	b := p.AddBenchmark("Nifty 50", "^NSEI")
+	if b.ID == "" {
+		t.Fatal("expected a generated ID")
+	}
+	if b.Name != "Nifty 50" || b.YahooTicker != "^NSEI" {
+		t.Errorf("got %+v", b)
+	}
+	if len(p.Benchmarks) != 1 {
+		t.Fatalf("expected 1 benchmark, got %d", len(p.Benchmarks))
+	}
+
+	p.RemoveBenchmark(b.ID)
+	if len(p.Benchmarks) != 0 {
+		t.Errorf("expected 0 benchmarks after remove, got %d", len(p.Benchmarks))
+	}
+
+	// No-op for an unknown ID - should not panic.
+	p.RemoveBenchmark("nonexistent")
+}
+
+func TestPriceSeries_ReturnsSortedRecordsForOneKey(t *testing.T) {
+	p := &Portfolio{
+		Prices: []PriceRecord{
+			{AssetID: "nifty50", Date: "2024-01-20", Price: 200},
+			{AssetID: "as1", Date: "2024-01-15", Price: 100},
+			{AssetID: "nifty50", Date: "2024-01-10", Price: 190},
+		},
+	}
+
+	series := p.PriceSeries("nifty50")
+	if len(series) != 2 {
+		t.Fatalf("expected 2 records for nifty50, got %d", len(series))
+	}
+	if series[0].Date != "2024-01-10" || series[1].Date != "2024-01-20" {
+		t.Errorf("expected ascending date order, got %+v", series)
+	}
+
+	if len(p.PriceSeries("nonexistent")) != 0 {
+		t.Error("expected empty series for an unknown key")
+	}
+}
