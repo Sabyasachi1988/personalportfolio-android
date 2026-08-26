@@ -19,6 +19,17 @@
             android:textSize="20sp"
             android:textStyle="bold" />
 
+        <TextView
+            android:id="@+id/returnsCompareButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="8dp"
+            android:text="Compare"
+            android:textSize="13sp"
+            android:textColor="@color/colorSecondary"
+            android:padding="8dp"
+            android:background="?attr/selectableItemBackgroundBorderless" />
+
         <ImageButton
             android:id="@+id/returnsManageBenchmarksButton"
             android:layout_width="40dp"
