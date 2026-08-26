@@ -24,4 +24,14 @@
         <item name="android:focusable">true</item>
     </style>
 
+    <!-- One "Label      Value" row in the Returns detail screen's Risk
+         &amp; relative performance section - see ReturnsDetailActivity. -->
+    <style name="MetricRow">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_marginTop">10dp</item>
+        <item name="android:textSize">14sp</item>
+        <item name="android:textColor">@color/colorOnSurface</item>
+    </style>
+
 </resources>
