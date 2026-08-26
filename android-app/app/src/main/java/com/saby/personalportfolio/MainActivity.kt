@@ -43,6 +43,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var donutLegendClass: DonutLegendView
     private lateinit var memberSpinner: Spinner
     private lateinit var refreshButton: ImageButton
+    private lateinit var incognitoButton: ImageButton
     private var donutToast: android.widget.Toast? = null
 
     // Index 0 is always "All (family)" (empty memberID); indices 1.. map
@@ -87,6 +88,13 @@ class MainActivity : AppCompatActivity() {
         donutLegendClass = findViewById(R.id.dashboardDonutLegendClass)
         memberSpinner = findViewById(R.id.dashboardMemberSpinner)
         refreshButton = findViewById(R.id.dashboardRefreshButton)
+        incognitoButton = findViewById(R.id.dashboardIncognitoButton)
+        updateIncognitoIcon()
+        incognitoButton.setOnClickListener {
+            IncognitoMode.setEnabled(this, !IncognitoMode.isEnabled)
+            updateIncognitoIcon()
+            loadDashboard()
+        }
         donutMarketCap.onSliceTapped = { label, percent -> showSliceToast(label, percent) }
         donutOrigin.onSliceTapped = { label, percent -> showSliceToast(label, percent) }
         donutClass.onSliceTapped = { label, percent -> showSliceToast(label, percent) }
@@ -324,6 +332,10 @@ class MainActivity : AppCompatActivity() {
         val textColor = androidx.core.content.ContextCompat.getColor(this, textColorRes)
         chip.amount.setTextColor(textColor)
         chip.percent.setTextColor(textColor)
+    }
+
+    private fun updateIncognitoIcon() {
+        incognitoButton.setImageResource(if (IncognitoMode.isEnabled) R.drawable.ic_eye_off else R.drawable.ic_eye)
     }
 
     private fun setDonut(chart: DonutChartView, legend: DonutLegendView, allocationJson: String) {
