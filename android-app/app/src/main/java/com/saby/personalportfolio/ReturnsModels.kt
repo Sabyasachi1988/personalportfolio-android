@@ -61,3 +61,28 @@ data class PortfolioBenchmarksSnapshot(
     @SerializedName("Benchmarks") val benchmarks: List<Benchmark>?,
     @SerializedName("Prices") val prices: List<PricePoint>?
 )
+
+/** Mirrors bridge.FundMetricsResult - Beta/Info Ratio/Capture/Max Drawdown plus which benchmark was used. */
+data class FundMetricsResult(
+    @SerializedName("Beta") val beta: Double,
+    @SerializedName("BetaHasData") val betaHasData: Boolean,
+    @SerializedName("InformationRatio") val informationRatio: Double,
+    @SerializedName("InfoRatioHasData") val infoRatioHasData: Boolean,
+    @SerializedName("UpCapture") val upCapture: Double,
+    @SerializedName("UpCaptureHasData") val upCaptureHasData: Boolean,
+    @SerializedName("DownCapture") val downCapture: Double,
+    @SerializedName("DownCaptureHasData") val downCaptureHasData: Boolean,
+    @SerializedName("MaxDrawdown") val maxDrawdown: Double,
+    @SerializedName("MaxDrawdownHasData") val maxDrawdownHasData: Boolean,
+    @SerializedName("BenchmarkID") val benchmarkId: String?,
+    @SerializedName("BenchmarkName") val benchmarkName: String?,
+    @SerializedName("AutoSelected") val autoSelected: Boolean
+)
+
+/** Mirrors bridge.MultiSeriesHistoryItem - one series' identity plus its raw price points, for the overlay comparison chart. */
+data class MultiSeriesHistoryItem(
+    @SerializedName("SeriesID") val seriesId: String,
+    @SerializedName("Name") val name: String,
+    @SerializedName("IsBenchmark") val isBenchmark: Boolean,
+    @SerializedName("Points") val points: List<PricePoint>?
+)
