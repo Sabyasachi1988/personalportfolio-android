@@ -44,14 +44,17 @@
             android:textSize="15sp"
             android:textStyle="bold" />
 
-        <!-- Day / 1-Year (rolling) / Calendar-Year (YTD) gain lines,
-             stacked - see MainActivity.showPeriodGains' doc comment for
-             exactly what these mean (net of contributions during each
-             window, not the same thing as statsCardGain's since-
-             inception total above). Rupee amount is the PRIMARY figure
-             here (not percent) - Saby's own preference: a rupee amount
-             is more immediately meaningful at a glance than a bare
-             percent, especially for Day where % alone barely moves.
+        <!-- Day / 1-Year (rolling) / Calendar-Year (YTD) gain chips - see
+             MainActivity.showPeriodGains' doc comment for exactly what
+             these mean (net of contributions during each window, not the
+             same thing as statsCardGain's since-inception total above).
+             Rupee amount is the PRIMARY figure (not percent) - a rupee
+             amount is more immediately meaningful at a glance than a
+             bare percent, especially for Day where % alone barely moves.
+             Each chip's background/text color is set at runtime
+             (MainActivity.bindPeriodGainLine) to a green/red/neutral
+             tint depending on that period's own gain sign - so a loss
+             day or a down year reads as a red chip, not just red text.
              Default GONE - only Dashboard populates and shows this;
              Holdings/Progression, which also use this shared card,
              leave it hidden. -->
@@ -60,41 +63,115 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="10dp"
-            android:orientation="vertical"
+            android:orientation="horizontal"
             android:visibility="gone">
 
-            <TextView
-                android:id="@+id/statsCardPeriodGainDay"
-                android:layout_width="match_parent"
+            <LinearLayout
+                android:id="@+id/statsCardPeriodGainDayChip"
+                android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
-                android:textSize="13sp"
-                android:padding="4dp"
+                android:layout_weight="1"
+                android:layout_marginEnd="6dp"
+                android:orientation="vertical"
+                android:gravity="center"
+                android:padding="8dp"
+                android:background="@drawable/bg_period_gain_chip"
                 android:clickable="true"
-                android:focusable="true"
-                android:background="?attr/selectableItemBackground" />
+                android:focusable="true">
 
-            <TextView
-                android:id="@+id/statsCardPeriodGainYear"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
-                android:textSize="13sp"
-                android:padding="4dp"
-                android:clickable="true"
-                android:focusable="true"
-                android:background="?attr/selectableItemBackground" />
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Day"
+                    android:textSize="11sp"
+                    android:textColor="@color/colorNeutral" />
 
-            <TextView
-                android:id="@+id/statsCardPeriodGainCalendarYear"
-                android:layout_width="match_parent"
+                <TextView
+                    android:id="@+id/statsCardPeriodGainDayAmount"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:textSize="13sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/statsCardPeriodGainDayPercent"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textSize="11sp" />
+
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/statsCardPeriodGainYearChip"
+                android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
-                android:textSize="13sp"
-                android:padding="4dp"
+                android:layout_weight="1"
+                android:layout_marginEnd="6dp"
+                android:orientation="vertical"
+                android:gravity="center"
+                android:padding="8dp"
+                android:background="@drawable/bg_period_gain_chip"
                 android:clickable="true"
-                android:focusable="true"
-                android:background="?attr/selectableItemBackground" />
+                android:focusable="true">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="1 year"
+                    android:textSize="11sp"
+                    android:textColor="@color/colorNeutral" />
+
+                <TextView
+                    android:id="@+id/statsCardPeriodGainYearAmount"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:textSize="13sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/statsCardPeriodGainYearPercent"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textSize="11sp" />
+
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/statsCardPeriodGainCalendarYearChip"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:gravity="center"
+                android:padding="8dp"
+                android:background="@drawable/bg_period_gain_chip"
+                android:clickable="true"
+                android:focusable="true">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Calendar year"
+                    android:textSize="11sp"
+                    android:textColor="@color/colorNeutral" />
+
+                <TextView
+                    android:id="@+id/statsCardPeriodGainCalendarYearAmount"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:textSize="13sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/statsCardPeriodGainCalendarYearPercent"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textSize="11sp" />
+
+            </LinearLayout>
 
         </LinearLayout>
 
