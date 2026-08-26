@@ -248,26 +248,68 @@ func computeProgressionSeries(
 	return points
 }
 
-// PeriodGain is one rolling-window "how's it doing lately" summary - see
+// PeriodGain is one window's "how's it doing lately" summary - see
 // ComputePeriodGains' doc comment for exactly what Gain/Percent do (and
-// deliberately don't) include.
+// deliberately don't) include. Used both for the ROLLING windows
+// ComputePeriodGains returns and the single CALENDAR window
+// ComputeCalendarYearGain returns - same methodology either way, only
+// how the start date is chosen differs.
 type PeriodGain struct {
-	Label   string  // "Day", "Week", "Month", "Year"
+	Label   string  // e.g. "Day", "Year", "Calendar Year"
 	Gain    float64 // INR, market-movement only - contributions during the window excluded, see doc comment
 	Percent float64 // Gain / start-of-window Value * 100
 	HasData bool    // false if the portfolio's history doesn't yet reach back to this window's start date
 }
 
-// ComputePeriodGains computes rolling Day (24h) / Week (7d) / Month
-// (30d) / Year (365d) gains for the WHOLE portfolio (always
-// AxisWholePortfolio - a dashboard-level summary, not scoped to any one
-// axis/fund/group/tag) as of today, for a compact "how's it doing
-// lately" strip.
+// ComputePeriodGains computes rolling Day (24h) and Year (365d) gains for
+// the WHOLE portfolio (always AxisWholePortfolio - a dashboard-level
+// summary, not scoped to any one axis/fund/group/tag) as of today, for a
+// compact "how's it doing lately" strip. See periodGainForWindow's doc
+// comment for exactly what Gain/Percent mean and why.
+func ComputePeriodGains(p *store.Portfolio, memberID string, today time.Time) []PeriodGain {
+	accountByID, assetByID, included, weights := progressionInputs(p, memberID, AxisWholePortfolio)
+	earliestDate := earliestIncludedTransactionDate(p, included)
+	endPoint := computeProgressionPoint(p, accountByID, assetByID, included, weights, today.Format(dateLayout))
+
+	windows := []struct {
+		label string
+		days  int
+	}{
+		{"Day", 1},
+		{"Year", 365},
+	}
+
+	results := make([]PeriodGain, 0, len(windows))
+	for _, w := range windows {
+		startDateStr := today.AddDate(0, 0, -w.days).Format(dateLayout)
+		results = append(results, periodGainForWindow(p, accountByID, assetByID, included, weights, earliestDate, w.label, startDateStr, endPoint))
+	}
+	return results
+}
+
+// ComputeCalendarYearGain is ComputePeriodGains' calendar-bound sibling:
+// one PeriodGain (labeled "Calendar Year") from January 1st of today's
+// year through today - i.e. year-to-date, unlike ComputePeriodGains'
+// "Year" entry which is a ROLLING trailing-365-days window. Both use the
+// exact same net-of-contributions methodology - see
+// periodGainForWindow's doc comment.
+func ComputeCalendarYearGain(p *store.Portfolio, memberID string, today time.Time) PeriodGain {
+	accountByID, assetByID, included, weights := progressionInputs(p, memberID, AxisWholePortfolio)
+	earliestDate := earliestIncludedTransactionDate(p, included)
+	endPoint := computeProgressionPoint(p, accountByID, assetByID, included, weights, today.Format(dateLayout))
+
+	jan1 := time.Date(today.Year(), time.January, 1, 0, 0, 0, 0, time.UTC)
+	return periodGainForWindow(p, accountByID, assetByID, included, weights, earliestDate, "Calendar Year", jan1.Format(dateLayout), endPoint)
+}
+
+// periodGainForWindow computes one PeriodGain from startDateStr through
+// endPoint's own date (the caller has already computed endPoint once and
+// reuses it across every window sharing the same "today").
 //
 // Gain is DELIBERATELY net of contributions - money added or withdrawn
 // during the window is excluded, so a fresh SIP or lump-sum investment
-// this week doesn't inflate "gain", and a redemption doesn't look like
-// a loss. Concretely:
+// doesn't inflate "gain", and a redemption doesn't look like a loss.
+// Concretely:
 //
 //	Gain = (ValueEnd - ValueStart) - (InvestedEnd - InvestedStart)
 //
@@ -289,40 +331,30 @@ type PeriodGain struct {
 // HasData is false (Gain/Percent are then meaningless zeros, and the
 // caller should show something like "Not enough history yet" rather
 // than a misleading 0.00%) when the portfolio's earliest transaction
-// doesn't reach back to the window's start date - e.g. requesting a
-// Year gain for a portfolio that's only 2 months old.
-func ComputePeriodGains(p *store.Portfolio, memberID string, today time.Time) []PeriodGain {
-	accountByID, assetByID, included, weights := progressionInputs(p, memberID, AxisWholePortfolio)
-	earliestDate := earliestIncludedTransactionDate(p, included)
-
-	windows := []struct {
-		label string
-		days  int
-	}{
-		{"Day", 1},
-		{"Week", 7},
-		{"Month", 30},
-		{"Year", 365},
+// doesn't reach back to the window's start date - e.g. a Calendar Year
+// figure requested in February for a portfolio opened that same month
+// has no real January 1st baseline to compare against.
+func periodGainForWindow(
+	p *store.Portfolio,
+	accountByID map[string]store.Account,
+	assetByID map[string]store.Asset,
+	included map[string]bool,
+	weights map[string]float64,
+	earliestDate string,
+	label string,
+	startDateStr string,
+	endPoint ProgressionPoint,
+) PeriodGain {
+	if earliestDate == "" || startDateStr < earliestDate {
+		return PeriodGain{Label: label, HasData: false}
 	}
-
-	endPoint := computeProgressionPoint(p, accountByID, assetByID, included, weights, today.Format(dateLayout))
-
-	results := make([]PeriodGain, 0, len(windows))
-	for _, w := range windows {
-		startDateStr := today.AddDate(0, 0, -w.days).Format(dateLayout)
-		if earliestDate == "" || startDateStr < earliestDate {
-			results = append(results, PeriodGain{Label: w.label, HasData: false})
-			continue
-		}
-		startPoint := computeProgressionPoint(p, accountByID, assetByID, included, weights, startDateStr)
-		gain := (endPoint.Value - startPoint.Value) - (endPoint.Invested - startPoint.Invested)
-		var percent float64
-		if startPoint.Value != 0 {
-			percent = gain / startPoint.Value * 100
-		}
-		results = append(results, PeriodGain{Label: w.label, Gain: round2(gain), Percent: round2(percent), HasData: true})
+	startPoint := computeProgressionPoint(p, accountByID, assetByID, included, weights, startDateStr)
+	gain := (endPoint.Value - startPoint.Value) - (endPoint.Invested - startPoint.Invested)
+	var percent float64
+	if startPoint.Value != 0 {
+		percent = gain / startPoint.Value * 100
 	}
-	return results
+	return PeriodGain{Label: label, Gain: round2(gain), Percent: round2(percent), HasData: true}
 }
 
 // earliestIncludedTransactionDate returns the earliest transaction date
