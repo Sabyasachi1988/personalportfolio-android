@@ -65,25 +65,37 @@
             android:layout_width="match_parent"
             android:layout_height="1dp"
             android:layout_marginTop="10dp"
-            android:layout_marginBottom="2dp"
+            android:layout_marginBottom="4dp"
             android:background="@color/colorNeutralBg" />
 
+        <!-- Header row - SAME 3 columns (34dp label / weight-1 / weight-1)
+             as each item_returns_tenure_row below, so "Trailing" and
+             "Rolling" sit directly above their own column instead of one
+             caption floating above the whole block while only the
+             rolling column repeats its own label per row - that mismatch
+             was exactly why the numbers looked unaligned with their
+             labels. -->
         <LinearLayout
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:paddingTop="2dp">
+            android:layout_height="wrap_content">
 
-            <View android:layout_width="44dp" android:layout_height="1dp" />
+            <View android:layout_width="34dp" android:layout_height="1dp" />
             <TextView
                 android:layout_width="0dp"
                 android:layout_weight="1"
                 android:layout_height="wrap_content"
-                android:text="trailing"
+                android:text="Trailing"
                 android:textSize="10sp"
                 android:textColor="@color/colorNeutral"
-                android:gravity="end" />
-            <View android:layout_width="0dp" android:layout_height="1dp" android:layout_weight="1" />
+                android:gravity="center" />
+            <TextView
+                android:layout_width="0dp"
+                android:layout_weight="1"
+                android:layout_height="wrap_content"
+                android:text="Rolling"
+                android:textSize="10sp"
+                android:textColor="@color/colorNeutral"
+                android:gravity="center" />
         </LinearLayout>
 
         <include layout="@layout/item_returns_tenure_row" android:id="@+id/returnsRowOneYear" />
