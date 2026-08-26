@@ -150,11 +150,36 @@ class OverlayChartView @JvmOverloads constructor(
 
     private fun baseIndex(): Int = if (lockBaseDate) lockedBaseIndex.coerceIn(0, unionDates.size - 1) else windowStart
 
-    private fun normalizedAt(seriesIndex: Int, unionIndex: Int): Double? {
-        val basePrice = carried.getOrNull(seriesIndex)?.getOrNull(baseIndex()) ?: return null
+    /**
+     * The price used as "100" for one series. Deliberately NOT just
+     * carried[seriesIndex][baseIndex()] - a series added more recently
+     * than another (e.g. a benchmark quick-added last week, compared
+     * against a fund held since 2013) has no data at all near the
+     * WHOLE-selection's earliest date, so pinning every series' base to
+     * the exact same literal index left that series with a permanently
+     * null base price and NO LINE EVER DRAWN, for its entire history -
+     * a real, confirmed bug (reported as "5 picked, only 3 lines show").
+     * Instead, each series bases off its own FIRST available price at
+     * or after the nominal base date - so a shorter-history series
+     * simply starts its line (at 100) from wherever its own data
+     * begins, which is the standard, expected behavior for this kind of
+     * comparison chart when series don't share a common start date.
+     */
+    private fun basePriceFor(seriesIndex: Int): Double? {
+        val arr = carried.getOrNull(seriesIndex) ?: return null
+        val base = baseIndex()
+        for (i in base until arr.size) {
+            val v = arr[i]
+            if (v != null) return v
+        }
+        return null
+    }
+
+    private fun normalizedAt(seriesIndex: Int, unionIndex: Int, basePrice: Double?): Double? {
+        val bp = basePrice ?: return null
         val price = carried.getOrNull(seriesIndex)?.getOrNull(unionIndex) ?: return null
-        if (basePrice <= 0.0) return null
-        return price / basePrice * 100.0
+        if (bp <= 0.0) return null
+        return price / bp * 100.0
     }
 
     private fun isZoomed(): Boolean = unionDates.isNotEmpty() && (windowEnd - windowStart + 1) < unionDates.size
@@ -162,6 +187,11 @@ class OverlayChartView @JvmOverloads constructor(
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         if (unionDates.isEmpty() || windowEnd - windowStart < 1 || series.isEmpty()) return
+
+        // Computed ONCE per draw (not per point) - basePriceFor does a
+        // forward scan, so calling it per-point-per-series would be
+        // needlessly repeated work across the whole visible window.
+        val basePrices = series.indices.map { basePriceFor(it) }
 
         val w = width.toFloat()
         val h = height.toFloat()
@@ -181,7 +211,7 @@ class OverlayChartView @JvmOverloads constructor(
         var maxVal = -Double.MAX_VALUE
         for (s in series.indices) {
             for (i in windowStart..windowEnd) {
-                val v = normalizedAt(s, i) ?: continue
+                val v = normalizedAt(s, i, basePrices[s]) ?: continue
                 if (v < minVal) minVal = v
                 if (v > maxVal) maxVal = v
             }
@@ -234,7 +264,7 @@ class OverlayChartView @JvmOverloads constructor(
             linePath.reset()
             var started = false
             for (i in windowStart..windowEnd) {
-                val v = normalizedAt(s, i)
+                val v = normalizedAt(s, i, basePrices[s])
                 if (v == null) {
                     started = false
                     continue
@@ -265,7 +295,8 @@ class OverlayChartView @JvmOverloads constructor(
 
     private fun fireScrubCallback() {
         if (scrubbedIndex !in unionDates.indices) return
-        val values = series.mapIndexed { s, sr -> sr to normalizedAt(s, scrubbedIndex) }
+        val basePrices = series.indices.map { basePriceFor(it) }
+        val values = series.mapIndexed { s, sr -> sr to normalizedAt(s, scrubbedIndex, basePrices[s]) }
         onScrubbed?.invoke(unionDates[scrubbedIndex], values)
     }
 
