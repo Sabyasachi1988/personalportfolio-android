@@ -81,6 +81,9 @@
             android:name=".ReturnsDetailActivity"
             android:exported="false" />
         <activity
+            android:name=".ComparisonActivity"
+            android:exported="false" />
+        <activity
             android:name=".FixAssetSymbolActivity"
             android:exported="false" />
     </application>
