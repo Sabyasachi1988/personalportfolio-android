@@ -19,6 +19,14 @@
     <color name="colorNeutral">#757575</color>
     <color name="colorAmber">#F9A825</color>
 
+    <!-- Pale tint backgrounds for the Dashboard's period-gain chips
+         (Day/1 Year/Calendar Year) - a wash of the corresponding
+         gain/loss/neutral color, not the solid hue, so colored text sits
+         on top of it legibly rather than needing white-on-color. -->
+    <color name="colorGainBg">#E4F2E5</color>
+    <color name="colorLossBg">#FBE8E8</color>
+    <color name="colorNeutralBg">#EDEDED</color>
+
     <!-- Dedicated Invested-line color for the Portfolio Progression
          chart - deliberately NOT colorSecondary (teal #00897B), which
          sits close enough to colorGain (green #2E7D32) in hue that the
