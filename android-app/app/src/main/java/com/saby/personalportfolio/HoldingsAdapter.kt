@@ -83,16 +83,29 @@ class HoldingsAdapter(private val holdings: List<Holding>) :
             val xirrPart = if (h.hasXirr) String.format(Locale.getDefault(), " · XIRR %.1f%%", h.xirr) else ""
             rowHolder.secondaryLine.text = String.format(
                 Locale.getDefault(),
-                "%.3f units · Invested %s%s",
-                h.unitsHeld, IndianCurrencyFormatter.format(h.netInvested, decimals = 0), xirrPart
+                "%s units · Invested %s%s",
+                unitsDisplay(h.unitsHeld), IndianCurrencyFormatter.format(h.netInvested, decimals = 0), xirrPart
             )
         } else {
             rowHolder.currentValue.text = "Price not available"
             rowHolder.gainBadge.text = ""
             rowHolder.secondaryLine.text = String.format(
-                Locale.getDefault(), "%.3f units · Invested %s", h.unitsHeld, IndianCurrencyFormatter.format(h.netInvested, decimals = 0)
+                Locale.getDefault(), "%s units · Invested %s", unitsDisplay(h.unitsHeld), IndianCurrencyFormatter.format(h.netInvested, decimals = 0)
             )
         }
+    }
+
+    // Units held combined with a fund/stock's publicly-known price
+    // directly reveals its rupee value - see IncognitoMode's doc
+    // comment on why rupee amounts are masked; a raw unit count sitting
+    // right next to a masked amount would defeat that entirely, since
+    // anyone can look up a fund's NAV or a stock's price themselves. A
+    // FIXED placeholder, not one sized to the real digit count, for the
+    // same "don't let the mask's own shape leak information" reasoning
+    // as IndianCurrencyFormatter's MASK.
+    private fun unitsDisplay(units: Double): String {
+        if (IncognitoMode.isEnabled) return "•••"
+        return String.format(Locale.getDefault(), "%.3f", units)
     }
 
     override fun getItemCount(): Int = holdings.size + if (hasHeader) 1 else 0
