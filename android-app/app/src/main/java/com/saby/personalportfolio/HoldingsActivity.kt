@@ -163,7 +163,7 @@ class HoldingsActivity : AppCompatActivity() {
 
     private fun loadMemberSpinner() {
         val portfolioPath = PortfolioStorage.filePath(this)
-        val portfolioJson = Bridge.loadPortfolio(portfolioPath)
+        val portfolioJson = PortfolioLoadCache.load(portfolioPath)
         val membersJson = Bridge.listMembers(portfolioJson)
 
         val memberType = object : TypeToken<List<Member>>() {}.type
@@ -209,7 +209,7 @@ class HoldingsActivity : AppCompatActivity() {
 
     private fun loadAndShowHoldings(memberId: String) {
         val portfolioPath = PortfolioStorage.filePath(this)
-        val portfolioJson = Bridge.loadPortfolio(portfolioPath)
+        val portfolioJson = PortfolioLoadCache.load(portfolioPath)
         val filter = segmentFilter
         val holdingsJson = if (filter != null) {
             Bridge.computeHoldingsInSegment(portfolioJson, memberId, filter)
@@ -371,7 +371,7 @@ class HoldingsActivity : AppCompatActivity() {
             try {
                 val portfolioPath = PortfolioStorage.filePath(this)
 
-                val currentPortfolioJson = Bridge.loadPortfolio(portfolioPath)
+                val currentPortfolioJson = PortfolioLoadCache.load(portfolioPath)
                 if (isBridgeError(currentPortfolioJson)) {
                     mainThread.post { failRefresh("Failed to load portfolio: $currentPortfolioJson") }
                     return@execute
