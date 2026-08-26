@@ -29,7 +29,7 @@ class EquityOriginCompositionActivity : AppCompatActivity() {
         recyclerView.layoutManager = LinearLayoutManager(this)
 
         val portfolioPath = PortfolioStorage.filePath(this)
-        val portfolioJson = Bridge.loadPortfolio(portfolioPath)
+        val portfolioJson = PortfolioLoadCache.load(portfolioPath)
 
         val snapshot: PortfolioEquityOriginSnapshot = try {
             gson.fromJson(portfolioJson, PortfolioEquityOriginSnapshot::class.java)
@@ -63,7 +63,7 @@ class EquityOriginCompositionActivity : AppCompatActivity() {
                 // Reload fresh each time, same reasoning as
                 // CapCompositionActivity - avoids one save clobbering
                 // another's earlier write within the same screen session.
-                val currentPortfolioJson = Bridge.loadPortfolio(portfolioPath)
+                val currentPortfolioJson = PortfolioLoadCache.load(portfolioPath)
                 if (isBridgeError(currentPortfolioJson)) {
                     mainThread.post { failSave(rowHolder, "Failed to load portfolio: $currentPortfolioJson") }
                     return@execute
