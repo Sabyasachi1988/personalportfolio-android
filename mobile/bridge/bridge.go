@@ -1402,39 +1402,45 @@ func UpdateBenchmarkHistory(portfolioJSON string, benchmarkID string, since stri
 }
 
 // ReturnsTableRow is one row of the Returns screen's table - one fund
-// (an actual portfolio holding) or one benchmark index, with its
-// trailing Day/Month figures and full rolling-return distributions for
-// 1/3/5/10 years - see finance.ComputeTrailingReturn and
-// finance.ComputeRollingReturnStats' doc comments for exactly what each
-// figure means.
+// (an actual portfolio holding) or one benchmark index. Day and Month
+// are trailing-only (see finance.TrailingReturn's doc comment on why a
+// rolling distribution of sub-year windows wouldn't mean much); each of
+// 1/3/5/10 Year carries BOTH a trailing figure (finance.
+// ComputeTrailingReturnForYears - "what actually happened over the most
+// recent N years") and a rolling distribution (finance.
+// ComputeRollingReturnStats - "what a random N-year window has
+// historically looked like") side by side, so the two different
+// questions those numbers answer are both visible at once.
 type ReturnsTableRow struct {
-	SeriesID    string // an Asset.ID or a Benchmark.ID - pass back to ComputePriceHistory for the tap-to-graph drill-down
-	Name        string
-	IsBenchmark bool
-	Day         finance.TrailingReturn
-	Month       finance.TrailingReturn
-	OneYear     finance.RollingReturnStats
-	ThreeYear   finance.RollingReturnStats
-	FiveYear    finance.RollingReturnStats
-	TenYear     finance.RollingReturnStats
+	SeriesID          string // an Asset.ID or a Benchmark.ID - pass back to ComputePriceHistory for the tap-to-graph drill-down
+	Name              string
+	IsBenchmark       bool
+	Day               finance.TrailingReturn
+	Month             finance.TrailingReturn
+	OneYearTrailing   finance.TrailingReturn
+	OneYearRolling    finance.RollingReturnStats
+	ThreeYearTrailing finance.TrailingReturn
+	ThreeYearRolling  finance.RollingReturnStats
+	FiveYearTrailing  finance.TrailingReturn
+	FiveYearRolling   finance.RollingReturnStats
+	TenYearTrailing   finance.TrailingReturn
+	TenYearRolling    finance.RollingReturnStats
 }
 
 // ComputeReturnsTable builds one ReturnsTableRow per currently-held fund
 // (Type == "MutualFund", the only type with real long-run NAV history
 // via AMFI/TigZig today - see UpdateHistoricalNav) plus one row per
-// tracked Benchmark, for the Returns screen's table. today is
-// "yyyy-MM-dd". Returns a JSON array of ReturnsTableRow, or a bridge
-// error string.
-func ComputeReturnsTable(portfolioJSON string, today string) string {
+// tracked Benchmark, for the Returns screen's table. Every figure is
+// anchored to each series' own latest actual data point, never literal
+// calendar "today" - see finance.ComputeTrailingReturn's doc comment -
+// so this no longer needs a `today` parameter at all. Returns a JSON
+// array of ReturnsTableRow, or a bridge error string.
+func ComputeReturnsTable(portfolioJSON string) string {
 	var p store.Portfolio
 	if portfolioJSON != "" {
 		if err := json.Unmarshal([]byte(portfolioJSON), &p); err != nil {
 			return fmt.Sprintf(`{"error":%q}`, "invalid portfolio JSON: "+err.Error())
 		}
-	}
-	t, err := time.Parse("2006-01-02", today)
-	if err != nil {
-		return fmt.Sprintf(`{"error":%q}`, "invalid today date: "+err.Error())
 	}
 
 	var rows []ReturnsTableRow
@@ -1446,14 +1452,14 @@ func ComputeReturnsTable(portfolioJSON string, today string) string {
 		if len(series) == 0 {
 			continue // never had a price fetched - nothing to show
 		}
-		rows = append(rows, buildReturnsRow(a.ID, a.Name, false, series, t))
+		rows = append(rows, buildReturnsRow(a.ID, a.Name, false, series))
 	}
 	for _, b := range p.Benchmarks {
 		series := p.PriceSeries(b.ID)
 		if len(series) == 0 {
 			continue
 		}
-		rows = append(rows, buildReturnsRow(b.ID, b.Name, true, series, t))
+		rows = append(rows, buildReturnsRow(b.ID, b.Name, true, series))
 	}
 
 	out, err := json.Marshal(rows)
@@ -1463,17 +1469,21 @@ func ComputeReturnsTable(portfolioJSON string, today string) string {
 	return string(out)
 }
 
-func buildReturnsRow(seriesID, name string, isBenchmark bool, series []store.PriceRecord, today time.Time) ReturnsTableRow {
+func buildReturnsRow(seriesID, name string, isBenchmark bool, series []store.PriceRecord) ReturnsTableRow {
 	return ReturnsTableRow{
-		SeriesID:    seriesID,
-		Name:        name,
-		IsBenchmark: isBenchmark,
-		Day:         finance.ComputeTrailingReturn(series, 1, "Day", today),
-		Month:       finance.ComputeTrailingReturn(series, 30, "1 Month", today),
-		OneYear:     finance.ComputeRollingReturnStats(series, 1, "1 Year"),
-		ThreeYear:   finance.ComputeRollingReturnStats(series, 3, "3 Year"),
-		FiveYear:    finance.ComputeRollingReturnStats(series, 5, "5 Year"),
-		TenYear:     finance.ComputeRollingReturnStats(series, 10, "10 Year"),
+		SeriesID:          seriesID,
+		Name:              name,
+		IsBenchmark:       isBenchmark,
+		Day:               finance.ComputeTrailingReturn(series, 1, "Day"),
+		Month:             finance.ComputeTrailingReturn(series, 30, "1 Month"),
+		OneYearTrailing:   finance.ComputeTrailingReturnForYears(series, 1, "1 Year"),
+		OneYearRolling:    finance.ComputeRollingReturnStats(series, 1, "1 Year"),
+		ThreeYearTrailing: finance.ComputeTrailingReturnForYears(series, 3, "3 Year"),
+		ThreeYearRolling:  finance.ComputeRollingReturnStats(series, 3, "3 Year"),
+		FiveYearTrailing:  finance.ComputeTrailingReturnForYears(series, 5, "5 Year"),
+		FiveYearRolling:   finance.ComputeRollingReturnStats(series, 5, "5 Year"),
+		TenYearTrailing:   finance.ComputeTrailingReturnForYears(series, 10, "10 Year"),
+		TenYearRolling:    finance.ComputeRollingReturnStats(series, 10, "10 Year"),
 	}
 }
 
