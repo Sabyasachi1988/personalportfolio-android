@@ -11,6 +11,7 @@ class PersonalPortfolioApp : Application() {
     override fun onCreate() {
         super.onCreate()
         ThemePreference.applySavedMode(this)
+        IncognitoMode.loadSaved(this)
 
         // ProcessLifecycleOwner fires ON_STOP when EVERY activity in the
         // app has left the foreground (not just one screen rotating or
