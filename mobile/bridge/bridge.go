@@ -1911,3 +1911,28 @@ func ComputePeriodGains(portfolioJSON string, memberID string, today string) str
 	}
 	return string(out)
 }
+
+// ComputeCalendarYearGain returns a JSON-encoded finance.PeriodGain
+// (single object, not an array) for the year-to-date window - January
+// 1st of today's year through today - net of contributions, same
+// methodology as ComputePeriodGains - see
+// finance.ComputeCalendarYearGain's doc comment. memberID scopes to one
+// member; empty means the whole family. today is "yyyy-MM-dd".
+func ComputeCalendarYearGain(portfolioJSON string, memberID string, today string) string {
+	var p store.Portfolio
+	if portfolioJSON != "" {
+		if err := json.Unmarshal([]byte(portfolioJSON), &p); err != nil {
+			return fmt.Sprintf(`{"error":%q}`, "invalid portfolio JSON: "+err.Error())
+		}
+	}
+	t, err := time.Parse("2006-01-02", today)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, "invalid today date: "+err.Error())
+	}
+	gain := finance.ComputeCalendarYearGain(&p, memberID, t)
+	out, err := json.Marshal(gain)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+	return string(out)
+}
