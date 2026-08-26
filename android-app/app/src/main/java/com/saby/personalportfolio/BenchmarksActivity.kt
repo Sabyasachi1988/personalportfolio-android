@@ -61,7 +61,7 @@ class BenchmarksActivity : AppCompatActivity() {
 
     private fun reload() {
         val portfolioPath = PortfolioStorage.filePath(this)
-        val portfolioJson = Bridge.loadPortfolio(portfolioPath)
+        val portfolioJson = PortfolioLoadCache.load(portfolioPath)
         val snapshot: PortfolioBenchmarksSnapshot = try {
             gson.fromJson(portfolioJson, PortfolioBenchmarksSnapshot::class.java)
         } catch (e: Exception) {
@@ -96,7 +96,7 @@ class BenchmarksActivity : AppCompatActivity() {
 
     private fun addBenchmark(name: String, ticker: String) {
         val portfolioPath = PortfolioStorage.filePath(this)
-        val portfolioJson = Bridge.loadPortfolio(portfolioPath)
+        val portfolioJson = PortfolioLoadCache.load(portfolioPath)
         val afterAdd = Bridge.addBenchmark(portfolioJson, name, ticker)
         if (isBridgeError(afterAdd)) {
             Toast.makeText(this, "Failed to add: $afterAdd", Toast.LENGTH_LONG).show()
@@ -113,7 +113,7 @@ class BenchmarksActivity : AppCompatActivity() {
 
     private fun deleteBenchmark(benchmark: Benchmark) {
         val portfolioPath = PortfolioStorage.filePath(this)
-        val portfolioJson = Bridge.loadPortfolio(portfolioPath)
+        val portfolioJson = PortfolioLoadCache.load(portfolioPath)
         val afterRemove = Bridge.removeBenchmark(portfolioJson, benchmark.id)
         if (isBridgeError(afterRemove)) {
             Toast.makeText(this, "Failed to remove: $afterRemove", Toast.LENGTH_LONG).show()
@@ -131,7 +131,7 @@ class BenchmarksActivity : AppCompatActivity() {
         rowHolder.refreshButton.isEnabled = false
         rowHolder.status.text = "Fetching…"
         val portfolioPath = PortfolioStorage.filePath(this)
-        val portfolioJson = Bridge.loadPortfolio(portfolioPath)
+        val portfolioJson = PortfolioLoadCache.load(portfolioPath)
         // "2000-01-01" - deliberately far enough back to capture full
         // available history for any of these indices (the oldest,
         // Sensex, dates to 1986, but Yahoo's own history for it doesn't
