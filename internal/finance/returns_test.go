@@ -2,7 +2,6 @@ package finance
 
 import (
 	"testing"
-	"time"
 
 	"ledger/internal/store"
 )
@@ -12,10 +11,9 @@ func TestComputeTrailingReturn_SimplePointToPoint(t *testing.T) {
 		{AssetID: "nifty50", Date: "2024-01-01", Price: 100},
 		{AssetID: "nifty50", Date: "2024-01-22", Price: 110},
 	}
-	today := time.Date(2024, 1, 22, 0, 0, 0, 0, time.UTC)
 
 	// A 21-day trailing window lands exactly on the 2024-01-01 price.
-	got := ComputeTrailingReturn(series, 21, "3 Weeks", today)
+	got := ComputeTrailingReturn(series, 21, "3 Weeks")
 	if !got.HasData {
 		t.Fatalf("HasData = false, want true")
 	}
@@ -30,12 +28,63 @@ func TestComputeTrailingReturn_InsufficientHistoryReportsNoData(t *testing.T) {
 		{AssetID: "nifty50", Date: "2024-01-20", Price: 100},
 		{AssetID: "nifty50", Date: "2024-01-22", Price: 110},
 	}
-	today := time.Date(2024, 1, 22, 0, 0, 0, 0, time.UTC)
 
 	// 30 days back is before the series even starts.
-	got := ComputeTrailingReturn(series, 30, "1 Month", today)
+	got := ComputeTrailingReturn(series, 30, "1 Month")
 	if got.HasData {
 		t.Errorf("HasData = true, want false (series doesn't reach back 30 days)")
+	}
+}
+
+func TestComputeTrailingReturn_AnchorsToLatestActualPointNotCalendarToday(t *testing.T) {
+	// The confirmed bug this test guards against: if a price hasn't been
+	// re-fetched "today" (i.e. the series' latest point is a few days
+	// stale relative to wall-clock time), a today-anchored calculation
+	// would query the SAME carried-forward price for both ends of the
+	// window and silently report 0% forever. There is no `today`
+	// parameter anymore specifically so this can't happen - the anchor
+	// is always the series' own latest point, whatever real move that
+	// represents.
+	series := []store.PriceRecord{
+		{AssetID: "nifty50", Date: "2024-01-15", Price: 100},
+		{AssetID: "nifty50", Date: "2024-01-20", Price: 105}, // the latest available point - "stale" relative to any later wall-clock "today"
+	}
+
+	got := ComputeTrailingReturn(series, 1, "Day")
+	if !got.HasData {
+		t.Fatalf("HasData = false, want true")
+	}
+	if got.Percent == 0 {
+		t.Errorf("Percent = 0, want a real nonzero move - this is exactly the bug being fixed")
+	}
+}
+
+func TestComputeTrailingReturnForYears_Annualizes(t *testing.T) {
+	// A single 3-year window: 100 -> 133.1 is exactly +10% CAGR
+	// (1.1^3 = 1.331), not +33.1% simple return - confirms annualization
+	// for 1Y+ trailing tenures, matching RollingReturnStats' units.
+	series := []store.PriceRecord{
+		{AssetID: "nifty50", Date: "2020-01-01", Price: 100},
+		{AssetID: "nifty50", Date: "2023-01-01", Price: 133.1},
+	}
+
+	got := ComputeTrailingReturnForYears(series, 3, "3 Year")
+	if !got.HasData {
+		t.Fatalf("HasData = false, want true")
+	}
+	if got.Percent < 9.99 || got.Percent > 10.01 {
+		t.Errorf("Percent = %v, want ~10.0 (annualized CAGR, not the 33.1%% simple return)", got.Percent)
+	}
+}
+
+func TestComputeTrailingReturnForYears_InsufficientHistoryReportsNoData(t *testing.T) {
+	series := []store.PriceRecord{
+		{AssetID: "nifty50", Date: "2024-01-01", Price: 100},
+		{AssetID: "nifty50", Date: "2024-06-01", Price: 105},
+	}
+	got := ComputeTrailingReturnForYears(series, 1, "1 Year")
+	if got.HasData {
+		t.Errorf("HasData = true, want false (only 6 months of history for a 1-year window)")
 	}
 }
 
