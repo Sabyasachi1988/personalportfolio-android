@@ -261,29 +261,50 @@ type PeriodGain struct {
 	HasData bool    // false if the portfolio's history doesn't yet reach back to this window's start date
 }
 
-// ComputePeriodGains computes rolling Day (24h) and Year (365d) gains for
-// the WHOLE portfolio (always AxisWholePortfolio - a dashboard-level
-// summary, not scoped to any one axis/fund/group/tag) as of today, for a
-// compact "how's it doing lately" strip. See periodGainForWindow's doc
-// comment for exactly what Gain/Percent mean and why.
+// ComputePeriodGains computes rolling Day and Year (365d) gains for the
+// WHOLE portfolio (always AxisWholePortfolio - a dashboard-level
+// summary, not scoped to any one axis/fund/group/tag), for a compact
+// "how's it doing lately" strip. See periodGainForWindow's doc comment
+// for exactly what Gain/Percent mean and why.
+//
+// Day is DELIBERATELY anchored to the most recent date ANY included
+// asset actually has price data for - NOT literal calendar today. This
+// mirrors a confirmed bug fix in finance.ComputeTrailingReturn (see its
+// doc comment): if prices haven't been re-fetched today (the normal
+// case - AMFI/exchange data usually lags, and this app only updates on
+// request), comparing "today" against "yesterday" would resolve BOTH
+// through carry-forward to the exact same cached price for every stale
+// asset, silently reporting Day as flat every single time regardless of
+// what actually happened in the market. Anchoring to whatever the
+// freshest available data actually is means an asset that DID get a new
+// price shows its real move, and one that didn't correctly contributes
+// zero (because relative to what we know, it genuinely hasn't moved) -
+// Year keeps the literal calendar-today anchor since it isn't vulnerable
+// to this exact collapse (365 days is long enough that the start and end
+// virtually never land on the same cached price purely from data being a
+// few days stale).
 func ComputePeriodGains(p *store.Portfolio, memberID string, today time.Time) []PeriodGain {
 	accountByID, assetByID, included, weights := progressionInputs(p, memberID, AxisWholePortfolio)
 	earliestDate := earliestIncludedTransactionDate(p, included)
-	endPoint := computeProgressionPoint(p, accountByID, assetByID, included, weights, today.Format(dateLayout))
 
-	windows := []struct {
-		label string
-		days  int
-	}{
-		{"Day", 1},
-		{"Year", 365},
+	results := make([]PeriodGain, 0, 2)
+
+	if dayAnchorStr := latestIncludedPriceDate(p, included); dayAnchorStr != "" {
+		if dayAnchorTime, err := time.Parse(dateLayout, dayAnchorStr); err == nil {
+			dayEndPoint := computeProgressionPoint(p, accountByID, assetByID, included, weights, dayAnchorStr)
+			dayStartStr := dayAnchorTime.AddDate(0, 0, -1).Format(dateLayout)
+			results = append(results, periodGainForWindow(p, accountByID, assetByID, included, weights, earliestDate, "Day", dayStartStr, dayEndPoint))
+		} else {
+			results = append(results, PeriodGain{Label: "Day", HasData: false})
+		}
+	} else {
+		results = append(results, PeriodGain{Label: "Day", HasData: false})
 	}
 
-	results := make([]PeriodGain, 0, len(windows))
-	for _, w := range windows {
-		startDateStr := today.AddDate(0, 0, -w.days).Format(dateLayout)
-		results = append(results, periodGainForWindow(p, accountByID, assetByID, included, weights, earliestDate, w.label, startDateStr, endPoint))
-	}
+	yearEndPoint := computeProgressionPoint(p, accountByID, assetByID, included, weights, today.Format(dateLayout))
+	yearStartStr := today.AddDate(0, 0, -365).Format(dateLayout)
+	results = append(results, periodGainForWindow(p, accountByID, assetByID, included, weights, earliestDate, "Year", yearStartStr, yearEndPoint))
+
 	return results
 }
 
@@ -355,6 +376,23 @@ func periodGainForWindow(
 		percent = gain / startPoint.Value * 100
 	}
 	return PeriodGain{Label: label, Gain: round2(gain), Percent: round2(percent), HasData: true}
+}
+
+// latestIncludedPriceDate returns the most recent date any included
+// asset actually has a stored price for, or "" if none do - used by
+// ComputePeriodGains to anchor the "Day" window to real data rather
+// than literal calendar today (see that function's doc comment for why).
+func latestIncludedPriceDate(p *store.Portfolio, included map[string]bool) string {
+	latest := ""
+	for _, rec := range p.Prices {
+		if !included[rec.AssetID] {
+			continue
+		}
+		if rec.Date > latest {
+			latest = rec.Date
+		}
+	}
+	return latest
 }
 
 // earliestIncludedTransactionDate returns the earliest transaction date
