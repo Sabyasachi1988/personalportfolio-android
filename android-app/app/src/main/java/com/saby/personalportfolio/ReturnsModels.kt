@@ -40,10 +40,14 @@ data class ReturnsTableRow(
     @SerializedName("IsBenchmark") val isBenchmark: Boolean,
     @SerializedName("Day") val day: TrailingReturn,
     @SerializedName("Month") val month: TrailingReturn,
-    @SerializedName("OneYear") val oneYear: RollingReturnStats,
-    @SerializedName("ThreeYear") val threeYear: RollingReturnStats,
-    @SerializedName("FiveYear") val fiveYear: RollingReturnStats,
-    @SerializedName("TenYear") val tenYear: RollingReturnStats
+    @SerializedName("OneYearTrailing") val oneYearTrailing: TrailingReturn,
+    @SerializedName("OneYearRolling") val oneYearRolling: RollingReturnStats,
+    @SerializedName("ThreeYearTrailing") val threeYearTrailing: TrailingReturn,
+    @SerializedName("ThreeYearRolling") val threeYearRolling: RollingReturnStats,
+    @SerializedName("FiveYearTrailing") val fiveYearTrailing: TrailingReturn,
+    @SerializedName("FiveYearRolling") val fiveYearRolling: RollingReturnStats,
+    @SerializedName("TenYearTrailing") val tenYearTrailing: TrailingReturn,
+    @SerializedName("TenYearRolling") val tenYearRolling: RollingReturnStats
 )
 
 /**
