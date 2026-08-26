@@ -645,9 +645,9 @@ func TestCommitStagedRows_ReimportReusesExistingAssetAndAccount(t *testing.T) {
 
 func TestAmfiDateToISO(t *testing.T) {
 	cases := []struct {
-		in      string
-		want    string
-		wantOK  bool
+		in     string
+		want   string
+		wantOK bool
 	}{
 		{"20-Aug-2026", "2026-08-20", true},
 		{"01-Jan-2025", "2025-01-01", true},
@@ -1062,7 +1062,7 @@ func TestComputeAllocationDrift_WithTargetReturnsRealNumbers(t *testing.T) {
 	result := ComputeAllocationDrift(withTarget)
 
 	var parsed struct {
-		HasTarget bool                          `json:"hasTarget"`
+		HasTarget bool                           `json:"hasTarget"`
 		Drift     []finance.AllocationDriftSlice `json:"drift"`
 	}
 	if err := json.Unmarshal([]byte(result), &parsed); err != nil {
@@ -1440,5 +1440,124 @@ func TestComputeProgression_InvalidTodayDateReturnsError(t *testing.T) {
 	result := ComputeProgression("{}", "", "WholePortfolio", "not-a-date", "")
 	if !isBridgeErrorForTest(result) {
 		t.Errorf("expected an error for an invalid today date, got: %s", result)
+	}
+}
+
+func TestAddRemoveBenchmark_RoundTrip(t *testing.T) {
+	after := AddBenchmark("{}", "Nifty 50", "^NSEI")
+	if isBridgeErrorForTest(after) {
+		t.Fatalf("AddBenchmark failed: %s", after)
+	}
+	var p store.Portfolio
+	if err := json.Unmarshal([]byte(after), &p); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(p.Benchmarks) != 1 || p.Benchmarks[0].Name != "Nifty 50" || p.Benchmarks[0].YahooTicker != "^NSEI" {
+		t.Fatalf("unexpected benchmarks: %+v", p.Benchmarks)
+	}
+
+	empty := AddBenchmark("{}", "", "^NSEI")
+	if !isBridgeErrorForTest(empty) {
+		t.Errorf("expected an error for an empty name, got: %s", empty)
+	}
+
+	removed := RemoveBenchmark(after, p.Benchmarks[0].ID)
+	var p2 store.Portfolio
+	if err := json.Unmarshal([]byte(removed), &p2); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(p2.Benchmarks) != 0 {
+		t.Errorf("expected 0 benchmarks after remove, got %d", len(p2.Benchmarks))
+	}
+}
+
+func TestUpdateBenchmarkHistory_RejectsUnknownBenchmark(t *testing.T) {
+	p := &store.Portfolio{Benchmarks: []store.Benchmark{{ID: "b1", Name: "Nifty 50", YahooTicker: "^NSEI"}}}
+	pJSON, _ := json.Marshal(p)
+
+	result := UpdateBenchmarkHistory(string(pJSON), "b-nonexistent", "2024-01-01")
+	if !isBridgeErrorForTest(result) {
+		t.Fatalf("expected an error for a nonexistent benchmark, got: %s", result)
+	}
+	// Same validation-only shape as UpdateHistoricalPrice - deliberately
+	// doesn't exercise the actual network fetch (see
+	// FetchYahooAdjClose's doc comment on why that can't be verified
+	// live from this sandbox).
+}
+
+func TestComputeReturnsTable_IncludesFundsAndBenchmarksWithPriceHistory(t *testing.T) {
+	p := &store.Portfolio{
+		Assets: []store.Asset{
+			{ID: "fund1", Name: "Nippon India Growth Mid Cap Fund", Type: "MutualFund"},
+			{ID: "fund2", Name: "Never priced yet", Type: "MutualFund"}, // no Prices entry - must be excluded
+			{ID: "stock1", Name: "Some ETF", Type: "Stock"},             // not a MutualFund - must be excluded
+		},
+		Benchmarks: []store.Benchmark{
+			{ID: "bench1", Name: "Nifty 50", YahooTicker: "^NSEI"},
+		},
+		Prices: []store.PriceRecord{
+			{AssetID: "fund1", Date: "2024-01-01", Price: 100},
+			{AssetID: "fund1", Date: "2024-01-22", Price: 110},
+			{AssetID: "bench1", Date: "2024-01-01", Price: 21000},
+			{AssetID: "bench1", Date: "2024-01-22", Price: 21500},
+		},
+	}
+	pJSON, _ := json.Marshal(p)
+
+	result := ComputeReturnsTable(string(pJSON), "2024-01-22")
+	if isBridgeErrorForTest(result) {
+		t.Fatalf("ComputeReturnsTable failed: %s", result)
+	}
+	var rows []ReturnsTableRow
+	if err := json.Unmarshal([]byte(result), &rows); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("expected 2 rows (fund1 + bench1; fund2 has no prices, stock1 isn't a MutualFund), got %d: %+v", len(rows), rows)
+	}
+	byID := make(map[string]ReturnsTableRow)
+	for _, r := range rows {
+		byID[r.SeriesID] = r
+	}
+	if _, ok := byID["fund1"]; !ok {
+		t.Errorf("expected fund1 row, got %+v", rows)
+	}
+	if row, ok := byID["bench1"]; !ok || !row.IsBenchmark {
+		t.Errorf("expected bench1 row with IsBenchmark=true, got %+v", row)
+	}
+}
+
+func TestComputeReturnsTable_InvalidTodayDateReturnsError(t *testing.T) {
+	result := ComputeReturnsTable("{}", "not-a-date")
+	if !isBridgeErrorForTest(result) {
+		t.Errorf("expected an error for an invalid today date, got: %s", result)
+	}
+}
+
+func TestComputePriceHistory_ReturnsSeriesForKnownKeyEmptyForUnknown(t *testing.T) {
+	p := &store.Portfolio{
+		Prices: []store.PriceRecord{
+			{AssetID: "fund1", Date: "2024-01-01", Price: 100},
+			{AssetID: "fund1", Date: "2024-01-02", Price: 101},
+		},
+	}
+	pJSON, _ := json.Marshal(p)
+
+	result := ComputePriceHistory(string(pJSON), "fund1")
+	var series []store.PriceRecord
+	if err := json.Unmarshal([]byte(result), &series); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(series) != 2 {
+		t.Fatalf("expected 2 records, got %d", len(series))
+	}
+
+	empty := ComputePriceHistory(string(pJSON), "nonexistent")
+	var emptySeries []store.PriceRecord
+	if err := json.Unmarshal([]byte(empty), &emptySeries); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(emptySeries) != 0 {
+		t.Errorf("expected empty series for unknown key, got %d", len(emptySeries))
 	}
 }
