@@ -546,6 +546,46 @@ func TestComputePeriodGains_ExcludesContributionsMadeDuringTheWindow(t *testing.
 	}
 }
 
+func TestComputePeriodGains_DayAnchorsToLatestPriceNotCalendarToday(t *testing.T) {
+	// The confirmed bug this guards against: prices last fetched 3 days
+	// before "today" (very ordinary - this app only fetches on request).
+	// A calendar-today-anchored Day window would compare "today" against
+	// "yesterday", both resolving via carry-forward to the exact same
+	// stale price - reporting Day as flat (0) even though the fund
+	// genuinely moved on the last day real data exists for.
+	p := &store.Portfolio{
+		Members:  []store.Member{{ID: "m1", Name: "Saby"}},
+		Accounts: []store.Account{{ID: "acc-in", MemberID: "m1", Name: "Nippon India Mutual Fund", Currency: "INR"}},
+		Assets:   []store.Asset{{ID: "a1", AccountID: "acc-in", Name: "Nippon India Growth Mid Cap Fund"}},
+		Transactions: []store.StoredTransaction{
+			{ID: "t1", AccountID: "acc-in", AssetID: "a1", Date: "2023-01-01", Type: store.Purchase, Amount: 10000, Units: units(100)},
+		},
+		Prices: []store.PriceRecord{
+			{AssetID: "a1", Date: "2024-01-18", Price: 110},
+			{AssetID: "a1", Date: "2024-01-19", Price: 112}, // the latest available price - 3 days stale relative to "today"
+		},
+	}
+	today := time.Date(2024, 1, 22, 0, 0, 0, 0, time.UTC) // no price fetched since 2024-01-19
+
+	gains := ComputePeriodGains(p, "", today)
+	var day PeriodGain
+	for _, g := range gains {
+		if g.Label == "Day" {
+			day = g
+		}
+	}
+	if !day.HasData {
+		t.Fatalf("Day.HasData = false, want true (there IS real price history, just not fetched today)")
+	}
+	if day.Gain == 0 {
+		t.Errorf("Day.Gain = 0, want the real 2024-01-18->2024-01-19 move (100 * (112-110) = 200) - this is exactly the bug being fixed")
+	}
+	wantGain := round2(100 * (112.0 - 110.0))
+	if day.Gain != wantGain {
+		t.Errorf("Day.Gain = %v, want %v", day.Gain, wantGain)
+	}
+}
+
 func TestComputePeriodGains_InsufficientHistoryReportsNoData(t *testing.T) {
 	p := &store.Portfolio{
 		Members:  []store.Member{{ID: "m1", Name: "Saby"}},
