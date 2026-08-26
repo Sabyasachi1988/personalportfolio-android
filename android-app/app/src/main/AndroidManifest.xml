@@ -72,6 +72,15 @@
             android:name=".TagsActivity"
             android:exported="false" />
         <activity
+            android:name=".BenchmarksActivity"
+            android:exported="false" />
+        <activity
+            android:name=".ReturnsActivity"
+            android:exported="false" />
+        <activity
+            android:name=".ReturnsDetailActivity"
+            android:exported="false" />
+        <activity
             android:name=".FixAssetSymbolActivity"
             android:exported="false" />
     </application>
