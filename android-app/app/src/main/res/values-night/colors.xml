@@ -19,6 +19,13 @@
     <color name="colorNeutral">#AAAAAA</color>
     <color name="colorAmber">#FFCA28</color>
 
+    <!-- Dark-mode counterparts of colors.xml's chip tints - a dark wash
+         toward the hue rather than a light pastel (which would look like
+         a bright, jarring patch against the dark card background). -->
+    <color name="colorGainBg">#1E3620</color>
+    <color name="colorLossBg">#3B1F1F</color>
+    <color name="colorNeutralBg">#2A2A2A</color>
+
     <!-- See colors.xml's comment - same reasoning, brighter for dark backgrounds. -->
     <color name="colorProgressionInvested">#64B5F6</color>
 
