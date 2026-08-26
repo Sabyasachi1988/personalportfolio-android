@@ -33,7 +33,7 @@ class CapCompositionActivity : AppCompatActivity() {
 
     private fun loadAndBindAdapter(recyclerView: RecyclerView) {
         val portfolioPath = PortfolioStorage.filePath(this)
-        val portfolioJson = Bridge.loadPortfolio(portfolioPath)
+        val portfolioJson = PortfolioLoadCache.load(portfolioPath)
 
         val snapshot: PortfolioAssetsSnapshot = try {
             gson.fromJson(portfolioJson, PortfolioAssetsSnapshot::class.java)
@@ -75,7 +75,7 @@ class CapCompositionActivity : AppCompatActivity() {
                 // Reload fresh each time, in case another row was saved
                 // earlier in this same screen session - avoids one save
                 // clobbering another's earlier write.
-                val currentPortfolioJson = Bridge.loadPortfolio(portfolioPath)
+                val currentPortfolioJson = PortfolioLoadCache.load(portfolioPath)
                 if (isBridgeError(currentPortfolioJson)) {
                     mainThread.post { failSave(rowHolder, "Failed to load portfolio: $currentPortfolioJson") }
                     return@execute
@@ -134,7 +134,7 @@ class CapCompositionActivity : AppCompatActivity() {
                 // Link the URL to the asset regardless of whether the
                 // fetch below succeeds, so it doesn't need re-typing on
                 // a retry.
-                val currentPortfolioJson = Bridge.loadPortfolio(portfolioPath)
+                val currentPortfolioJson = PortfolioLoadCache.load(portfolioPath)
                 if (!isBridgeError(currentPortfolioJson)) {
                     val linkedJson = Bridge.setAssetETMoneyURL(currentPortfolioJson, assetId, url)
                     if (!isBridgeError(linkedJson)) {
