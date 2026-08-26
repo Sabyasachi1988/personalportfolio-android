@@ -65,7 +65,7 @@ class ReturnsDetailActivity : AppCompatActivity() {
             } catch (e: Exception) {
                 point.date
             }
-            scrubbedView.text = "$displayDate: ${IndianCurrencyFormatter.format(point.price, decimals = 2)}"
+            scrubbedView.text = "$displayDate: ${PricePerUnitFormatter.format(point.price, decimals = 2)}"
         }
         chart.setPoints(points)
 
@@ -115,7 +115,14 @@ class ReturnsDetailActivity : AppCompatActivity() {
     private fun bindMetricRow(viewId: Int, label: String, value: Double, hasData: Boolean, decimals: Int, suffix: String) {
         val view = findViewById<TextView>(viewId)
         view.text = if (hasData) {
-            "$label: " + String.format(Locale.getDefault(), "%.${decimals}f$suffix", value)
+            // NOTE: suffix ("%") must NOT be inside the format string
+            // itself - a bare trailing "%" is not a valid Java format
+            // conversion and throws UnknownFormatConversionException at
+            // runtime (this was a real, confirmed crash: tapping into
+            // any fund card with a computed Up/Down Capture or Max
+            // Drawdown value crashed the Activity). Format the number
+            // alone, then concatenate the suffix as plain text.
+            "$label: " + String.format(Locale.getDefault(), "%.${decimals}f", value) + suffix
         } else {
             "$label: — (not enough overlapping history)"
         }
