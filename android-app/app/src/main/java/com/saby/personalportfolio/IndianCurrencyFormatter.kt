@@ -46,3 +46,32 @@ object IndianCurrencyFormatter {
         return sign + format(amount, decimals)
     }
 }
+
+/**
+ * Formats a per-unit price - a fund's NAV or a benchmark index's level -
+ * with the same Indian digit grouping as [IndianCurrencyFormatter], but
+ * DELIBERATELY NEVER masked by incognito mode, and deliberately a
+ * separate object rather than a call site of IndianCurrencyFormatter
+ * (whose own doc comment already says per-unit price/NAV should never
+ * be routed through it, for exactly this reason).
+ *
+ * A NAV or an index level is publicly available information anyone can
+ * look up - it's not a fact about Saby's own holdings the way a rupee
+ * total or a unit count is (see IncognitoMode/HoldingsAdapter.
+ * unitsDisplay's doc comments on why THOSE are masked: units x a public
+ * price reveals a private total). A fund's price by itself reveals
+ * nothing about what Saby owns, so masking it here was a real,
+ * confirmed regression - it forced deactivating incognito just to read
+ * a Returns/Compare chart, which shows no portfolio-specific figures at
+ * all.
+ */
+object PricePerUnitFormatter {
+    private val indiaLocale = Locale("en", "IN")
+
+    fun format(price: Double, decimals: Int = 2): String {
+        val nf = NumberFormat.getNumberInstance(indiaLocale)
+        nf.minimumFractionDigits = decimals
+        nf.maximumFractionDigits = decimals
+        return "₹" + nf.format(price)
+    }
+}
