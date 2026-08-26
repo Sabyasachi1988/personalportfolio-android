@@ -1,5 +1,6 @@
 package com.saby.personalportfolio
 
+import android.content.Intent
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -132,6 +133,23 @@ class ProgressionActivity : AppCompatActivity() {
         memberTab = findViewById(R.id.progressionMemberTab)
         axisTab = findViewById(R.id.progressionAxisTab)
         currencyTab = findViewById(R.id.progressionCurrencyTab)
+
+        // See activity_progression.xml's doc comment on this tab row -
+        // "Returns" launches a separate screen rather than restructuring
+        // this Activity into a ViewPager2 host; "Progression" (already
+        // showing) is a no-op, guarded by position so re-selecting it
+        // doesn't fire.
+        findViewById<com.google.android.material.tabs.TabLayout>(R.id.progressionSectionTabLayout)
+            .addOnTabSelectedListener(object : com.google.android.material.tabs.TabLayout.OnTabSelectedListener {
+                override fun onTabSelected(tab: com.google.android.material.tabs.TabLayout.Tab) {
+                    if (tab.position == 1) {
+                        startActivity(Intent(this@ProgressionActivity, ReturnsActivity::class.java))
+                    }
+                }
+                override fun onTabUnselected(tab: com.google.android.material.tabs.TabLayout.Tab) {}
+                override fun onTabReselected(tab: com.google.android.material.tabs.TabLayout.Tab) {}
+            })
+
         statusText = findViewById(R.id.progressionStatusText)
         dateText = findViewById(R.id.statsCardDate)
         investedText = findViewById(R.id.statsCardInvested)
