@@ -33,9 +33,19 @@ class TransactionsAdapter(
             txn.date,
             txn.type,
             IndianCurrencyFormatter.format(txn.amount),
-            txn.units?.let { String.format(Locale.getDefault(), "%.3f", it) } ?: "—"
+            unitsDisplay(txn.units)
         )
         holder.itemView.setOnClickListener { onClick(txn) }
+    }
+
+    // Same reasoning as HoldingsAdapter's unitsDisplay: a transaction's
+    // unit count, combined with the fund's publicly-known NAV on that
+    // date, reveals the masked rupee amount right next to it - a FIXED
+    // placeholder here too, not one sized to the real digit count.
+    private fun unitsDisplay(units: Double?): String {
+        if (units == null) return "—"
+        if (IncognitoMode.isEnabled) return "•••"
+        return String.format(Locale.getDefault(), "%.3f", units)
     }
 
     override fun getItemCount(): Int = transactions.size
