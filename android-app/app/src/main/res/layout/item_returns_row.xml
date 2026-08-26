@@ -42,9 +42,14 @@
 
         </LinearLayout>
 
-        <!-- 2 rows x 3 columns: Day/1M/1Y, then 3Y/5Y/10Y - avoids a wide
-             horizontally-scrolling table, which doesn't fit this app's
-             existing card-based conventions or a narrow phone screen. -->
+        <!-- Day and 1 Month - trailing only (see finance.TrailingReturn's
+             doc comment on why sub-year tenures don't get a rolling
+             distribution). Kept compact and separate from the table
+             below, which is where the added trailing+rolling detail for
+             the longer tenures lives - this was flagged as feeling
+             congested when everything shared one dense grid; splitting
+             the quick day-to-day glance from the deeper multi-year
+             comparison gives each room to breathe. -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -53,21 +58,38 @@
 
             <include layout="@layout/item_returns_cell" android:id="@+id/returnsCellDay" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" />
             <include layout="@layout/item_returns_cell" android:id="@+id/returnsCellMonth" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" />
-            <include layout="@layout/item_returns_cell" android:id="@+id/returnsCellOneYear" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" />
 
         </LinearLayout>
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_marginTop="10dp"
+            android:layout_marginBottom="2dp"
+            android:background="@color/colorNeutralBg" />
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
-            android:orientation="horizontal">
+            android:orientation="horizontal"
+            android:paddingTop="2dp">
 
-            <include layout="@layout/item_returns_cell" android:id="@+id/returnsCellThreeYear" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" />
-            <include layout="@layout/item_returns_cell" android:id="@+id/returnsCellFiveYear" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" />
-            <include layout="@layout/item_returns_cell" android:id="@+id/returnsCellTenYear" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" />
-
+            <View android:layout_width="44dp" android:layout_height="1dp" />
+            <TextView
+                android:layout_width="0dp"
+                android:layout_weight="1"
+                android:layout_height="wrap_content"
+                android:text="trailing"
+                android:textSize="10sp"
+                android:textColor="@color/colorNeutral"
+                android:gravity="end" />
+            <View android:layout_width="0dp" android:layout_height="1dp" android:layout_weight="1" />
         </LinearLayout>
+
+        <include layout="@layout/item_returns_tenure_row" android:id="@+id/returnsRowOneYear" />
+        <include layout="@layout/item_returns_tenure_row" android:id="@+id/returnsRowThreeYear" />
+        <include layout="@layout/item_returns_tenure_row" android:id="@+id/returnsRowFiveYear" />
+        <include layout="@layout/item_returns_tenure_row" android:id="@+id/returnsRowTenYear" />
 
     </LinearLayout>
 
