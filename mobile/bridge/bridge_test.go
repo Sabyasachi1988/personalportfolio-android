@@ -1504,7 +1504,7 @@ func TestComputeReturnsTable_IncludesFundsAndBenchmarksWithPriceHistory(t *testi
 	}
 	pJSON, _ := json.Marshal(p)
 
-	result := ComputeReturnsTable(string(pJSON), "2024-01-22")
+	result := ComputeReturnsTable(string(pJSON))
 	if isBridgeErrorForTest(result) {
 		t.Fatalf("ComputeReturnsTable failed: %s", result)
 	}
@@ -1527,10 +1527,37 @@ func TestComputeReturnsTable_IncludesFundsAndBenchmarksWithPriceHistory(t *testi
 	}
 }
 
-func TestComputeReturnsTable_InvalidTodayDateReturnsError(t *testing.T) {
-	result := ComputeReturnsTable("{}", "not-a-date")
-	if !isBridgeErrorForTest(result) {
-		t.Errorf("expected an error for an invalid today date, got: %s", result)
+func TestComputeReturnsTable_LongTenuresHaveBothTrailingAndRolling(t *testing.T) {
+	p := &store.Portfolio{
+		Assets: []store.Asset{{ID: "fund1", Name: "Nippon India Growth Mid Cap Fund", Type: "MutualFund"}},
+		Prices: []store.PriceRecord{
+			{AssetID: "fund1", Date: "2019-01-01", Price: 100},
+			{AssetID: "fund1", Date: "2021-01-01", Price: 110},
+			{AssetID: "fund1", Date: "2022-01-01", Price: 133.1}, // exactly 3 years after 2019-01-01: +10% CAGR
+		},
+	}
+	pJSON, _ := json.Marshal(p)
+
+	result := ComputeReturnsTable(string(pJSON))
+	if isBridgeErrorForTest(result) {
+		t.Fatalf("ComputeReturnsTable failed: %s", result)
+	}
+	var rows []ReturnsTableRow
+	if err := json.Unmarshal([]byte(result), &rows); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(rows))
+	}
+	row := rows[0]
+	if !row.ThreeYearTrailing.HasData {
+		t.Errorf("ThreeYearTrailing.HasData = false, want true")
+	}
+	if row.ThreeYearTrailing.Percent < 9.99 || row.ThreeYearTrailing.Percent > 10.01 {
+		t.Errorf("ThreeYearTrailing.Percent = %v, want ~10.0", row.ThreeYearTrailing.Percent)
+	}
+	if !row.ThreeYearRolling.HasData {
+		t.Errorf("ThreeYearRolling.HasData = false, want true")
 	}
 }
 
