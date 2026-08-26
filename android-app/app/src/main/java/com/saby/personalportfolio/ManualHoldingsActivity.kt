@@ -98,7 +98,7 @@ class ManualHoldingsActivity : AppCompatActivity() {
 
     private fun loadSnapshot() {
         val portfolioPath = PortfolioStorage.filePath(this)
-        val portfolioJson = Bridge.loadPortfolio(portfolioPath)
+        val portfolioJson = PortfolioLoadCache.load(portfolioPath)
         val snapshot: PortfolioManualEntrySnapshot = try {
             gson.fromJson(portfolioJson, PortfolioManualEntrySnapshot::class.java)
         } catch (e: Exception) {
@@ -150,7 +150,7 @@ class ManualHoldingsActivity : AppCompatActivity() {
         val currency = currencyOptions[accountCurrencySpinner.selectedItemPosition]
 
         val portfolioPath = PortfolioStorage.filePath(this)
-        val currentPortfolioJson = Bridge.loadPortfolio(portfolioPath)
+        val currentPortfolioJson = PortfolioLoadCache.load(portfolioPath)
         if (isBridgeError(currentPortfolioJson)) {
             accountStatusText.text = "Failed to load portfolio: $currentPortfolioJson"
             return
@@ -188,7 +188,7 @@ class ManualHoldingsActivity : AppCompatActivity() {
         val type = assetTypeOptions[assetTypeSpinner.selectedItemPosition]
 
         val portfolioPath = PortfolioStorage.filePath(this)
-        val currentPortfolioJson = Bridge.loadPortfolio(portfolioPath)
+        val currentPortfolioJson = PortfolioLoadCache.load(portfolioPath)
         if (isBridgeError(currentPortfolioJson)) {
             assetStatusText.text = "Failed to load portfolio: $currentPortfolioJson"
             return
@@ -249,7 +249,7 @@ class ManualHoldingsActivity : AppCompatActivity() {
         }
 
         val portfolioPath = PortfolioStorage.filePath(this)
-        val currentPortfolioJson = Bridge.loadPortfolio(portfolioPath)
+        val currentPortfolioJson = PortfolioLoadCache.load(portfolioPath)
         if (isBridgeError(currentPortfolioJson)) {
             transactionStatusText.text = "Failed to load portfolio: $currentPortfolioJson"
             return
