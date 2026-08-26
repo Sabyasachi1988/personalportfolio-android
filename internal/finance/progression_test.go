@@ -496,9 +496,9 @@ func TestComputePeriodGains_ExcludesContributionsMadeDuringTheWindow(t *testing.
 			// Bought long before any window below, so windows that don't
 			// reach back this far still have a well-defined starting Value.
 			{ID: "t1", AccountID: "acc-in", AssetID: "a1", Date: "2023-01-01", Type: store.Purchase, Amount: 10000, Units: units(100)},
-			// A fresh top-up 3 days ago, INSIDE the Week/Month/Year windows
-			// but not the Day window - this is the contribution that must
-			// NOT show up as "gain".
+			// A fresh top-up 3 days ago, INSIDE the Year window but not
+			// the Day window - this is the contribution that must NOT
+			// show up as "gain".
 			{ID: "t2", AccountID: "acc-in", AssetID: "a1", Date: "2024-01-19", Type: store.Purchase, Amount: 5000, Units: units(40)},
 		},
 		Prices: []store.PriceRecord{
@@ -530,19 +530,19 @@ func TestComputePeriodGains_ExcludesContributionsMadeDuringTheWindow(t *testing.
 		t.Errorf("Day.Gain = %v, want %v", day.Gain, wantDayGain)
 	}
 
-	week := byLabel["Week"]
-	if !week.HasData {
-		t.Fatalf("Week.HasData = false, want true")
+	year := byLabel["Year"]
+	if !year.HasData {
+		t.Fatalf("Year.HasData = false, want true")
 	}
-	// Week window starts 2024-01-15 (before t2's 2024-01-19 purchase, so
-	// StartValue = 100 units * price as of 2024-01-15, carried forward
+	// Year window starts 2023-01-23 (before t2's 2024-01-19 purchase, so
+	// StartValue = 100 units * price as of 2023-01-23, carried forward
 	// from 2023-01-01's 100) to today's EndValue = 140 units * 120.
 	// EndInvested - StartInvested = 5000 (exactly t2) - must be excluded.
 	startValue := 100.0 * 100 // carried-forward price, only 100 units held before t2
 	endValue := 140.0 * 120
-	wantWeekGain := round2((endValue - startValue) - 5000)
-	if week.Gain != wantWeekGain {
-		t.Errorf("Week.Gain = %v, want %v (contribution must be excluded from gain)", week.Gain, wantWeekGain)
+	wantYearGain := round2((endValue - startValue) - 5000)
+	if year.Gain != wantYearGain {
+		t.Errorf("Year.Gain = %v, want %v (contribution must be excluded from gain)", year.Gain, wantYearGain)
 	}
 }
 
@@ -552,8 +552,8 @@ func TestComputePeriodGains_InsufficientHistoryReportsNoData(t *testing.T) {
 		Accounts: []store.Account{{ID: "acc-in", MemberID: "m1", Name: "Nippon India Mutual Fund", Currency: "INR"}},
 		Assets:   []store.Asset{{ID: "a1", AccountID: "acc-in", Name: "Nippon India Growth Mid Cap Fund"}},
 		Transactions: []store.StoredTransaction{
-			// Only 10 days of history - Month (30d) and Year (365d)
-			// windows can't reach back to a real starting point.
+			// Only 10 days of history - the 365-day Year window can't
+			// reach back to a real starting point.
 			{ID: "t1", AccountID: "acc-in", AssetID: "a1", Date: "2024-01-12", Type: store.Purchase, Amount: 10000, Units: units(100)},
 		},
 		Prices: []store.PriceRecord{
@@ -569,13 +569,69 @@ func TestComputePeriodGains_InsufficientHistoryReportsNoData(t *testing.T) {
 		byLabel[g.Label] = g
 	}
 
-	if !byLabel["Week"].HasData {
-		t.Errorf("Week.HasData = false, want true (10 days of history covers a 7-day window)")
-	}
-	if byLabel["Month"].HasData {
-		t.Errorf("Month.HasData = true, want false (only 10 days of history, can't cover a 30-day window)")
+	if !byLabel["Day"].HasData {
+		t.Errorf("Day.HasData = false, want true (10 days of history covers a 1-day window)")
 	}
 	if byLabel["Year"].HasData {
 		t.Errorf("Year.HasData = true, want false (only 10 days of history, can't cover a 365-day window)")
+	}
+}
+
+func TestComputeCalendarYearGain_ExcludesContributionsMadeSinceJan1(t *testing.T) {
+	p := &store.Portfolio{
+		Members:  []store.Member{{ID: "m1", Name: "Saby"}},
+		Accounts: []store.Account{{ID: "acc-in", MemberID: "m1", Name: "Nippon India Mutual Fund", Currency: "INR"}},
+		Assets:   []store.Asset{{ID: "a1", AccountID: "acc-in", Name: "Nippon India Growth Mid Cap Fund"}},
+		Transactions: []store.StoredTransaction{
+			{ID: "t1", AccountID: "acc-in", AssetID: "a1", Date: "2023-06-01", Type: store.Purchase, Amount: 10000, Units: units(100)},
+			// A top-up in February - AFTER Jan 1st, inside the calendar-
+			// year window - must be excluded from the gain.
+			{ID: "t2", AccountID: "acc-in", AssetID: "a1", Date: "2024-02-10", Type: store.Purchase, Amount: 5000, Units: units(40)},
+		},
+		Prices: []store.PriceRecord{
+			{AssetID: "a1", Date: "2023-12-31", Price: 100}, // last price before Jan 1st
+			{AssetID: "a1", Date: "2024-02-10", Price: 112},
+			{AssetID: "a1", Date: "2024-03-15", Price: 120}, // "today"
+		},
+	}
+	today := time.Date(2024, 3, 15, 0, 0, 0, 0, time.UTC)
+
+	g := ComputeCalendarYearGain(p, "", today)
+	if g.Label != "Calendar Year" {
+		t.Errorf("Label = %q, want \"Calendar Year\"", g.Label)
+	}
+	if !g.HasData {
+		t.Fatalf("HasData = false, want true")
+	}
+	// Jan 1st 2024: only t1's 100 units held (t2 is Feb, after Jan 1st),
+	// price carried forward from 2023-12-31's 100 -> StartValue = 10000,
+	// StartInvested = 10000. Today: 140 units * 120 = 16800,
+	// EndInvested = 15000. EndInvested-StartInvested = 5000 (t2) excluded.
+	wantGain := round2((140.0*120 - 100.0*100) - 5000)
+	if g.Gain != wantGain {
+		t.Errorf("Gain = %v, want %v (t2's Feb contribution must be excluded)", g.Gain, wantGain)
+	}
+}
+
+func TestComputeCalendarYearGain_InsufficientHistoryForCurrentJan1ReportsNoData(t *testing.T) {
+	p := &store.Portfolio{
+		Members:  []store.Member{{ID: "m1", Name: "Saby"}},
+		Accounts: []store.Account{{ID: "acc-in", MemberID: "m1", Name: "Nippon India Mutual Fund", Currency: "INR"}},
+		Assets:   []store.Asset{{ID: "a1", AccountID: "acc-in", Name: "Nippon India Growth Mid Cap Fund"}},
+		Transactions: []store.StoredTransaction{
+			// First transaction is AFTER this year's Jan 1st - no real
+			// baseline exists for a "since Jan 1st" figure yet.
+			{ID: "t1", AccountID: "acc-in", AssetID: "a1", Date: "2024-02-01", Type: store.Purchase, Amount: 10000, Units: units(100)},
+		},
+		Prices: []store.PriceRecord{
+			{AssetID: "a1", Date: "2024-02-01", Price: 100},
+			{AssetID: "a1", Date: "2024-03-15", Price: 110},
+		},
+	}
+	today := time.Date(2024, 3, 15, 0, 0, 0, 0, time.UTC)
+
+	g := ComputeCalendarYearGain(p, "", today)
+	if g.HasData {
+		t.Errorf("HasData = true, want false (portfolio didn't exist yet on Jan 1st this year)")
 	}
 }
