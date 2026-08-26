@@ -36,7 +36,19 @@
         android:layout_marginTop="4dp"
         android:textSize="12sp"
         android:textColor="@color/colorNeutral"
-        android:text="1Y/3Y/5Y/10Y show the median across every rolling window of that length in the fund's history, with the [worst, best] window range below it. Tap a row for its full price history." />
+        android:text="1Y/3Y/5Y/10Y show the median across every rolling window of that length in the fund's history, with the [worst, best] window range below it. Tap the card for its full price history." />
+
+    <!-- One card at a time, picked below, rather than a long scrolling
+         list - with 15+ funds and benchmarks combined, and each card
+         grown to include the trailing+rolling table, a full list became
+         a very long scroll for very little payoff (only 2-3 cards fit
+         on screen at once). This also frees up room to show more detail
+         per card later without making the list even longer. -->
+    <TextView
+        android:id="@+id/returnsPickerTab"
+        style="@style/ProgressionDropdownTab"
+        android:layout_width="match_parent"
+        android:layout_marginTop="16dp" />
 
     <TextView
         android:id="@+id/returnsEmptyState"
@@ -47,11 +59,18 @@
         android:textColor="@color/colorNeutral"
         android:visibility="gone" />
 
-    <androidx.recyclerview.widget.RecyclerView
-        android:id="@+id/returnsRecyclerView"
+    <androidx.core.widget.NestedScrollView
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
-        android:layout_marginTop="16dp" />
+        android:layout_marginTop="16dp"
+        android:fillViewport="true">
+
+        <FrameLayout
+            android:id="@+id/returnsCardContainer"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content" />
+
+    </androidx.core.widget.NestedScrollView>
 
 </LinearLayout>
