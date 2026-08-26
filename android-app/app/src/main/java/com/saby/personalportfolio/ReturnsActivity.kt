@@ -10,9 +10,6 @@ import androidx.recyclerview.widget.RecyclerView
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import com.ledger.bridge.Bridge
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 
 class ReturnsActivity : AppCompatActivity() {
 
@@ -43,9 +40,8 @@ class ReturnsActivity : AppCompatActivity() {
     private fun loadReturnsTable() {
         val portfolioPath = PortfolioStorage.filePath(this)
         val portfolioJson = Bridge.loadPortfolio(portfolioPath)
-        val today = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
 
-        val resultJson = Bridge.computeReturnsTable(portfolioJson, today)
+        val resultJson = Bridge.computeReturnsTable(portfolioJson)
         if (isBridgeError(resultJson)) {
             emptyState.visibility = View.VISIBLE
             emptyState.text = "Could not load returns: $resultJson"
