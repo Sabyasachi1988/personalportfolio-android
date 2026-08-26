@@ -43,6 +43,7 @@ class ProgressionActivity : AppCompatActivity() {
     private lateinit var memberTab: TextView
     private lateinit var axisTab: TextView
     private lateinit var currencyTab: TextView
+    private lateinit var sectionTabLayout: com.google.android.material.tabs.TabLayout
     private lateinit var statusText: TextView
     private lateinit var dateText: TextView
     private lateinit var investedText: TextView
@@ -139,8 +140,8 @@ class ProgressionActivity : AppCompatActivity() {
         // this Activity into a ViewPager2 host; "Progression" (already
         // showing) is a no-op, guarded by position so re-selecting it
         // doesn't fire.
-        findViewById<com.google.android.material.tabs.TabLayout>(R.id.progressionSectionTabLayout)
-            .addOnTabSelectedListener(object : com.google.android.material.tabs.TabLayout.OnTabSelectedListener {
+        sectionTabLayout = findViewById(R.id.progressionSectionTabLayout)
+        sectionTabLayout.addOnTabSelectedListener(object : com.google.android.material.tabs.TabLayout.OnTabSelectedListener {
                 override fun onTabSelected(tab: com.google.android.material.tabs.TabLayout.Tab) {
                     if (tab.position == 1) {
                         startActivity(Intent(this@ProgressionActivity, ReturnsActivity::class.java))
@@ -220,6 +221,19 @@ class ProgressionActivity : AppCompatActivity() {
         // its nav bar could keep showing a stale selection - same
         // pattern as every other bottom-nav screen.
         BottomNavHelper.setup(this, findViewById(R.id.bottomNav), BottomNavDestination.PROGRESSION)
+        // Same reasoning, same fix, for the top Progression/Returns tab
+        // row: selecting "Returns" launches a separate Activity (see
+        // this row's setup in onCreate) rather than actually changing
+        // what's shown here, so its own selection state is left exactly
+        // as it was the moment it was tapped - "Returns" stays visually
+        // selected even after returning here via back-press, since
+        // nothing else ever resets it. This screen IS "Progression"
+        // whenever it's the one actually on screen, so re-select
+        // position 0 every time this resumes. Selecting programmatically
+        // still fires the listener, but position 0's handler is a no-op
+        // (only position 1 does anything), so this is safe to call even
+        // when it was already selected.
+        sectionTabLayout.getTabAt(0)?.select()
         loadMemberList()
         loadAssetList()
     }
@@ -363,7 +377,7 @@ class ProgressionActivity : AppCompatActivity() {
 
     private fun loadMemberList() {
         val portfolioPath = PortfolioStorage.filePath(this)
-        val portfolioJson = Bridge.loadPortfolio(portfolioPath)
+        val portfolioJson = PortfolioLoadCache.load(portfolioPath)
         val membersJson = Bridge.listMembers(portfolioJson)
 
         val memberType = object : TypeToken<List<Member>>() {}.type
@@ -383,7 +397,7 @@ class ProgressionActivity : AppCompatActivity() {
 
     private fun loadAssetList() {
         val portfolioPath = PortfolioStorage.filePath(this)
-        val portfolioJson = Bridge.loadPortfolio(portfolioPath)
+        val portfolioJson = PortfolioLoadCache.load(portfolioPath)
         val snapshot: PortfolioManualEntrySnapshot = try {
             gson.fromJson(portfolioJson, PortfolioManualEntrySnapshot::class.java)
         } catch (e: Exception) {
@@ -429,7 +443,7 @@ class ProgressionActivity : AppCompatActivity() {
             // with no diagnostic trail at all).
             try {
                 val portfolioPath = PortfolioStorage.filePath(this)
-                val portfolioJson = Bridge.loadPortfolio(portfolioPath)
+                val portfolioJson = PortfolioLoadCache.load(portfolioPath)
                 val cachePath = PortfolioStorage.progressionCachePath(this)
                 val today = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
 
@@ -693,7 +707,7 @@ class ProgressionActivity : AppCompatActivity() {
             // for a Bridge-level error.
             try {
                 val portfolioPath = PortfolioStorage.filePath(this)
-                val portfolioJson = Bridge.loadPortfolio(portfolioPath)
+                val portfolioJson = PortfolioLoadCache.load(portfolioPath)
                 val resultJson = if (groupLabel != null) {
                     Bridge.computeGroupProgressionDailyRange(portfolioJson, memberId, groupLabel, startDate, endDate)
                 } else if (tag != null) {
