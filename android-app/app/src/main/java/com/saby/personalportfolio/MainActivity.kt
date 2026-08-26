@@ -144,7 +144,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun loadMemberSpinner() {
         val portfolioPath = PortfolioStorage.filePath(this)
-        val portfolioJson = Bridge.loadPortfolio(portfolioPath)
+        val portfolioJson = PortfolioLoadCache.load(portfolioPath)
         val membersJson = Bridge.listMembers(portfolioJson)
 
         val memberType = object : TypeToken<List<Member>>() {}.type
@@ -172,7 +172,7 @@ class MainActivity : AppCompatActivity() {
         val memberId = memberIds.getOrElse(selectedIndex) { "" }
 
         val portfolioPath = PortfolioStorage.filePath(this)
-        val portfolioJson = Bridge.loadPortfolio(portfolioPath)
+        val portfolioJson = PortfolioLoadCache.load(portfolioPath)
 
         val holdingsJson = Bridge.computeHoldingsForMember(portfolioJson, memberId)
         val holdingsType = object : TypeToken<List<Holding>>() {}.type
@@ -367,7 +367,7 @@ class MainActivity : AppCompatActivity() {
         backgroundExecutor.execute {
             try {
                 val portfolioPath = PortfolioStorage.filePath(this)
-                var portfolioJson = Bridge.loadPortfolio(portfolioPath)
+                var portfolioJson = PortfolioLoadCache.load(portfolioPath)
                 if (isBridgeError(portfolioJson)) {
                     mainThread.post { failRefresh("Failed to load portfolio: $portfolioJson") }
                     return@execute
