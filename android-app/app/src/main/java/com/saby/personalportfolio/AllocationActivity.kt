@@ -184,7 +184,7 @@ class AllocationActivity : AppCompatActivity() {
 
     private fun loadAndShowMarketCapSection() {
         val portfolioPath = PortfolioStorage.filePath(this)
-        val portfolioJson = Bridge.loadPortfolio(portfolioPath)
+        val portfolioJson = PortfolioLoadCache.load(portfolioPath)
 
         val driftJson = Bridge.computeAllocationDrift(portfolioJson)
         val driftResult: AllocationDriftResult? = try {
@@ -244,7 +244,7 @@ class AllocationActivity : AppCompatActivity() {
 
     private fun loadAndShowEquityOriginSection() {
         val portfolioPath = PortfolioStorage.filePath(this)
-        val portfolioJson = Bridge.loadPortfolio(portfolioPath)
+        val portfolioJson = PortfolioLoadCache.load(portfolioPath)
 
         val allocationJson = Bridge.computeAllocationByEquityOrigin(portfolioJson)
         val sliceType = object : TypeToken<List<AllocationSlice>>() {}.type
@@ -280,7 +280,7 @@ class AllocationActivity : AppCompatActivity() {
 
     private fun loadAndShowPortfolioClassSection() {
         val portfolioPath = PortfolioStorage.filePath(this)
-        val portfolioJson = Bridge.loadPortfolio(portfolioPath)
+        val portfolioJson = PortfolioLoadCache.load(portfolioPath)
 
         val driftJson = Bridge.computePortfolioClassDrift(portfolioJson)
         val driftResult: PortfolioClassDriftResult? = try {
@@ -338,7 +338,7 @@ class AllocationActivity : AppCompatActivity() {
 
     private fun loadAndShowTagsSection() {
         val portfolioPath = PortfolioStorage.filePath(this)
-        val portfolioJson = Bridge.loadPortfolio(portfolioPath)
+        val portfolioJson = PortfolioLoadCache.load(portfolioPath)
 
         val allocationJson = Bridge.computeAllocationByTag(portfolioJson, "")
         val sliceType = object : TypeToken<List<AllocationSlice>>() {}.type
