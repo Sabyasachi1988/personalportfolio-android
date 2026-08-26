@@ -30,9 +30,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var holdingsCountLine: TextView
     private lateinit var periodGainsRow: View
     private lateinit var periodGainDay: TextView
-    private lateinit var periodGainWeek: TextView
-    private lateinit var periodGainMonth: TextView
     private lateinit var periodGainYear: TextView
+    private lateinit var periodGainCalendarYear: TextView
     private lateinit var donutMarketCap: DonutChartView
     private lateinit var donutLegendMarketCap: DonutLegendView
     private lateinit var donutOrigin: DonutChartView
@@ -62,9 +61,8 @@ class MainActivity : AppCompatActivity() {
         holdingsCountLine.visibility = View.VISIBLE
         periodGainsRow = findViewById(R.id.statsCardPeriodGainsRow)
         periodGainDay = findViewById(R.id.statsCardPeriodGainDay)
-        periodGainWeek = findViewById(R.id.statsCardPeriodGainWeek)
-        periodGainMonth = findViewById(R.id.statsCardPeriodGainMonth)
         periodGainYear = findViewById(R.id.statsCardPeriodGainYear)
+        periodGainCalendarYear = findViewById(R.id.statsCardPeriodGainCalendarYear)
         periodGainsRow.visibility = View.VISIBLE
         donutMarketCap = findViewById(R.id.dashboardDonutMarketCap)
         donutLegendMarketCap = findViewById(R.id.dashboardDonutLegendMarketCap)
@@ -235,56 +233,68 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * Populates the compact rolling Day/Week/Month/Year strip under the
-     * total-value line - see finance.ComputePeriodGains' doc comment
-     * (Go) for exactly what these figures mean: market movement only,
-     * NET of any money added or withdrawn during each window, so a
-     * fresh SIP this week doesn't inflate "Week" gain. This is
-     * deliberately different from statsCardGain above it, which is the
-     * since-inception total (Value - Invested) - the two numbers are
-     * answering different questions and will often disagree in sign,
-     * that's expected, not a bug.
+     * Populates the Day / 1-Year (rolling) / Calendar Year (YTD) lines
+     * under the total-value line - see finance.ComputePeriodGains and
+     * finance.ComputeCalendarYearGain's doc comments (Go) for exactly
+     * what these figures mean: market movement only, NET of any money
+     * added or withdrawn during each window, so a fresh SIP doesn't
+     * inflate the figure. This is deliberately different from
+     * statsCardGain above it, which is the since-inception total
+     * (Value - Invested) - the two numbers answer different questions
+     * and will often disagree in sign, that's expected, not a bug.
+     *
+     * Rupee amount is shown as the PRIMARY figure (percent alongside,
+     * smaller/secondary) - a rupee amount is more immediately readable
+     * at a glance than a bare percent, especially for Day, where the
+     * percent alone barely moves.
      */
     private fun showPeriodGains(portfolioJson: String, memberId: String) {
         val today = java.text.SimpleDateFormat("yyyy-MM-dd", Locale.US).format(java.util.Date())
-        val resultJson = Bridge.computePeriodGains(portfolioJson, memberId, today)
+
+        val rollingJson = Bridge.computePeriodGains(portfolioJson, memberId, today)
         val gainType = object : TypeToken<List<PeriodGain>>() {}.type
-        val gains: List<PeriodGain> = try {
-            gson.fromJson(resultJson, gainType) ?: emptyList()
+        val rollingGains: List<PeriodGain> = try {
+            gson.fromJson(rollingJson, gainType) ?: emptyList()
         } catch (e: Exception) {
             emptyList()
         }
-        val byLabel = gains.associateBy { it.label }
-        val views = listOf(
-            "Day" to periodGainDay,
-            "Week" to periodGainWeek,
-            "Month" to periodGainMonth,
-            "Year" to periodGainYear
+        val byLabel = rollingGains.associateBy { it.label }
+
+        val calendarYearJson = Bridge.computeCalendarYearGain(portfolioJson, memberId, today)
+        val calendarYearGain: PeriodGain? = try {
+            gson.fromJson(calendarYearJson, PeriodGain::class.java)
+        } catch (e: Exception) {
+            null
+        }
+
+        bindPeriodGainLine(periodGainDay, "Day", byLabel["Day"])
+        bindPeriodGainLine(periodGainYear, "1 Year", byLabel["Year"])
+        bindPeriodGainLine(periodGainCalendarYear, "This calendar year", calendarYearGain)
+    }
+
+    private fun bindPeriodGainLine(view: TextView, displayLabel: String, g: PeriodGain?) {
+        if (g == null || !g.hasData) {
+            view.text = "$displayLabel: not enough history yet"
+            view.setTextColor(androidx.core.content.ContextCompat.getColor(this, R.color.colorNeutral))
+            view.setOnClickListener(null)
+            return
+        }
+        view.text = String.format(
+            Locale.getDefault(), "%s: %s (%+.1f%%)",
+            displayLabel, IndianCurrencyFormatter.formatSigned(g.gain), g.percent
         )
-        for ((label, view) in views) {
-            val g = byLabel[label]
-            if (g == null || !g.hasData) {
-                view.text = "$label\n—"
-                view.setTextColor(androidx.core.content.ContextCompat.getColor(this, R.color.colorNeutral))
-                view.setOnClickListener(null)
-                continue
-            }
-            view.text = String.format(Locale.getDefault(), "%s\n%+.1f%%", label, g.percent)
-            view.setTextColor(
-                androidx.core.content.ContextCompat.getColor(
-                    this, if (g.gain >= 0) R.color.colorGain else R.color.colorLoss
-                )
+        view.setTextColor(
+            androidx.core.content.ContextCompat.getColor(this, if (g.gain >= 0) R.color.colorGain else R.color.colorLoss)
+        )
+        view.setOnClickListener {
+            donutToast?.cancel()
+            val toast = Toast.makeText(
+                this,
+                "Market movement only - excludes any money added or withdrawn during this period",
+                Toast.LENGTH_LONG
             )
-            view.setOnClickListener {
-                donutToast?.cancel()
-                val toast = Toast.makeText(
-                    this,
-                    "$label: ${IndianCurrencyFormatter.formatSigned(g.gain)} (market movement, excludes any money added/withdrawn)",
-                    Toast.LENGTH_LONG
-                )
-                donutToast = toast
-                toast.show()
-            }
+            donutToast = toast
+            toast.show()
         }
     }
 
