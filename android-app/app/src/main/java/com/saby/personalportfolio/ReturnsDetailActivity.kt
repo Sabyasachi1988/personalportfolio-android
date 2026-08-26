@@ -34,7 +34,7 @@ class ReturnsDetailActivity : AppCompatActivity() {
         nameView.text = name
 
         val portfolioPath = PortfolioStorage.filePath(this)
-        val portfolioJson = Bridge.loadPortfolio(portfolioPath)
+        val portfolioJson = PortfolioLoadCache.load(portfolioPath)
         val resultJson = Bridge.computePriceHistory(portfolioJson, seriesId)
         val pointType = object : TypeToken<List<PricePoint>>() {}.type
         val points: List<PricePoint> = try {
