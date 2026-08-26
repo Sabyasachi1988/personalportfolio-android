@@ -29,7 +29,7 @@ class TagsActivity : AppCompatActivity() {
 
     private fun loadAndBindAdapter(recyclerView: RecyclerView) {
         val portfolioPath = PortfolioStorage.filePath(this)
-        val portfolioJson = Bridge.loadPortfolio(portfolioPath)
+        val portfolioJson = PortfolioLoadCache.load(portfolioPath)
 
         val snapshot: PortfolioAssetsSnapshot = try {
             gson.fromJson(portfolioJson, PortfolioAssetsSnapshot::class.java)
@@ -65,7 +65,7 @@ class TagsActivity : AppCompatActivity() {
     private fun saveTags(assetId: String, tags: List<String>, primaryTag: String, rowHolder: TagsAdapter.RowHolder) {
         rowHolder.saveButton.isEnabled = false
         val portfolioPath = PortfolioStorage.filePath(this)
-        val currentPortfolioJson = Bridge.loadPortfolio(portfolioPath)
+        val currentPortfolioJson = PortfolioLoadCache.load(portfolioPath)
         if (isBridgeError(currentPortfolioJson)) {
             rowHolder.saveButton.isEnabled = true
             Toast.makeText(this, "Failed to load portfolio: $currentPortfolioJson", Toast.LENGTH_LONG).show()
