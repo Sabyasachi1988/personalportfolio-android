@@ -31,7 +31,11 @@ object ProgressionCurrency {
     fun format(converted: ConvertedAmount): String {
         val amount = converted.amount ?: return "— (no FX rate for this date yet)"
         return when (converted.currencyCode) {
-            "CAD" -> "C$" + String.format(Locale.US, "%,.2f", amount)
+            // CAD leg rounded to whole dollars too - same reasoning as
+            // IndianCurrencyFormatter's default: this is a total/amount,
+            // not a per-unit price, so paisa/cent-level precision is
+            // noise here.
+            "CAD" -> "C$" + String.format(Locale.US, "%,.0f", amount)
             else -> IndianCurrencyFormatter.format(amount)
         }
     }
@@ -40,7 +44,7 @@ object ProgressionCurrency {
         val amount = converted.amount ?: return "— (no FX rate for this date yet)"
         val sign = if (amount >= 0) "+" else ""
         return when (converted.currencyCode) {
-            "CAD" -> sign + "C$" + String.format(Locale.US, "%,.2f", amount)
+            "CAD" -> sign + "C$" + String.format(Locale.US, "%,.0f", amount)
             else -> IndianCurrencyFormatter.formatSigned(amount)
         }
     }
