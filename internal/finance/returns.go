@@ -8,17 +8,26 @@ import (
 	"ledger/internal/store"
 )
 
-// TrailingReturn is a simple point-to-point % change over a fixed
-// window ending today - used for the SHORT tenures (Day, 1 Month) in
-// the Returns table, where a full rolling distribution (see
-// RollingReturnStats) wouldn't mean much: a "rolling distribution of
-// 1-day returns" is really just daily volatility, a different question
-// than the multi-year "how consistent has this been" question rolling
-// returns answer for longer tenures.
+// TrailingReturn is a point-to-point return from N years/days before
+// the series' own LATEST actual data point through that point -
+// deliberately NOT anchored to literal calendar "today". Anchoring to
+// today was a real, confirmed bug: if a fund's price hasn't been
+// re-fetched today (very common - AMFI/exchange data usually lags by a
+// day or more), both "today" and "N days before today" resolve via
+// carry-forward to the EXACT SAME cached price, making the return
+// compute as precisely 0% every time, which read as "today's return is
+// always zero" - not a rare edge case but the default state whenever
+// data isn't freshly fetched same-day. Anchoring to the series' own
+// latest point instead means "the most recent real return this data can
+// tell you" - if the market's already closed and NAV is in, that's
+// today's move; if not, it's the last real move we know about, exactly
+// as it should be. See ComputeTrailingReturn (simple, sub-year tenures)
+// vs. ComputeTrailingReturnForYears (annualized, 1Y+ tenures) for which
+// formula is used when.
 type TrailingReturn struct {
 	Label   string
 	Percent float64
-	HasData bool // false if the series doesn't yet reach back to the window's start date
+	HasData bool // false if the series doesn't have enough history before its own latest point
 }
 
 // RollingReturnStats summarizes the FULL distribution of annualized
@@ -31,7 +40,9 @@ type TrailingReturn struct {
 // returns" in Indian mutual-fund analysis - e.g. "3-year rolling
 // returns" answers "no matter which 3-year period you'd picked, what
 // return would you have gotten", not just "what was the return over the
-// last 3 years specifically".
+// last 3 years specifically". Already anchored to real data points (see
+// its own loop below), so it never had the "today" bug TrailingReturn
+// just got fixed for.
 type RollingReturnStats struct {
 	Label   string
 	Median  float64 // annualized %, median across all windows
@@ -40,20 +51,61 @@ type RollingReturnStats struct {
 	HasData bool    // false if the series doesn't have even ONE full N-year window yet
 }
 
-// ComputeTrailingReturn computes a simple (non-annualized) % change from
-// `days` ago to today, using the series' own carry-forward price at each
-// end (see priceOnOrBefore) - so a weekend/holiday gap doesn't count as
-// "no data", same convention as store.Portfolio.PriceAsOf.
-func ComputeTrailingReturn(series []store.PriceRecord, days int, label string, today time.Time) TrailingReturn {
-	endDate := today.Format(dateLayout)
-	startDate := today.AddDate(0, 0, -days).Format(dateLayout)
-
-	endPrice, endOK := priceOnOrBefore(series, endDate)
-	startPrice, startOK := priceOnOrBefore(series, startDate)
-	if !endOK || !startOK || startPrice == 0 {
+// ComputeTrailingReturn computes the SIMPLE (non-annualized) % change
+// over the `days`-day window ending at the series' own latest actual
+// data point - see TrailingReturn's doc comment for why "latest actual
+// point", never literal calendar today. Deliberately NOT annualized,
+// unlike ComputeTrailingReturnForYears below: annualizing a 1-day or
+// 1-month move (compounding it as if it continued for a full year)
+// produces a wild, not-actually-meaningful extrapolation - a 0.5% daily
+// gain "annualizes" to over +500%, which is arithmetically correct but
+// not what "today's return" means to anyone. Simple point-to-point is
+// the standard convention for sub-year figures; only 1Y+ tenures get
+// annualized (see ComputeTrailingReturnForYears), matching how fund
+// factsheets report these.
+func ComputeTrailingReturn(series []store.PriceRecord, days int, label string) TrailingReturn {
+	if len(series) == 0 {
 		return TrailingReturn{Label: label, HasData: false}
 	}
-	percent := (endPrice/startPrice - 1) * 100
+	latest := series[len(series)-1] // PriceSeries returns records sorted ascending by date
+	endDate, err := time.Parse(dateLayout, latest.Date)
+	if err != nil {
+		return TrailingReturn{Label: label, HasData: false}
+	}
+	startDateStr := endDate.AddDate(0, 0, -days).Format(dateLayout)
+	startPrice, ok := priceOnOrBefore(series, startDateStr)
+	if !ok || startPrice <= 0 {
+		return TrailingReturn{Label: label, HasData: false}
+	}
+	percent := (latest.Price/startPrice - 1) * 100
+	return TrailingReturn{Label: label, Percent: round2(percent), HasData: true}
+}
+
+// ComputeTrailingReturnForYears is ComputeTrailingReturn's calendar-year
+// counterpart, used for the 1/3/5/10-Year tenures so the Returns table
+// can show a trailing figure ALONGSIDE each tenure's rolling
+// distribution (see RollingReturnStats) - "what actually happened over
+// the most recent N years" next to "what a random N-year window has
+// historically looked like". Same latest-actual-point anchoring as
+// ComputeTrailingReturn; kept as a separate function rather than a
+// days-based call (years*365) because calendar-year arithmetic
+// (AddDate(-years, 0, 0)) handles leap years correctly, which a flat
+// years*365 day count would drift on over a 10-year window.
+func ComputeTrailingReturnForYears(series []store.PriceRecord, years int, label string) TrailingReturn {
+	if len(series) == 0 {
+		return TrailingReturn{Label: label, HasData: false}
+	}
+	latest := series[len(series)-1]
+	endDate, err := time.Parse(dateLayout, latest.Date)
+	if err != nil {
+		return TrailingReturn{Label: label, HasData: false}
+	}
+	startDateStr := endDate.AddDate(-years, 0, 0).Format(dateLayout)
+	startPrice, ok := priceOnOrBefore(series, startDateStr)
+	if !ok || startPrice <= 0 || latest.Price <= 0 {
+		return TrailingReturn{Label: label, HasData: false}
+	}
+	percent := (math.Pow(latest.Price/startPrice, 1.0/float64(years)) - 1) * 100
 	return TrailingReturn{Label: label, Percent: round2(percent), HasData: true}
 }
 
