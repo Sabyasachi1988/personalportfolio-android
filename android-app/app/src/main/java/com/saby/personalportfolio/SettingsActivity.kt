@@ -58,6 +58,10 @@ class SettingsActivity : AppCompatActivity() {
             startActivity(android.content.Intent(this, TagsActivity::class.java))
         }
 
+        findViewById<android.widget.Button>(R.id.manageBenchmarksButton).setOnClickListener {
+            startActivity(android.content.Intent(this, BenchmarksActivity::class.java))
+        }
+
         findViewById<android.widget.Button>(R.id.fixAssetSymbolButton).setOnClickListener {
             startActivity(android.content.Intent(this, FixAssetSymbolActivity::class.java))
         }
