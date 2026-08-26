@@ -19,15 +19,22 @@ class ReturnsAdapter(
         val range: TextView = root.findViewById(R.id.returnsCellRange)
     }
 
+    class TenureRowViews(root: View) {
+        val label: TextView = root.findViewById(R.id.tenureRowLabel)
+        val trailing: TextView = root.findViewById(R.id.tenureRowTrailing)
+        val rollingMedian: TextView = root.findViewById(R.id.tenureRowRollingMedian)
+        val rollingRange: TextView = root.findViewById(R.id.tenureRowRollingRange)
+    }
+
     class RowHolder(view: View) : RecyclerView.ViewHolder(view) {
         val name: TextView = view.findViewById(R.id.returnsRowName)
         val typeBadge: TextView = view.findViewById(R.id.returnsRowTypeBadge)
         val day = CellViews(view.findViewById(R.id.returnsCellDay))
         val month = CellViews(view.findViewById(R.id.returnsCellMonth))
-        val oneYear = CellViews(view.findViewById(R.id.returnsCellOneYear))
-        val threeYear = CellViews(view.findViewById(R.id.returnsCellThreeYear))
-        val fiveYear = CellViews(view.findViewById(R.id.returnsCellFiveYear))
-        val tenYear = CellViews(view.findViewById(R.id.returnsCellTenYear))
+        val oneYear = TenureRowViews(view.findViewById(R.id.returnsRowOneYear))
+        val threeYear = TenureRowViews(view.findViewById(R.id.returnsRowThreeYear))
+        val fiveYear = TenureRowViews(view.findViewById(R.id.returnsRowFiveYear))
+        val tenYear = TenureRowViews(view.findViewById(R.id.returnsRowTenYear))
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RowHolder {
@@ -47,17 +54,18 @@ class ReturnsAdapter(
             holder.typeBadge.setTextColor(ContextCompat.getColor(context, R.color.colorNeutral))
         }
 
-        bindTrailing(holder.day, "Day", row.day)
-        bindTrailing(holder.month, "1 Month", row.month)
-        bindRolling(holder.oneYear, "1 Year", row.oneYear)
-        bindRolling(holder.threeYear, "3 Year", row.threeYear)
-        bindRolling(holder.fiveYear, "5 Year", row.fiveYear)
-        bindRolling(holder.tenYear, "10 Year", row.tenYear)
+        bindTrailingCell(holder.day, "Day", row.day)
+        bindTrailingCell(holder.month, "1 Month", row.month)
+
+        bindTenureRow(holder.oneYear, "1Y", row.oneYearTrailing, row.oneYearRolling)
+        bindTenureRow(holder.threeYear, "3Y", row.threeYearTrailing, row.threeYearRolling)
+        bindTenureRow(holder.fiveYear, "5Y", row.fiveYearTrailing, row.fiveYearRolling)
+        bindTenureRow(holder.tenYear, "10Y", row.tenYearTrailing, row.tenYearRolling)
 
         holder.itemView.setOnClickListener { onRowTapped(row) }
     }
 
-    private fun bindTrailing(cell: CellViews, label: String, r: TrailingReturn) {
+    private fun bindTrailingCell(cell: CellViews, label: String, r: TrailingReturn) {
         cell.label.text = label
         val context = cell.value.context
         if (!r.hasData) {
@@ -73,20 +81,31 @@ class ReturnsAdapter(
         cell.range.text = ""
     }
 
-    private fun bindRolling(cell: CellViews, label: String, r: RollingReturnStats) {
-        cell.label.text = label
-        val context = cell.value.context
-        if (!r.hasData) {
-            cell.value.text = "—"
-            cell.value.setTextColor(ContextCompat.getColor(context, R.color.colorNeutral))
-            cell.range.text = "Not enough history"
-            return
+    private fun bindTenureRow(row: TenureRowViews, label: String, trailing: TrailingReturn, rolling: RollingReturnStats) {
+        row.label.text = label
+        val context = row.trailing.context
+
+        if (trailing.hasData) {
+            row.trailing.text = String.format(Locale.getDefault(), "%+.1f%%", trailing.percent)
+            row.trailing.setTextColor(
+                ContextCompat.getColor(context, if (trailing.percent >= 0) R.color.colorGain else R.color.colorLoss)
+            )
+        } else {
+            row.trailing.text = "—"
+            row.trailing.setTextColor(ContextCompat.getColor(context, R.color.colorNeutral))
         }
-        cell.value.text = String.format(Locale.getDefault(), "%+.1f%%", r.median)
-        cell.value.setTextColor(
-            ContextCompat.getColor(context, if (r.median >= 0) R.color.colorGain else R.color.colorLoss)
-        )
-        cell.range.text = String.format(Locale.getDefault(), "[%+.0f, %+.0f]", r.min, r.max)
+
+        if (rolling.hasData) {
+            row.rollingMedian.text = String.format(Locale.getDefault(), "%+.1f%%", rolling.median)
+            row.rollingMedian.setTextColor(
+                ContextCompat.getColor(context, if (rolling.median >= 0) R.color.colorGain else R.color.colorLoss)
+            )
+            row.rollingRange.text = String.format(Locale.getDefault(), "[%+.0f, %+.0f]", rolling.min, rolling.max)
+        } else {
+            row.rollingMedian.text = "—"
+            row.rollingMedian.setTextColor(ContextCompat.getColor(context, R.color.colorNeutral))
+            row.rollingRange.text = "not enough history"
+        }
     }
 
     override fun getItemCount(): Int = rows.size
