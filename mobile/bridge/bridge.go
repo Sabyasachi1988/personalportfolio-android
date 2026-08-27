@@ -423,6 +423,25 @@ func SetAssetGroupLabel(portfolioJSON string, assetID string, label string) stri
 	return string(out)
 }
 
+// SetAssetClassOverride records (or clears, given "") the manual
+// Equity/Debt/Commodity/Others correction for one asset - see
+// store.Asset.AssetClassOverride's doc comment. Returns the updated
+// portfolio as JSON.
+func SetAssetClassOverride(portfolioJSON string, assetID string, class string) string {
+	var p store.Portfolio
+	if portfolioJSON != "" {
+		if err := json.Unmarshal([]byte(portfolioJSON), &p); err != nil {
+			return fmt.Sprintf(`{"error":%q}`, "invalid portfolio JSON: "+err.Error())
+		}
+	}
+	p.SetAssetClassOverride(assetID, class)
+	out, err := json.Marshal(p)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+	return string(out)
+}
+
 // SetAssetTags replaces the full tag list for an asset - see
 // store.Asset.Tags' doc comment and store.Portfolio.SetAssetTags.
 // tagsJSON is a JSON-encoded array of strings, e.g. ["Mid Cap","Growth"]
