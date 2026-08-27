@@ -110,6 +110,31 @@ type Asset struct {
 	// Deliberately NOT omitempty - same reasoning as GroupLabel/Tags
 	// above.
 	PrimaryTag string
+	// Nickname is a personal, freeform display name the person assigns
+	// themselves - e.g. "Midcap A" instead of "Nippon India Growth Mid
+	// Cap Fund - Direct Growth Plan Growth Option". Empty means "no
+	// nickname set, show the real Name" (via DisplayName below) - Name
+	// itself is NEVER overwritten by a nickname, so the real scheme
+	// name is always still there for identification purposes (CAS
+	// import matching, ETMoney linking, etc.), only DISPLAY prefers the
+	// nickname when one exists.
+	//
+	// Deliberately NOT omitempty - same Gson-unsafe-allocation reasoning
+	// as GroupLabel/Tags/PrimaryTag above.
+	Nickname string
+}
+
+// DisplayName is what should be SHOWN to the person for this asset -
+// the Nickname if one has been set, else the real Name. Every place
+// that surfaces an asset's name to Kotlin for display (as opposed to
+// matching/identification, which should keep using Name directly)
+// should go through this, so a nickname set once in Manage Names
+// actually shows up everywhere, per its own point.
+func (a Asset) DisplayName() string {
+	if a.Nickname != "" {
+		return a.Nickname
+	}
+	return a.Name
 }
 
 // EffectiveTag resolves the single tag used for mutually-exclusive
@@ -180,6 +205,18 @@ type Benchmark struct {
 	// Nifty 50, "^BSESN" for Sensex) - see priceapi.FetchYahooAdjClose,
 	// the same fetch path already used for ETF/stock price history.
 	YahooTicker string
+	// Nickname - see Asset.Nickname's doc comment, same concept applied
+	// to a tracked index instead of a fund. Deliberately NOT omitempty,
+	// same reasoning.
+	Nickname string
+}
+
+// DisplayName - see Asset.DisplayName's doc comment, same concept.
+func (b Benchmark) DisplayName() string {
+	if b.Nickname != "" {
+		return b.Nickname
+	}
+	return b.Name
 }
 
 // PriceRecord is a manually entered or fetched price point for an Asset.
@@ -658,6 +695,51 @@ func (p *Portfolio) SetAssetPrimaryTag(assetID, tag string) {
 			return
 		}
 	}
+}
+
+// SetNickname sets (or, given "", clears) the personal display name for
+// EITHER an asset or a benchmark, whichever id actually matches - see
+// Asset.Nickname/Benchmark.Nickname's doc comments. seriesID is deliberately
+// not scoped to "asset only" or "benchmark only": every other place in
+// this codebase that accepts an opaque "seriesID" (ComputePriceHistory,
+// ComputeMultiSeriesHistory, ComputeFundMetrics) already treats an
+// Asset.ID and a Benchmark.ID as the same kind of key, since they share
+// the same Prices storage - Manage Names follows that same convention
+// rather than inventing two separate rename entry points. No-op if the
+// id matches neither.
+func (p *Portfolio) SetNickname(seriesID, nickname string) {
+	for i := range p.Assets {
+		if p.Assets[i].ID == seriesID {
+			p.Assets[i].Nickname = nickname
+			return
+		}
+	}
+	for i := range p.Benchmarks {
+		if p.Benchmarks[i].ID == seriesID {
+			p.Benchmarks[i].Nickname = nickname
+			return
+		}
+	}
+}
+
+// DisplayName resolves an opaque seriesID (an Asset.ID or a
+// Benchmark.ID - see SetNickname's doc comment on why these share one
+// ID space here) to what should be SHOWN to the person - see
+// Asset.DisplayName/Benchmark.DisplayName. Falls back to the id itself
+// if it matches neither, which should only happen for a stale/removed
+// id - visibly wrong is better than a silently blank name.
+func (p *Portfolio) DisplayName(seriesID string) string {
+	for _, a := range p.Assets {
+		if a.ID == seriesID {
+			return a.DisplayName()
+		}
+	}
+	for _, b := range p.Benchmarks {
+		if b.ID == seriesID {
+			return b.DisplayName()
+		}
+	}
+	return seriesID
 }
 
 // AddBenchmark adds a new tracked market index - see Benchmark's doc
