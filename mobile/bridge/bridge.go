@@ -1407,14 +1407,26 @@ func ComputeAllocationDrift(portfolioJSON string) string {
 	return fmt.Sprintf(`{"hasTarget":true,"drift":%s}`, string(driftJSON))
 }
 
-// UpdateHistoricalNav fetches a mutual fund asset's full NAV history
-// from TigZig (by ISIN) and merges it into the portfolio's cached
-// Prices, upserting rather than duplicating any date already present.
-// This is the manual "Update History" action for the Indian side of
-// the progression feature - not called automatically, same pattern as
-// the existing AMFI current-price refresh. Returns the updated
-// portfolio JSON, or a bridge error string if the asset doesn't exist
-// or the fetch/parse fails.
+// UpdateHistoricalNav fetches a mutual fund asset's NAV history from
+// TigZig (by ISIN) and merges it into the portfolio's cached Prices,
+// upserting rather than duplicating any date already present. This is
+// the manual "Update History" action for the Indian side of the
+// progression feature - not called automatically, same pattern as the
+// existing AMFI current-price refresh.
+//
+// Incremental by default: if this asset already has cached price
+// history, only the gap from the day after its latest cached date
+// onward is actually fetched over the network (see
+// priceapi.FetchTigzigNavHistory's doc comment - TigZig's own live
+// OpenAPI spec confirms a `since` bound is genuinely supported, not
+// previously used here). A brand-new asset with no cached history yet
+// still fetches everything available, same as before. This was the
+// confirmed cause of "Update History taking 30-60 seconds" - every
+// fund's ENTIRE history was being re-downloaded on every tap, even for
+// funds updated minutes earlier.
+//
+// Returns the updated portfolio JSON, or a bridge error string if the
+// asset doesn't exist or the fetch/parse fails.
 func UpdateHistoricalNav(portfolioJSON string, assetID string, isin string) string {
 	var p store.Portfolio
 	if portfolioJSON != "" {
@@ -1436,7 +1448,8 @@ func UpdateHistoricalNav(portfolioJSON string, assetID string, isin string) stri
 		return `{"error":"ISIN cannot be empty"}`
 	}
 
-	history, err := priceapi.FetchTigzigNavHistory(isin)
+	since := dayAfterLatest(p.PriceSeries(assetID))
+	history, err := priceapi.FetchTigzigNavHistory(isin, since)
 	if err != nil {
 		return fmt.Sprintf(`{"error":%q}`, err.Error())
 	}
@@ -1455,14 +1468,67 @@ func UpdateHistoricalNav(portfolioJSON string, assetID string, isin string) stri
 	return string(out)
 }
 
-// UpdateHistoricalPrice fetches full price history for a symbol-based
-// asset (an ETF or stock - anything identified by a Yahoo Finance
-// ticker rather than an AMFI ISIN, e.g. a manually-entered NIFTYBEES.NS
-// or a foreign brokerage holding) and merges it into the portfolio's
-// cached Prices, same "Update History" manual-action pattern as
-// UpdateHistoricalNav. See priceapi.FetchYahooAdjClose's doc comment
-// for the one honesty caveat on this data source. Returns the updated
-// portfolio JSON, or a bridge error string if the fetch/parse fails.
+// dayAfterLatest returns the day after the latest date in series,
+// formatted "yyyy-MM-dd", or "" if series is empty (meaning "fetch
+// everything available" to every caller below - the shared incremental-
+// fetch convention this file uses for NAV/ETF-stock/FX/benchmark
+// history alike). A date that fails to parse is treated the same as
+// "not found" - fails safe to a full re-fetch rather than silently
+// skipping a legitimately stale gap.
+func dayAfterLatest(series []store.PriceRecord) string {
+	if len(series) == 0 {
+		return ""
+	}
+	latest := series[0].Date
+	for _, r := range series[1:] {
+		if r.Date > latest {
+			latest = r.Date
+		}
+	}
+	t, err := time.Parse("2006-01-02", latest)
+	if err != nil {
+		return ""
+	}
+	return t.AddDate(0, 0, 1).Format("2006-01-02")
+}
+
+// dayAfterLatestFX is dayAfterLatest's counterpart for FX rates, scoped
+// to one currency (FXRates holds every currency's history together, so
+// this can't just reuse dayAfterLatest over the whole slice).
+func dayAfterLatestFX(rates []store.FXRate, currency string) string {
+	found := false
+	var latest string
+	for _, r := range rates {
+		if r.Currency != currency {
+			continue
+		}
+		if !found || r.Date > latest {
+			latest = r.Date
+			found = true
+		}
+	}
+	if !found {
+		return ""
+	}
+	t, err := time.Parse("2006-01-02", latest)
+	if err != nil {
+		return ""
+	}
+	return t.AddDate(0, 0, 1).Format("2006-01-02")
+}
+
+// UpdateHistoricalPrice fetches price history for a symbol-based asset
+// (an ETF or stock - anything identified by a Yahoo Finance ticker
+// rather than an AMFI ISIN, e.g. a manually-entered NIFTYBEES.NS or a
+// foreign brokerage holding) and merges it into the portfolio's cached
+// Prices, same "Update History" manual-action pattern as
+// UpdateHistoricalNav - including the same incremental behavior: since
+// is only used as the LOWER BOUND for an asset with no cached history
+// yet; once any history exists, the day after its latest cached date
+// wins instead, so a re-run only fetches the actual gap. See
+// priceapi.FetchYahooAdjClose's doc comment for the one honesty caveat
+// on this data source. Returns the updated portfolio JSON, or a bridge
+// error string if the fetch/parse fails.
 func UpdateHistoricalPrice(portfolioJSON string, assetID string, symbol string, since string) string {
 	var p store.Portfolio
 	if portfolioJSON != "" {
@@ -1484,9 +1550,22 @@ func UpdateHistoricalPrice(portfolioJSON string, assetID string, symbol string, 
 		return `{"error":"symbol cannot be empty"}`
 	}
 
+	hasExistingHistory := len(p.PriceSeries(assetID)) > 0
+	if incremental := dayAfterLatest(p.PriceSeries(assetID)); incremental != "" {
+		since = incremental
+	}
 	points, err := priceapi.FetchYahooAdjClose(symbol, since)
 	if err != nil {
 		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+	// Zero results is only worth surfacing as an error for a first-ever
+	// fetch (likely a bad/delisted ticker) - see FetchYahooAdjClose's
+	// doc comment on why the function itself no longer makes this call.
+	// For an asset with existing history, zero new points just means
+	// "already up to date", the normal and common case once incremental
+	// fetching is working.
+	if len(points) == 0 && !hasExistingHistory {
+		return fmt.Sprintf(`{"error":%q}`, "no price history found for "+symbol)
 	}
 	records := make([]store.PriceRecord, 0, len(points))
 	for _, pt := range points {
@@ -1543,15 +1622,20 @@ func RemoveBenchmark(portfolioJSON string, benchmarkID string) string {
 	return string(out)
 }
 
-// UpdateBenchmarkHistory fetches full historical daily levels for one
+// UpdateBenchmarkHistory fetches historical daily levels for one
 // tracked index via Yahoo Finance (see priceapi.FetchYahooAdjClose's doc
 // comment for the one honesty caveat on this data source, which applies
 // here too) and merges them into the portfolio's cached Prices, keyed by
 // the benchmark's own ID - same "Update History" manual-action pattern
 // as UpdateHistoricalPrice, and see store.Benchmark's doc comment for
 // why this reuses the exact same Prices storage as fund NAV history.
-// Returns the updated portfolio JSON, or a bridge error string if the
-// fetch/parse fails.
+// Same incremental behavior too: since is only the lower bound for a
+// benchmark with no cached history yet - every caller today
+// (BenchmarksActivity's per-index Refresh, and the centralized Update
+// History screen) always passes a fixed early date, which used to mean
+// a full history re-fetch on literally every tap regardless of how
+// current the cached data already was. Returns the updated portfolio
+// JSON, or a bridge error string if the fetch/parse fails.
 func UpdateBenchmarkHistory(portfolioJSON string, benchmarkID string, since string) string {
 	var p store.Portfolio
 	if portfolioJSON != "" {
@@ -1570,9 +1654,16 @@ func UpdateBenchmarkHistory(portfolioJSON string, benchmarkID string, since stri
 		return `{"error":"no benchmark with that ID exists"}`
 	}
 
+	hasExistingHistory := len(p.PriceSeries(benchmarkID)) > 0
+	if incremental := dayAfterLatest(p.PriceSeries(benchmarkID)); incremental != "" {
+		since = incremental
+	}
 	points, err := priceapi.FetchYahooAdjClose(benchmark.YahooTicker, since)
 	if err != nil {
 		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+	if len(points) == 0 && !hasExistingHistory {
+		return fmt.Sprintf(`{"error":%q}`, "no price history found for "+benchmark.YahooTicker)
 	}
 	records := make([]store.PriceRecord, 0, len(points))
 	for _, pt := range points {
@@ -1873,6 +1964,14 @@ func ComputeFundMetrics(portfolioJSON string, seriesID string, benchmarkID strin
 // merges them into the portfolio's cached FXRates. Manual action, same
 // "Update History" pattern as UpdateHistoricalNav. Returns the updated
 // portfolio JSON, or a bridge error string if the fetch/parse fails.
+// UpdateHistoricalFX fetches FX rate history for one currency and
+// merges it into the portfolio's cached FXRates - same "Update
+// History" manual-action pattern and same incremental behavior as
+// UpdateHistoricalNav/UpdateHistoricalPrice: since is only the lower
+// bound for a currency with no cached rates yet; once any rates exist
+// for this currency, the day after its latest cached date wins
+// instead. Returns the updated portfolio JSON, or a bridge error
+// string if the fetch fails.
 func UpdateHistoricalFX(portfolioJSON string, currency string, since string) string {
 	var p store.Portfolio
 	if portfolioJSON != "" {
@@ -1881,9 +1980,22 @@ func UpdateHistoricalFX(portfolioJSON string, currency string, since string) str
 		}
 	}
 
+	hasExistingHistory := false
+	for _, r := range p.FXRates {
+		if r.Currency == currency {
+			hasExistingHistory = true
+			break
+		}
+	}
+	if incremental := dayAfterLatestFX(p.FXRates, currency); incremental != "" {
+		since = incremental
+	}
 	rates, err := priceapi.FetchFrankfurterHistory(currency, since)
 	if err != nil {
 		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+	if len(rates) == 0 && !hasExistingHistory {
+		return fmt.Sprintf(`{"error":%q}`, "no FX rates returned for "+currency)
 	}
 	p.UpsertFXRates(rates)
 
