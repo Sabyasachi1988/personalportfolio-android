@@ -21,7 +21,9 @@ data class AssetSummary(
     // only, not something this screen relies on for correctness.
     @SerializedName("Tags") val tags: List<String> = emptyList(),
     @SerializedName("PrimaryTag") val primaryTag: String = "",
-    @SerializedName("Nickname") val nickname: String = ""
+    @SerializedName("Nickname") val nickname: String = "",
+    @SerializedName("AssetClass") val assetClass: String = "",
+    @SerializedName("AssetClassOverride") val assetClassOverride: String = ""
 )
 
 data class AccountSummary(
