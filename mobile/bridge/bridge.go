@@ -831,7 +831,20 @@ func SavePortfolio(path string, portfolioJSON string) string {
 // "portfolio": {...}} rather than the bare portfolio, so the caller can
 // tell the person how many rows were actually added versus recognized
 // as already present.
-func CommitStagedRows(portfolioJSON string, stagedRowsJSON string, memberName string) string {
+// CommitStagedRows adds every "NEW"-status staged row to the portfolio,
+// attaching them to a "CAS Import" account under the given EXISTING
+// member. memberID must match a real Member already in the portfolio -
+// this deliberately does NOT create a new member on a mismatch (unlike
+// an earlier version of this function, which matched by free-text NAME
+// and silently created a brand-new member whenever that name didn't
+// exactly match an existing one). That was a real risk: a typo in a
+// hand-typed member name (e.g. "Mom" vs "Mother") would silently spawn
+// a phantom duplicate member that doesn't actually exist, rather than
+// surfacing an error - see ImportActivity's member picker (a dropdown
+// of real members, no free-text entry) for the other half of this fix.
+// Adding an actual new family member is Manage Members' job, not an
+// incidental side effect of importing a statement.
+func CommitStagedRows(portfolioJSON string, stagedRowsJSON string, memberID string) string {
 	var p store.Portfolio
 	if portfolioJSON != "" {
 		if err := json.Unmarshal([]byte(portfolioJSON), &p); err != nil {
@@ -843,22 +856,20 @@ func CommitStagedRows(portfolioJSON string, stagedRowsJSON string, memberName st
 		return fmt.Sprintf(`{"error":%q}`, "invalid staged rows JSON: "+err.Error())
 	}
 
-	if memberName == "" {
-		memberName = "Me"
+	if memberID == "" {
+		return `{"error":"no member selected - pick who this statement belongs to"}`
 	}
-	const accountName = "CAS Import"
-
-	var memberID string
+	memberFound := false
 	for _, m := range p.Members {
-		if m.Name == memberName {
-			memberID = m.ID
+		if m.ID == memberID {
+			memberFound = true
 			break
 		}
 	}
-	if memberID == "" {
-		memberID = store.NewID("member")
-		p.Members = append(p.Members, store.Member{ID: memberID, Name: memberName})
+	if !memberFound {
+		return `{"error":"no member with that ID exists - add them via Manage Members first"}`
 	}
+	const accountName = "CAS Import"
 
 	account, ok := p.FindAccountByName(memberID, accountName)
 	if !ok {
