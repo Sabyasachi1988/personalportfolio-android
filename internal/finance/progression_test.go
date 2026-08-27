@@ -584,6 +584,14 @@ func TestComputePeriodGains_DayAnchorsToLatestPriceNotCalendarToday(t *testing.T
 	if day.Gain != wantGain {
 		t.Errorf("Day.Gain = %v, want %v", day.Gain, wantGain)
 	}
+	// StartDate/EndDate must reflect the REAL dates compared (2024-01-18
+	// -> 2024-01-19), not "today" (2024-01-22) or blank - this is what
+	// lets the person actually check which dates a figure is comparing
+	// from the app itself, instead of guessing blind when a number looks
+	// wrong (see PeriodGain's own doc comment for why this was added).
+	if day.StartDate != "2024-01-18" || day.EndDate != "2024-01-19" {
+		t.Errorf("Day StartDate/EndDate = %q/%q, want 2024-01-18/2024-01-19", day.StartDate, day.EndDate)
+	}
 }
 
 func TestComputePeriodGains_DayAnchorIsSharedAcrossMemberScopes(t *testing.T) {
