@@ -23,6 +23,9 @@ data class OverlaySeries(
     val color: Int
 )
 
+/** One series' scrubbed-point data: its normalized (base=100) value and its point-to-point CAGR from the base anchor to the scrubbed date - either can be null if that series has no data yet at the relevant point. */
+data class OverlayScrubValue(val series: OverlaySeries, val normalizedValue: Double?, val cagrPercent: Double?)
+
 /**
  * Multi-series comparison chart: each series is normalized to a common
  * base of 100 at a BASE DATE, so "which fund/index actually performed
@@ -63,8 +66,8 @@ class OverlayChartView @JvmOverloads constructor(
         private const val MIN_WINDOW_POINTS = 5
     }
 
-    /** Invoked on every scrub/zoom/pan with the scrubbed union-date and each series' normalized value there (null = no data yet for that series). */
-    var onScrubbed: ((date: String, values: List<Pair<OverlaySeries, Double?>>) -> Unit)? = null
+    /** Invoked on every scrub/zoom/pan with the scrubbed union-date and each series' scrubbed data - see OverlayScrubValue. */
+    var onScrubbed: ((date: String, values: List<OverlayScrubValue>) -> Unit)? = null
 
     private var series: List<OverlaySeries> = emptyList()
     private var unionDates: List<String> = emptyList()
@@ -148,10 +151,36 @@ class OverlayChartView @JvmOverloads constructor(
         fireScrubCallback()
     }
 
+    /**
+     * Sets the visible window to the closest available union-dates to
+     * the given dates (inclusive) - the manual counterpart to pinch-
+     * zoom, same as PriceHistoryChartView.setWindowByDates. Dates
+     * outside the union's actual range clamp to the nearest real date
+     * rather than erroring.
+     */
+    fun setWindowByDates(startDate: String, endDate: String) {
+        if (unionDates.size < 2) return
+        val lo = minOf(startDate, endDate)
+        val hi = maxOf(startDate, endDate)
+        var startIndex = unionDates.indexOfFirst { it >= lo }
+        if (startIndex < 0) startIndex = unionDates.size - 1
+        var endIndex = unionDates.indexOfLast { it <= hi }
+        if (endIndex < 0) endIndex = 0
+        if (endIndex <= startIndex) endIndex = (startIndex + 1).coerceAtMost(unionDates.size - 1)
+        if (startIndex >= endIndex) startIndex = (endIndex - 1).coerceAtLeast(0)
+        windowStart = startIndex
+        windowEnd = endIndex
+        scrubbedIndex = windowEnd
+        invalidate()
+        fireScrubCallback()
+    }
+
     private fun baseIndex(): Int = if (lockBaseDate) lockedBaseIndex.coerceIn(0, unionDates.size - 1) else windowStart
 
     /**
-     * The price used as "100" for one series. Deliberately NOT just
+     * The (price, unionDates-index) used as "100" for one series -
+     * see the class doc comment's Base-date behavior section, and note
+     * below on why the price ALONE isn't enough. Deliberately NOT just
      * carried[seriesIndex][baseIndex()] - a series added more recently
      * than another (e.g. a benchmark quick-added last week, compared
      * against a fund held since 2013) has no data at all near the
@@ -164,13 +193,21 @@ class OverlayChartView @JvmOverloads constructor(
      * simply starts its line (at 100) from wherever its own data
      * begins, which is the standard, expected behavior for this kind of
      * comparison chart when series don't share a common start date.
+     *
+     * The index is returned alongside the price (not just the price
+     * alone, as the original version of this function did) because
+     * CAGR needs the actual anchor DATE, not just the anchor price - a
+     * series whose real base landed later than the nominal base index
+     * (per the paragraph above) has a shorter elapsed span than the
+     * window itself, and annualizing against the wrong start date would
+     * silently misstate its CAGR.
      */
-    private fun basePriceFor(seriesIndex: Int): Double? {
+    private fun baseAnchorFor(seriesIndex: Int): Pair<Double, Int>? {
         val arr = carried.getOrNull(seriesIndex) ?: return null
         val base = baseIndex()
         for (i in base until arr.size) {
             val v = arr[i]
-            if (v != null) return v
+            if (v != null) return v to i
         }
         return null
     }
@@ -188,10 +225,11 @@ class OverlayChartView @JvmOverloads constructor(
         super.onDraw(canvas)
         if (unionDates.isEmpty() || windowEnd - windowStart < 1 || series.isEmpty()) return
 
-        // Computed ONCE per draw (not per point) - basePriceFor does a
+        // Computed ONCE per draw (not per point) - baseAnchorFor does a
         // forward scan, so calling it per-point-per-series would be
         // needlessly repeated work across the whole visible window.
-        val basePrices = series.indices.map { basePriceFor(it) }
+        val baseAnchors = series.indices.map { baseAnchorFor(it) }
+        val basePrices = baseAnchors.map { it?.first }
 
         val w = width.toFloat()
         val h = height.toFloat()
@@ -295,8 +333,18 @@ class OverlayChartView @JvmOverloads constructor(
 
     private fun fireScrubCallback() {
         if (scrubbedIndex !in unionDates.indices) return
-        val basePrices = series.indices.map { basePriceFor(it) }
-        val values = series.mapIndexed { s, sr -> sr to normalizedAt(s, scrubbedIndex, basePrices[s]) }
+        val baseAnchors = series.indices.map { baseAnchorFor(it) }
+        val values = series.mapIndexed { s, sr ->
+            val anchor = baseAnchors[s]
+            val normalized = normalizedAt(s, scrubbedIndex, anchor?.first)
+            val currentPrice = carried.getOrNull(s)?.getOrNull(scrubbedIndex)
+            val cagr = if (anchor != null && currentPrice != null) {
+                CagrCalculator.compute(anchor.first, unionDates[anchor.second], currentPrice, unionDates[scrubbedIndex])
+            } else {
+                null
+            }
+            OverlayScrubValue(sr, normalized, cagr)
+        }
         onScrubbed?.invoke(unionDates[scrubbedIndex], values)
     }
 
