@@ -26,11 +26,13 @@ object CagrCalculator {
         return (Math.pow(endPrice / startPrice, 1.0 / years) - 1.0) * 100.0
     }
 
-    private fun daysBetween(startDate: String, endDate: String): Long? = try {
-        val d1 = storedDateFormat.parse(startDate) ?: return null
-        val d2 = storedDateFormat.parse(endDate) ?: return null
-        (d2.time - d1.time) / (1000L * 60 * 60 * 24)
-    } catch (e: Exception) {
-        null
+    private fun daysBetween(startDate: String, endDate: String): Long? {
+        return try {
+            val d1 = storedDateFormat.parse(startDate) ?: return null
+            val d2 = storedDateFormat.parse(endDate) ?: return null
+            (d2.time - d1.time) / (1000L * 60 * 60 * 24)
+        } catch (e: Exception) {
+            null
+        }
     }
 }
