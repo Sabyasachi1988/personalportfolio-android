@@ -724,10 +724,28 @@ func RefreshSymbolPrices(portfolioJSON string) string {
 			failures = append(failures, fmt.Sprintf("%s (%s): %s", asset.Name, asset.Symbol, err.Error()))
 			continue
 		}
-		isoDate := time.Now().Format("2006-01-02")
-		if !quote.AsOf.IsZero() {
-			isoDate = quote.AsOf.Format("2006-01-02")
+		// Deliberately does NOT fall back to time.Now() when AsOf is
+		// unavailable (an earlier version of this did) - a confirmed
+		// real bug: time.Now() reads the DEVICE'S OWN CLOCK, which
+		// isn't necessarily correct or in a timezone that lines up with
+		// when the market actually traded. If a device's date is even
+		// one day off (misconfigured, or a timezone edge case), that
+		// wrong date gets stored as a real price record and becomes the
+		// "most recent" date across the WHOLE portfolio - dragging
+		// ComputePeriodGains' Day anchor (see its own doc comment) into
+		// a day no real fund has actually been priced for yet, which
+		// silently reports Day as a flat ₹0 everywhere (this was
+		// reported live: "Comparing 2026-08-26 → 2026-08-27" when the
+		// real date was still 2026-08-26 - the fallback had stamped a
+		// price with tomorrow's device-local date). Skipping this
+		// asset's refresh (surfaced as a clear failure the person can
+		// see) is far better than silently storing a guessed, possibly
+		// wrong, date that then corrupts a portfolio-wide calculation.
+		if quote.AsOf.IsZero() {
+			failures = append(failures, fmt.Sprintf("%s (%s): quote had no trade timestamp - skipped rather than guessing today's date", asset.Name, asset.Symbol))
+			continue
 		}
+		isoDate := quote.AsOf.Format("2006-01-02")
 		upsertPriceRecord(&p, asset.ID, isoDate, quote.Price, "YAHOO")
 		matched++
 	}
