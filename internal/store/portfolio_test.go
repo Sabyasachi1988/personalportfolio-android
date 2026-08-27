@@ -2,9 +2,11 @@ package store
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -393,4 +395,44 @@ func TestPriceSeries_ReturnsSortedRecordsForOneKey(t *testing.T) {
 	if len(p.PriceSeries("nonexistent")) != 0 {
 		t.Error("expected empty series for an unknown key")
 	}
+}
+
+// TestPriceSeries_SafeForConcurrentReadsAfterWarmup exists specifically
+// because of a real design decision in mobile/bridge.UpdateAllHistory:
+// that function fetches history for many funds/indices CONCURRENTLY
+// (goroutines), and each one calls PriceSeries to compute its own
+// incremental "since" date. PriceSeries lazily builds and caches an
+// internal index on its FIRST call with NO locking (see ensurePriceIndex's
+// doc comment) - calling it concurrently before that index exists would
+// be a genuine data race (concurrent writes to the same map).
+// UpdateAllHistory relies on calling PriceSeries ONCE, single-threaded,
+// before spawning any goroutines to force that build safely first. This
+// test verifies the other half of that claim under the race detector
+// (go test -race): that many goroutines calling PriceSeries
+// CONCURRENTLY, AFTER one single-threaded warmup call, is genuinely
+// race-free - not just reasoned about, actually run under -race.
+func TestPriceSeries_SafeForConcurrentReadsAfterWarmup(t *testing.T) {
+	p := &Portfolio{}
+	for i := 0; i < 50; i++ {
+		assetID := fmt.Sprintf("asset%d", i%10)
+		p.Prices = append(p.Prices, PriceRecord{
+			AssetID: assetID,
+			Date:    fmt.Sprintf("2024-01-%02d", (i%28)+1),
+			Price:   float64(i),
+		})
+	}
+
+	p.PriceSeries("") // the warmup call UpdateAllHistory relies on
+
+	var wg sync.WaitGroup
+	for i := 0; i < 20; i++ {
+		i := i
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			assetID := fmt.Sprintf("asset%d", i%10)
+			_ = p.PriceSeries(assetID) // must not race with the other 19 concurrent calls
+		}()
+	}
+	wg.Wait()
 }
