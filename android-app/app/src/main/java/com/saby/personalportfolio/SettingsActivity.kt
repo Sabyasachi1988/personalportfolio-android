@@ -70,6 +70,26 @@ class SettingsActivity : AppCompatActivity() {
             startActivity(android.content.Intent(this, UpdateHistoryActivity::class.java))
         }
 
+        findViewById<android.widget.Button>(R.id.manageAssetClassButton).setOnClickListener {
+            startActivity(android.content.Intent(this, CapCompositionActivity::class.java))
+        }
+
+        findViewById<android.widget.Button>(R.id.manageTargetAllocationButton).setOnClickListener {
+            startActivity(android.content.Intent(this, TargetAllocationActivity::class.java))
+        }
+
+        findViewById<android.widget.Button>(R.id.manageEquityOriginButton).setOnClickListener {
+            startActivity(android.content.Intent(this, EquityOriginCompositionActivity::class.java))
+        }
+
+        findViewById<android.widget.Button>(R.id.managePortfolioClassTargetButton).setOnClickListener {
+            startActivity(android.content.Intent(this, PortfolioClassTargetActivity::class.java))
+        }
+
+        findViewById<android.widget.Button>(R.id.manageNamesButton).setOnClickListener {
+            startActivity(android.content.Intent(this, ManageNamesActivity::class.java))
+        }
+
         findViewById<android.widget.Button>(R.id.exportButton).setOnClickListener {
             val stamp = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
             createBackupFile.launch("personalportfolio-backup-$stamp.json")
