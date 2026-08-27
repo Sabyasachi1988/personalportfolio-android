@@ -32,6 +32,7 @@ class ComparisonActivity : AppCompatActivity() {
 
     private var rows: List<ReturnsTableRow> = emptyList()
     private val selectedSeriesIds = linkedSetOf<String>()
+    private var currentUnionDateBounds: Pair<String, String>? = null // (min, max) across the currently charted series
 
     // Same 14-color palette already used for pie-chart slices (see
     // colors.xml) - cycled if more than 14 series are selected, which
@@ -56,6 +57,10 @@ class ComparisonActivity : AppCompatActivity() {
 
         pickButton.setOnClickListener { showPicker() }
         lockSwitch.setOnCheckedChangeListener { _, checked -> chart.setLockBaseDate(checked) }
+        findViewById<View>(R.id.comparisonSetDateRange).setOnClickListener {
+            val bounds = currentUnionDateBounds ?: return@setOnClickListener
+            DateRangePicker.show(this, bounds.first, bounds.second) { start, end -> chart.setWindowByDates(start, end) }
+        }
 
         chart.onScrubbed = { date, values ->
             scrubbedView.text = buildLegendText(date, values)
@@ -69,18 +74,26 @@ class ComparisonActivity : AppCompatActivity() {
      * line color on the chart, so which line is which reads at a glance
      * instead of a single long inline sentence that ran fund names into
      * each other on longer names / more series - the reported "text at
-     * the top... running into each other" issue.
+     * the top... running into each other" issue. Shows both the
+     * normalized (base=100) value and the point-to-point CAGR from the
+     * base date to here.
      */
-    private fun buildLegendText(date: String, values: List<Pair<OverlaySeries, Double?>>): CharSequence {
+    private fun buildLegendText(date: String, values: List<OverlayScrubValue>): CharSequence {
         val builder = SpannableStringBuilder()
         val dateLine = formatDisplayDate(date) + "\n"
         builder.append(dateLine, StyleSpan(Typeface.BOLD), 0)
-        values.forEach { (series, v) ->
-            val valueText = if (v == null) "no data yet" else String.format(Locale.getDefault(), "%.1f", v)
-            val line = "●  ${FundNameFormatter.shorten(series.name).ifBlank { series.name }}: $valueText\n"
+        values.forEach { sv ->
+            val valueText = if (sv.normalizedValue == null) {
+                "no data yet"
+            } else {
+                val base = String.format(Locale.getDefault(), "%.1f", sv.normalizedValue)
+                val cagrText = sv.cagrPercent?.let { String.format(Locale.getDefault(), " (%+.1f%% CAGR)", it) }.orEmpty()
+                "$base$cagrText"
+            }
+            val line = "●  ${FundNameFormatter.shorten(sv.series.name).ifBlank { sv.series.name }}: $valueText\n"
             val start = builder.length
             builder.append(line)
-            builder.setSpan(ForegroundColorSpan(series.color), start, start + 1, 0) // colors just the "●"
+            builder.setSpan(ForegroundColorSpan(sv.series.color), start, start + 1, 0) // colors just the "●"
         }
         return builder
     }
@@ -229,6 +242,9 @@ class ComparisonActivity : AppCompatActivity() {
             return
         }
 
+        currentUnionDateBounds = overlaySeries.flatMap { it.points }.let { pts ->
+            if (pts.isEmpty()) null else pts.minOf { it.date } to pts.maxOf { it.date }
+        }
         pickButton.text = "${overlaySeries.size} picked"
         chart.setSeries(overlaySeries)
         chart.setLockBaseDate(lockSwitch.isChecked)
