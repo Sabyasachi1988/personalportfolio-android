@@ -737,6 +737,70 @@ func TestComputePeriodGains_DayAnchorIgnoresBenchmarkPrices(t *testing.T) {
 	}
 }
 
+func TestComputePeriodGains_DayAnchorIgnoresLiveIntradayQuotes(t *testing.T) {
+	// Diagnosed live, from the dialog's own date output ("Comparing
+	// 2026-08-26 -> 2026-08-27" while the 27th's trading session was
+	// still ongoing - that date hadn't SETTLED yet): a live ETF/stock
+	// quote (Source "YAHOO" - see RefreshSymbolPrices' doc comment) is
+	// continuously dated "today" throughout market hours, but mutual
+	// fund NAV (the majority of a typical portfolio) publishes only
+	// ONCE per day, after the session closes - "today's" NAV genuinely
+	// doesn't exist yet while trading is still happening. A live quote
+	// pulled the shared Day anchor forward into a day where every
+	// mutual fund's NAV carries forward flat, reporting a false ₹0
+	// during market hours even though the LAST SETTLED day-over-day
+	// move was real and nonzero. Fixed by excluding Source == "YAHOO"
+	// (live quotes only) from the anchor - AMFI, TIGZIG_HISTORY, and
+	// YAHOO_HISTORY (Yahoo's own settled daily close, distinct from the
+	// live current-quote path) all remain eligible, since each is a
+	// real, once-published, settled value.
+	p := &store.Portfolio{
+		Members:  []store.Member{{ID: "me", Name: "Me"}},
+		Accounts: []store.Account{{ID: "acc-me", MemberID: "me", Name: "My Account", Currency: "INR"}},
+		Assets: []store.Asset{
+			{ID: "a-fund", AccountID: "acc-me", Name: "My Mutual Fund"},
+			{ID: "a-etf", AccountID: "acc-me", Name: "My ETF"},
+		},
+		Transactions: []store.StoredTransaction{
+			{ID: "t-fund", AccountID: "acc-me", AssetID: "a-fund", Date: "2023-01-01", Type: store.Purchase, Amount: 10000, Units: units(100)},
+			{ID: "t-etf", AccountID: "acc-me", AssetID: "a-etf", Date: "2023-01-01", Type: store.Purchase, Amount: 10000, Units: units(100)},
+		},
+		Prices: []store.PriceRecord{
+			// Mutual fund NAV: settled through 2026-08-26 (yesterday) -
+			// a real move on the last two SETTLED days.
+			{AssetID: "a-fund", Date: "2026-08-25", Price: 100, Source: "TIGZIG_HISTORY"},
+			{AssetID: "a-fund", Date: "2026-08-26", Price: 106, Source: "TIGZIG_HISTORY"}, // +6 per unit, real move
+			// ETF: today's session (2026-08-27) is STILL OPEN - this is
+			// a live, mid-session quote, not a settled close.
+			{AssetID: "a-etf", Date: "2026-08-25", Price: 50, Source: "YAHOO_HISTORY"},
+			{AssetID: "a-etf", Date: "2026-08-26", Price: 50, Source: "YAHOO_HISTORY"},
+			{AssetID: "a-etf", Date: "2026-08-27", Price: 51, Source: "YAHOO"}, // live quote, today, session still open
+		},
+	}
+	today := time.Date(2026, 8, 27, 0, 0, 0, 0, time.UTC)
+
+	var day PeriodGain
+	for _, g := range ComputePeriodGains(p, "", today) {
+		if g.Label == "Day" {
+			day = g
+		}
+	}
+
+	if !day.HasData {
+		t.Fatalf("Day.HasData = false, want true (there IS real, settled holding history)")
+	}
+	if day.EndDate != "2026-08-26" {
+		t.Errorf("Day.EndDate = %q, want 2026-08-26 (the last SETTLED day) - the live ETF quote must not pull the anchor into an unsettled trading session", day.EndDate)
+	}
+	// The buggy version anchored to 2026-08-27 (the live ETF quote's
+	// date), where the mutual fund has no data at all yet, carrying
+	// forward flat and reporting exactly 0 - the confirmed real symptom.
+	wantGain := round2(100 * (106.0 - 100.0)) // +600, the fund's real settled move
+	if day.Gain != wantGain {
+		t.Errorf("Day.Gain = %v, want %v - a live intraday quote must not anchor Day away from settled NAV data", day.Gain, wantGain)
+	}
+}
+
 func TestComputePeriodGains_InsufficientHistoryReportsNoData(t *testing.T) {
 	p := &store.Portfolio{
 		Members:  []store.Member{{ID: "m1", Name: "Saby"}},
