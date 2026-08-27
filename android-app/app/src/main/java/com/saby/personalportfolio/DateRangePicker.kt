@@ -46,11 +46,13 @@ object DateRangePicker {
         }.show()
     }
 
-    private fun parse(s: String): Calendar? = try {
-        val d = storedFormat.parse(s) ?: return null
-        Calendar.getInstance().apply { time = d }
-    } catch (e: Exception) {
-        null
+    private fun parse(s: String): Calendar? {
+        return try {
+            val d = storedFormat.parse(s) ?: return null
+            Calendar.getInstance().apply { time = d }
+        } catch (e: Exception) {
+            null
+        }
     }
 
     private fun format(cal: Calendar): String = storedFormat.format(cal.time)
