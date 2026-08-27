@@ -6,7 +6,8 @@ import com.google.gson.annotations.SerializedName
 data class Benchmark(
     @SerializedName("ID") val id: String,
     @SerializedName("Name") val name: String,
-    @SerializedName("YahooTicker") val yahooTicker: String
+    @SerializedName("YahooTicker") val yahooTicker: String,
+    @SerializedName("Nickname") val nickname: String = ""
 )
 
 /** Mirrors store.PriceRecord - used for the tap-to-graph price history drill-down. */
