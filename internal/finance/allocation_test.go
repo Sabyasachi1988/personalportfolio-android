@@ -265,7 +265,7 @@ func TestAllocationByAssetClass(t *testing.T) {
 
 func TestEffectiveAssetClass_OfficialCategoriesPassThrough(t *testing.T) {
 	for _, class := range []string{"Equity", "Debt", "Hybrid", "Solution Oriented"} {
-		got := EffectiveAssetClass(class, "Some Fund Name That Would Otherwise Confuse The Heuristic")
+		got := EffectiveAssetClass(class, "Some Fund Name That Would Otherwise Confuse The Heuristic", "")
 		if got != class {
 			t.Errorf("EffectiveAssetClass(%q, ...) = %q, want unchanged %q", class, got, class)
 		}
@@ -285,31 +285,54 @@ func TestEffectiveAssetClass_OtherBucketRefinedByFundName(t *testing.T) {
 		"NIPPON INDIA NIFTY 50 VALUE 20 INDEX FUND - DIRECT GROWTH PLAN",
 	}
 	for _, name := range realIndexFunds {
-		got := EffectiveAssetClass("Other", name)
+		got := EffectiveAssetClass("Other", name, "")
 		if got != "Equity" {
 			t.Errorf("EffectiveAssetClass(Other, %q) = %q, want Equity", name, got)
 		}
 	}
 
-	if got := EffectiveAssetClass("Other", "Nippon India Gold ETF"); got != "Commodity" {
+	if got := EffectiveAssetClass("Other", "Nippon India Gold ETF", ""); got != "Commodity" {
 		t.Errorf("gold ETF under Other = %q, want Commodity", got)
 	}
-	if got := EffectiveAssetClass("Other", "Some Nifty G-Sec Debt Index Fund"); got != "Debt" {
+	if got := EffectiveAssetClass("Other", "Some Nifty G-Sec Debt Index Fund", ""); got != "Debt" {
 		t.Errorf("debt index fund under Other = %q, want Debt", got)
 	}
 }
 
 func TestEffectiveAssetClass_NoSignalAtAllIsUnclassified(t *testing.T) {
-	got := EffectiveAssetClass("", "Totally Novel Unrecognisable Fund XYZ")
+	got := EffectiveAssetClass("", "Totally Novel Unrecognisable Fund XYZ", "")
 	if got != "Unclassified" {
 		t.Errorf("expected Unclassified, got %q", got)
 	}
 	// Unrecognised AMFI category (not "Other", not one of the four known
 	// ones, and the name doesn't match any heuristic either) should still
 	// surface as-is rather than being silently discarded.
-	got = EffectiveAssetClass("Some Future AMFI Category", "Totally Novel Unrecognisable Fund XYZ")
+	got = EffectiveAssetClass("Some Future AMFI Category", "Totally Novel Unrecognisable Fund XYZ", "")
 	if got != "Some Future AMFI Category" {
 		t.Errorf("expected the unrecognised category to pass through, got %q", got)
+	}
+}
+
+func TestEffectiveAssetClass_OverrideWinsOverEverything(t *testing.T) {
+	// The exact real-world case this feature was built for: a fund-of-fund
+	// whose name matches none of the heuristic's patterns, so it would
+	// otherwise fall all the way through to "Unclassified" - the override
+	// should win regardless of what AMFI class or fund name say.
+	got := EffectiveAssetClass("Other", "Some Totally Unrecognisable Fund Of Fund Name", "Equity")
+	if got != "Equity" {
+		t.Errorf("override should win, got %q", got)
+	}
+	// Override should also win over an official AMFI category that would
+	// otherwise pass straight through.
+	got = EffectiveAssetClass("Debt", "Some Debt-Sounding Fund Name", "Equity")
+	if got != "Equity" {
+		t.Errorf("override should win over official AMFI category too, got %q", got)
+	}
+	// An invalid/unrecognized override value fails safe to normal
+	// resolution rather than silently misclassifying.
+	got = EffectiveAssetClass("Equity", "Some Fund", "NotARealClass")
+	if got != "Equity" {
+		t.Errorf("invalid override should be ignored, got %q", got)
 	}
 }
 
