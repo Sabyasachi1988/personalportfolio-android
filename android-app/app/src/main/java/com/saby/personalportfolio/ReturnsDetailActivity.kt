@@ -1,10 +1,10 @@
 package com.saby.personalportfolio
 
+import android.app.AlertDialog
 import android.os.Bundle
 import android.view.View
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
-import androidx.appcompat.widget.PopupMenu
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import com.ledger.bridge.Bridge
@@ -134,6 +134,18 @@ class ReturnsDetailActivity : AppCompatActivity() {
      * this only ever offers benchmarks the person has actually added
      * (see Settings → Manage Benchmarks), never a hypothetical index
      * they haven't tracked yet.
+     *
+     * Uses AlertDialog's own single-choice list (setSingleChoiceItems)
+     * rather than PopupMenu - PopupMenu's own item-index-based click
+     * handler was the ORIGINAL implementation here and reportedly
+     * crashed the Activity on tap (a confirmed but not fully root-
+     * caused bug; the "Auto-pick" entry used a NEGATIVE menu item ID,
+     * -1, which every other PopupMenu in this codebase avoids -
+     * ProgressionActivity/ReturnsActivity's pickers always start IDs at
+     * 0). AlertDialog.setSingleChoiceItems is the same proven pattern
+     * already used successfully elsewhere in this codebase (Settings,
+     * Holdings, the Compare picker) and sidesteps the question entirely
+     * by using plain array indices, never a custom/negative ID.
      */
     private fun showBenchmarkPicker() {
         val snapshot: PortfolioBenchmarksSnapshot = try {
@@ -144,17 +156,20 @@ class ReturnsDetailActivity : AppCompatActivity() {
         val benchmarks = snapshot.benchmarks ?: emptyList()
         if (benchmarks.isEmpty()) return
 
-        val anchor = findViewById<View>(R.id.returnsDetailChangeBenchmark)
-        val popup = PopupMenu(this, anchor)
-        popup.menu.add(0, -1, -1, "Auto-pick (recommended)")
-        benchmarks.forEachIndexed { index, b ->
-            popup.menu.add(0, index, index, b.name)
+        val labels = (listOf("Auto-pick (recommended)") + benchmarks.map { it.name }).toTypedArray()
+        val currentIndex = if (selectedBenchmarkId.isEmpty()) {
+            0
+        } else {
+            benchmarks.indexOfFirst { it.id == selectedBenchmarkId }.let { if (it < 0) 0 else it + 1 }
         }
-        popup.setOnMenuItemClickListener { item ->
-            selectedBenchmarkId = if (item.itemId == -1) "" else benchmarks[item.itemId].id
-            loadMetrics()
-            true
-        }
-        popup.show()
+        AlertDialog.Builder(this)
+            .setTitle("Compare against")
+            .setSingleChoiceItems(labels, currentIndex) { dialog, which ->
+                selectedBenchmarkId = if (which == 0) "" else benchmarks[which - 1].id
+                loadMetrics()
+                dialog.dismiss()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 }
