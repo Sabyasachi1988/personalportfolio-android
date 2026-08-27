@@ -59,15 +59,27 @@ class ReturnsDetailActivity : AppCompatActivity() {
 
         val displayFormat = SimpleDateFormat("d MMM yyyy", Locale.getDefault())
         val storedFormat = SimpleDateFormat("yyyy-MM-dd", Locale.US)
-        chart.onPointScrubbed = { point ->
-            val displayDate = try {
-                displayFormat.format(storedFormat.parse(point.date) ?: point.date)
-            } catch (e: Exception) {
-                point.date
+        fun formatDisplayDate(stored: String): String = try {
+            displayFormat.format(storedFormat.parse(stored) ?: stored)
+        } catch (e: Exception) {
+            stored
+        }
+        chart.onPointScrubbed = { windowStartPoint, currentPoint ->
+            val displayDate = formatDisplayDate(currentPoint.date)
+            val priceText = "$displayDate: ${PricePerUnitFormatter.format(currentPoint.price, decimals = 2)}"
+            val cagr = CagrCalculator.compute(windowStartPoint.price, windowStartPoint.date, currentPoint.price, currentPoint.date)
+            scrubbedView.text = if (cagr != null && windowStartPoint.date != currentPoint.date) {
+                val cagrText = String.format(Locale.getDefault(), "%+.1f%% CAGR", cagr)
+                "$priceText\nFrom ${formatDisplayDate(windowStartPoint.date)}: $cagrText"
+            } else {
+                priceText
             }
-            scrubbedView.text = "$displayDate: ${PricePerUnitFormatter.format(point.price, decimals = 2)}"
         }
         chart.setPoints(points)
+
+        findViewById<View>(R.id.returnsDetailSetDateRange).setOnClickListener {
+            showDateRangeDialog(points) { start, end -> chart.setWindowByDates(start, end) }
+        }
 
         // Risk & relative performance metrics only make sense for a FUND
         // (Beta/Info Ratio/Capture need a fund-vs-benchmark comparison; a
@@ -81,6 +93,11 @@ class ReturnsDetailActivity : AppCompatActivity() {
             findViewById<View>(R.id.returnsDetailChangeBenchmark).setOnClickListener { showBenchmarkPicker() }
             loadMetrics()
         }
+    }
+
+    private fun showDateRangeDialog(points: List<PricePoint>, onPicked: (start: String, end: String) -> Unit) {
+        if (points.size < 2) return
+        DateRangePicker.show(this, points.first().date, points.last().date, onPicked)
     }
 
     private fun isBridgeError(json: String): Boolean = json.trimStart().startsWith("{\"error\"")
