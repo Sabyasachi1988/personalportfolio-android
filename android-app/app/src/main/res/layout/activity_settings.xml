@@ -143,6 +143,62 @@
         android:layout_height="wrap_content"
         android:textSize="16sp"
         android:textStyle="bold"
+        android:text="Fund Overrides &amp; Naming" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:textSize="13sp"
+        android:text="Every manual correction/target the app supports, in one place - each of these also opens from wherever it's used (Allocation's tabs, Returns), but this is the one spot to find all of them." />
+
+    <Button
+        android:id="@+id/manageAssetClassButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:text="Cap Composition &amp; Asset Class" />
+
+    <Button
+        android:id="@+id/manageTargetAllocationButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:text="Target Market-Cap Mix" />
+
+    <Button
+        android:id="@+id/manageEquityOriginButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:text="Equity Origin (Indian/International)" />
+
+    <Button
+        android:id="@+id/managePortfolioClassTargetButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:text="Target Equity/Debt/Commodity/Others Mix" />
+
+    <Button
+        android:id="@+id/manageNamesButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:text="Manage Names (Nicknames)" />
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="#22000000"
+        android:layout_marginTop="32dp"
+        android:layout_marginBottom="32dp" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textSize="16sp"
+        android:textStyle="bold"
         android:text="Backup" />
 
     <TextView
