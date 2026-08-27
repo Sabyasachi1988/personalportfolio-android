@@ -212,7 +212,7 @@ func ComputeNameList(portfolioJSON string) string {
 // SetNickname sets or clears (given "") the personal display name for
 // an asset or benchmark - see store.Portfolio.SetNickname's doc
 // comment. Returns the updated portfolio as JSON, same convention as
-// every other Set*/Add*/Remove* bridge function.
+// every other Set/Add/Remove bridge function.
 func SetNickname(portfolioJSON string, seriesID string, nickname string) string {
 	var p store.Portfolio
 	if portfolioJSON != "" {
