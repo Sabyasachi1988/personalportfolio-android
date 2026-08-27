@@ -122,6 +122,28 @@ type Asset struct {
 	// Deliberately NOT omitempty - same Gson-unsafe-allocation reasoning
 	// as GroupLabel/Tags/PrimaryTag above.
 	Nickname string
+	// AssetClassOverride lets the person manually correct
+	// EffectiveAssetClass's result for this one fund - e.g. a Nifty
+	// Next 50 fund-of-fund, which AMFI buckets under its generic
+	// "Other" category (alongside every other index/FoF regardless of
+	// what it invests in), so the name-heuristic fallback is what
+	// decides its class, and "fund of fund" doesn't match any of the
+	// cap-size/debt/commodity name patterns that heuristic looks for -
+	// it falls through to "Unclassified" -> "Others", even though the
+	// fund is straightforwardly equity. Empty means "no override, use
+	// EffectiveAssetClass's normal AMFI-then-heuristic resolution" -
+	// AssetClass itself (the raw AMFI-sourced field) is NEVER
+	// overwritten by this, same non-destructive-override principle as
+	// CapComposition refining the market-cap heuristic without
+	// touching anything auto-fetched. Valid values (when set): "Equity",
+	// "Debt", "Commodity", "Others" - anything else is treated as no
+	// override by EffectiveAssetClass, so a typo/unexpected value fails
+	// safe back to the normal heuristic rather than mis-bucketing
+	// silently.
+	//
+	// Deliberately NOT omitempty - same reasoning as every other
+	// person-editable string field on this struct.
+	AssetClassOverride string
 }
 
 // DisplayName is what should be SHOWN to the person for this asset -
@@ -676,6 +698,22 @@ func (p *Portfolio) SetAssetTags(assetID string, tags []string) {
 	for i := range p.Assets {
 		if p.Assets[i].ID == assetID {
 			p.Assets[i].Tags = tags
+			return
+		}
+	}
+}
+
+// SetAssetClassOverride records (or clears, given "") the manual
+// Equity/Debt/Commodity/Others correction for one asset - see
+// Asset.AssetClassOverride's doc comment. Deliberately does NOT
+// validate that class is one of the 4 accepted values here -
+// EffectiveAssetClass already treats anything else as "no override"
+// (fails safe to the normal heuristic), so an invalid value stored here
+// is harmless, not a silent misclassification.
+func (p *Portfolio) SetAssetClassOverride(assetID, class string) {
+	for i := range p.Assets {
+		if p.Assets[i].ID == assetID {
+			p.Assets[i].AssetClassOverride = class
 			return
 		}
 	}
