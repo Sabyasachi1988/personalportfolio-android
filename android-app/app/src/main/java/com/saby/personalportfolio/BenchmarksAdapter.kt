@@ -29,7 +29,7 @@ class BenchmarksAdapter(
 
     override fun onBindViewHolder(holder: RowHolder, position: Int) {
         val benchmark = benchmarks[position]
-        holder.name.text = benchmark.name
+        holder.name.text = NicknameResolver.resolve(benchmark.name, benchmark.nickname)
         holder.status.text = if (hasHistory(benchmark.id)) {
             benchmark.yahooTicker
         } else {
