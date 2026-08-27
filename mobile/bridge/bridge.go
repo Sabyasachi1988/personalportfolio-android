@@ -228,6 +228,29 @@ func SetNickname(portfolioJSON string, seriesID string, nickname string) string 
 	return string(out)
 }
 
+// DashboardHolding is a MINIMAL, bridge-package-local stand-in for
+// finance.Holding, carrying only the 3 fields MainActivity's Dashboard
+// actually uses (HasPrice/NetInvested/CurrentValue - it also needs a
+// plain count and an empty check, both of which are just len() on the
+// slice, no extra field needed for those). Deliberately NOT reusing
+// finance.Holding directly - finance.Holding carries a nested `Tags
+// []string` field, and gomobile bind cannot generate a working binding
+// for an EXPORTED struct that itself contains a slice-of-struct field
+// (DashboardResult.Holdings) whose element type has its OWN nested
+// slice field (Holding.Tags) - this was a real, confirmed CI failure
+// ("Build bridge.aar from the Go code" failed) the one time this tried
+// to expose finance.Holding directly, unlike store.PriceRecord (used
+// successfully elsewhere as a slice field, e.g. MultiSeriesHistoryItem.
+// Points), which has zero nested slice fields of its own. Keeping this
+// struct minimal sidesteps the problem rather than fighting gomobile's
+// binder, and also shrinks the JSON payload for a screen that never
+// needed the other 15 fields (Tags, GroupLabel, ISIN, XIRR, etc.) anyway.
+type DashboardHolding struct {
+	HasPrice     bool
+	NetInvested  float64
+	CurrentValue float64
+}
+
 // DashboardResult bundles every figure MainActivity's Dashboard screen
 // needs into ONE JSON payload from ONE portfolio-JSON unmarshal, instead
 // of the 7 separate bridge calls it used to make (computeHoldingsForMember,
@@ -244,7 +267,7 @@ func SetNickname(portfolioJSON string, seriesID string, nickname string) string 
 // JSON output shape (e.g. "xirr"/"hasXIRR" matching ComputePortfolioXIRR's
 // map output) so the Kotlin-side data classes barely change.
 type DashboardResult struct {
-	Holdings         []finance.Holding
+	Holdings         []DashboardHolding
 	XIRR             float64 `json:"xirr"`
 	HasXIRR          bool    `json:"hasXIRR"`
 	RollingGains     []finance.PeriodGain
@@ -290,7 +313,7 @@ func ComputeDashboard(portfolioJSON string, memberID string, today string) strin
 	}
 
 	result := DashboardResult{
-		Holdings:         memberHoldings,
+		Holdings:         toDashboardHoldings(memberHoldings),
 		XIRR:             xirr,
 		HasXIRR:          hasXIRR,
 		RollingGains:     finance.ComputePeriodGains(&p, memberID, t),
@@ -310,6 +333,14 @@ func ComputeDashboard(portfolioJSON string, memberID string, today string) strin
 		return fmt.Sprintf(`{"error":%q}`, err.Error())
 	}
 	return string(out)
+}
+
+func toDashboardHoldings(holdings []finance.Holding) []DashboardHolding {
+	out := make([]DashboardHolding, len(holdings))
+	for i, h := range holdings {
+		out[i] = DashboardHolding{HasPrice: h.HasPrice, NetInvested: h.NetInvested, CurrentValue: h.CurrentValue}
+	}
+	return out
 }
 
 func ComputeAllocationByMarketCap(portfolioJSON string, memberID string) string {
