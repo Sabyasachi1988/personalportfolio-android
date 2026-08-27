@@ -298,9 +298,26 @@ class MainActivity : AppCompatActivity() {
             chip.percent.text = String.format(Locale.getDefault(), "%+.1f%%", g.percent)
             chip.container.setOnClickListener {
                 donutToast?.cancel()
+                // Shows the ACTUAL dates being compared, not just what
+                // the figure means - added after two separate real bugs
+                // in "Day"'s anchor-date logic each produced a
+                // plausible-looking but wrong number with no way to
+                // check from the UI which dates were actually behind
+                // it. Start==End (e.g. Calendar Year on Jan 1st itself)
+                // is worth calling out plainly rather than showing a
+                // zero-width range that looks like a typo.
+                val rangeText = if (g.startDate.isNotBlank() && g.endDate.isNotBlank()) {
+                    if (g.startDate == g.endDate) {
+                        " (as of ${g.endDate}, nothing to compare against yet)"
+                    } else {
+                        " (${g.startDate} → ${g.endDate})"
+                    }
+                } else {
+                    ""
+                }
                 val toast = Toast.makeText(
                     this,
-                    "Market movement only - excludes any money added or withdrawn during this period",
+                    "Market movement only - excludes any money added or withdrawn during this period$rangeText",
                     Toast.LENGTH_LONG
                 )
                 donutToast = toast
@@ -421,5 +438,7 @@ data class PeriodGain(
     @com.google.gson.annotations.SerializedName("Label") val label: String,
     @com.google.gson.annotations.SerializedName("Gain") val gain: Double,
     @com.google.gson.annotations.SerializedName("Percent") val percent: Double,
-    @com.google.gson.annotations.SerializedName("HasData") val hasData: Boolean
+    @com.google.gson.annotations.SerializedName("HasData") val hasData: Boolean,
+    @com.google.gson.annotations.SerializedName("StartDate") val startDate: String = "",
+    @com.google.gson.annotations.SerializedName("EndDate") val endDate: String = ""
 )
