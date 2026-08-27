@@ -672,6 +672,63 @@ func TestComputePeriodGains_DayAnchorIsSharedAcrossMemberScopes(t *testing.T) {
 	}
 }
 
+func TestComputePeriodGains_DayAnchorIgnoresBenchmarkPrices(t *testing.T) {
+	// The exact confirmed real regression from the fix above: Benchmark
+	// price history lives in the SAME p.Prices slice as fund NAV history
+	// (keyed by Benchmark.ID acting as an AssetID - see store.Benchmark's
+	// doc comment), and a tracked index gets refreshed on its own
+	// schedule, independent of any actual holding. The first version of
+	// the whole-portfolio Day anchor didn't filter Benchmark records out,
+	// so a benchmark refreshed MORE RECENTLY than any real holding made
+	// EVERY member's Day figure - and the family total - report a flat
+	// ₹0 simultaneously: the anchor landed on a date no real holding had
+	// any data for, so every holding carried forward flat at both ends
+	// of the window. Reported live as "all three (family, me, mother)
+	// show precisely zero" - nothing to do with device timezone, since
+	// this whole computation never reads a clock, only date strings
+	// already stored in Prices.
+	p := &store.Portfolio{
+		Members:  []store.Member{{ID: "me", Name: "Me"}},
+		Accounts: []store.Account{{ID: "acc-me", MemberID: "me", Name: "My Account", Currency: "INR"}},
+		Assets:   []store.Asset{{ID: "a-me", AccountID: "acc-me", Name: "My Fund"}},
+		Benchmarks: []store.Benchmark{
+			{ID: "bench-nifty", Name: "Nifty 50", YahooTicker: "^NSEI"},
+		},
+		Transactions: []store.StoredTransaction{
+			{ID: "t-me", AccountID: "acc-me", AssetID: "a-me", Date: "2023-01-01", Type: store.Purchase, Amount: 10000, Units: units(100)},
+		},
+		Prices: []store.PriceRecord{
+			// My actual holding: real move on 2024-01-18->19.
+			{AssetID: "a-me", Date: "2024-01-18", Price: 100},
+			{AssetID: "a-me", Date: "2024-01-19", Price: 106}, // +6 per unit, real move
+			// The benchmark (NOT a real holding) was refreshed a full
+			// week LATER - refreshing an index is a separate action from
+			// updating fund NAVs, so this is a routine, expected gap.
+			{AssetID: "bench-nifty", Date: "2024-01-25", Price: 24000},
+			{AssetID: "bench-nifty", Date: "2024-01-26", Price: 24100},
+		},
+	}
+	today := time.Date(2024, 1, 30, 0, 0, 0, 0, time.UTC)
+
+	var day PeriodGain
+	for _, g := range ComputePeriodGains(p, "", today) {
+		if g.Label == "Day" {
+			day = g
+		}
+	}
+
+	if !day.HasData {
+		t.Fatalf("Day.HasData = false, want true (there IS real holding history)")
+	}
+	// The buggy version anchored to 2024-01-26 (the benchmark's latest
+	// date), where my fund has no data at all, carrying forward flat and
+	// reporting exactly 0 - the confirmed real symptom.
+	wantGain := round2(100 * (106.0 - 100.0)) // +600
+	if day.Gain != wantGain {
+		t.Errorf("Day.Gain = %v, want %v - a benchmark's fresher price date must not anchor Day away from real holdings", day.Gain, wantGain)
+	}
+}
+
 func TestComputePeriodGains_InsufficientHistoryReportsNoData(t *testing.T) {
 	p := &store.Portfolio{
 		Members:  []store.Member{{ID: "m1", Name: "Saby"}},
