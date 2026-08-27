@@ -49,7 +49,7 @@ class PriceHistoryChartView @JvmOverloads constructor(
         private const val MIN_WINDOW_POINTS = 5
     }
 
-    var onPointScrubbed: ((point: PricePoint) -> Unit)? = null
+    var onPointScrubbed: ((windowStartPoint: PricePoint, currentPoint: PricePoint) -> Unit)? = null
 
     private var points: List<PricePoint> = emptyList()
     private var windowStart = 0
@@ -110,7 +110,39 @@ class PriceHistoryChartView @JvmOverloads constructor(
         windowEnd = (points.size - 1).coerceAtLeast(0)
         scrubbedIndex = if (points.isNotEmpty()) points.size - 1 else -1
         invalidate()
-        scrubbedIndex.takeIf { it >= 0 }?.let { onPointScrubbed?.invoke(points[it]) }
+        fireScrubCallback()
+    }
+
+    /**
+     * Sets the visible window to the closest available points to the
+     * given dates (inclusive) - the manual counterpart to pinch-zoom,
+     * for typing/picking an exact range instead of gesturing one. Dates
+     * outside the series' actual range clamp to the nearest real point
+     * rather than erroring - a person picking "1 Jan 2010" on a fund
+     * that started trading in 2015 should land on its earliest point,
+     * not get an empty chart. No-op if there are fewer than 2 points to
+     * show between them.
+     */
+    fun setWindowByDates(startDate: String, endDate: String) {
+        if (points.size < 2) return
+        val lo = minOf(startDate, endDate)
+        val hi = maxOf(startDate, endDate)
+        var startIndex = points.indexOfFirst { it.date >= lo }
+        if (startIndex < 0) startIndex = points.size - 1
+        var endIndex = points.indexOfLast { it.date <= hi }
+        if (endIndex < 0) endIndex = 0
+        if (endIndex <= startIndex) endIndex = (startIndex + 1).coerceAtMost(points.size - 1)
+        if (startIndex >= endIndex) startIndex = (endIndex - 1).coerceAtLeast(0)
+        windowStart = startIndex
+        windowEnd = endIndex
+        scrubbedIndex = windowEnd
+        invalidate()
+        fireScrubCallback()
+    }
+
+    private fun fireScrubCallback() {
+        if (scrubbedIndex !in points.indices || windowStart !in points.indices) return
+        onPointScrubbed?.invoke(points[windowStart], points[scrubbedIndex])
     }
 
     /** True once the visible window is narrower than the full series - see class doc comment. */
@@ -197,7 +229,7 @@ class PriceHistoryChartView @JvmOverloads constructor(
         if (index != scrubbedIndex) {
             scrubbedIndex = index
             invalidate()
-            onPointScrubbed?.invoke(points[index])
+            fireScrubCallback()
         }
     }
 
@@ -264,6 +296,7 @@ class PriceHistoryChartView @JvmOverloads constructor(
         windowStart = newStart
         windowEnd = newEnd
         invalidate()
+        fireScrubCallback()
     }
 
     private inner class ScaleListener : ScaleGestureDetector.SimpleOnScaleGestureListener() {
@@ -299,6 +332,7 @@ class PriceHistoryChartView @JvmOverloads constructor(
             windowStart = newStart
             windowEnd = newEnd
             invalidate()
+            fireScrubCallback()
             return true
         }
     }
@@ -308,6 +342,7 @@ class PriceHistoryChartView @JvmOverloads constructor(
             windowStart = 0
             windowEnd = (points.size - 1).coerceAtLeast(0)
             invalidate()
+            fireScrubCallback()
             return true
         }
     }
