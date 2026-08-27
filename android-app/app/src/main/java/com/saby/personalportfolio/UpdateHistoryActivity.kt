@@ -19,11 +19,16 @@ class UpdateHistoryActivity : AppCompatActivity() {
     private lateinit var runButton: Button
     private lateinit var statusText: TextView
 
-    // Fixed lower bound for FX and symbol-based (ETF/stock) price
-    // history - comfortably before any realistic transaction date in
-    // this portfolio. NAV history has no such bound: UpdateHistoricalNav
-    // always fetches a fund's entire available history.
+    // Fallback lower bound, used ONLY the first time a fund/index/
+    // currency has no cached history at all yet - once any history
+    // exists, the bridge functions below compute a much tighter
+    // incremental "since" themselves (the day after the latest cached
+    // date), so a re-run only fetches the actual gap instead of
+    // re-downloading everything every time. This was the confirmed
+    // cause of "Update History takes 30-60 seconds" - see
+    // bridge.UpdateHistoricalNav's doc comment (Go side) for the fix.
     private val fxHistorySince = "2015-01-01"
+    private val benchmarkHistorySince = "2000-01-01"
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -56,6 +61,17 @@ class UpdateHistoryActivity : AppCompatActivity() {
                     mainThread.post { fail("Could not read portfolio: ${e.message}") }
                     return@execute
                 }
+                // Separate parse of the same JSON string, same pattern as
+                // BenchmarksActivity's own snapshot read - benchmarks
+                // don't have a natural home in PortfolioManualEntrySnapshot
+                // (Members/Accounts/Assets), and parsing twice is cheap
+                // compared to the network fetches this screen is about to do.
+                val benchmarksSnapshot: PortfolioBenchmarksSnapshot = try {
+                    gson.fromJson(portfolioJson, PortfolioBenchmarksSnapshot::class.java)
+                } catch (e: Exception) {
+                    PortfolioBenchmarksSnapshot(emptyList(), emptyList())
+                }
+                val benchmarks = benchmarksSnapshot.benchmarks.orEmpty()
 
                 val indianAssets = snapshot.assets.orEmpty().filter { it.isin.isNotBlank() }
                 // Anything without an ISIN falls outside the mutual-fund
@@ -116,6 +132,24 @@ class UpdateHistoryActivity : AppCompatActivity() {
                     }
                 }
 
+                // Same fetch Manage Benchmarks' own per-index Refresh button
+                // triggers - kept there too (this screen is the centralized
+                // "everything" option, not a replacement for the inline one).
+                var benchmarkSucceeded = 0
+                val benchmarkFailures = mutableListOf<String>()
+                for ((index, benchmark) in benchmarks.withIndex()) {
+                    mainThread.post {
+                        statusText.text = "Fetching index history: ${index + 1} of ${benchmarks.size}…"
+                    }
+                    val result = Bridge.updateBenchmarkHistory(portfolioJson, benchmark.id, benchmarkHistorySince)
+                    if (isBridgeError(result)) {
+                        benchmarkFailures.add("${NicknameResolver.resolve(benchmark.name, benchmark.nickname)}: $result")
+                    } else {
+                        portfolioJson = result
+                        benchmarkSucceeded++
+                    }
+                }
+
                 val saveResult = Bridge.savePortfolio(portfolioPath, portfolioJson)
                 if (isBridgeError(saveResult)) {
                     mainThread.post { fail("Failed to save: $saveResult") }
@@ -127,10 +161,11 @@ class UpdateHistoryActivity : AppCompatActivity() {
                     val summary = StringBuilder()
                     summary.append("NAV history: $navSucceeded of ${indianAssets.size} fund(s) updated.\n")
                     summary.append("ETF/stock prices: $priceSucceeded of ${symbolAssets.size} updated.\n")
-                    summary.append("FX history: $fxSucceeded of ${foreignCurrencies.size} currenc${if (foreignCurrencies.size == 1) "y" else "ies"} updated.")
-                    if (navFailures.isNotEmpty() || priceFailures.isNotEmpty() || fxFailures.isNotEmpty()) {
+                    summary.append("FX history: $fxSucceeded of ${foreignCurrencies.size} currenc${if (foreignCurrencies.size == 1) "y" else "ies"} updated.\n")
+                    summary.append("Index history: $benchmarkSucceeded of ${benchmarks.size} updated.")
+                    if (navFailures.isNotEmpty() || priceFailures.isNotEmpty() || fxFailures.isNotEmpty() || benchmarkFailures.isNotEmpty()) {
                         summary.append("\n\nFailures:\n")
-                        (navFailures + priceFailures + fxFailures).forEach { summary.append("• $it\n") }
+                        (navFailures + priceFailures + fxFailures + benchmarkFailures).forEach { summary.append("• $it\n") }
                     }
                     statusText.text = summary.toString()
                 }
