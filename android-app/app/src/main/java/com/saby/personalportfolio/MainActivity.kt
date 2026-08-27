@@ -173,14 +173,22 @@ class MainActivity : AppCompatActivity() {
 
         val portfolioPath = PortfolioStorage.filePath(this)
         val portfolioJson = PortfolioLoadCache.load(portfolioPath)
+        val today = java.text.SimpleDateFormat("yyyy-MM-dd", Locale.US).format(java.util.Date())
 
-        val holdingsJson = Bridge.computeHoldingsForMember(portfolioJson, memberId)
-        val holdingsType = object : TypeToken<List<Holding>>() {}.type
-        val holdings: List<Holding> = try {
-            gson.fromJson(holdingsJson, holdingsType) ?: emptyList()
+        // ONE combined bridge call instead of 7 separate ones (Holdings,
+        // XIRR, rolling Day/Year gains, Calendar Year gain, and all 3
+        // allocation donuts) - see bridge.DashboardResult's doc comment.
+        // This was the confirmed cause of Dashboard specifically feeling
+        // laggier than other screens: each of the 7 calls independently
+        // re-parsed the same portfolio JSON on the Go side, regardless of
+        // PortfolioLoadCache already avoiding re-parsing on the Kotlin side.
+        val resultJson = Bridge.computeDashboard(portfolioJson, memberId, today)
+        val result: DashboardResult? = try {
+            gson.fromJson(resultJson, DashboardResult::class.java)
         } catch (e: Exception) {
-            emptyList()
+            null
         }
+        val holdings = result?.holdings ?: emptyList()
 
         if (holdings.isEmpty()) {
             totalValue.text = "No holdings yet"
@@ -229,30 +237,19 @@ class MainActivity : AppCompatActivity() {
             gainLine.setTextColor(androidx.core.content.ContextCompat.getColor(this, R.color.colorNeutral))
         }
 
-        val xirrJson = Bridge.computePortfolioXIRR(portfolioJson, memberId)
-        val xirrResult = try {
-            gson.fromJson(xirrJson, PortfolioXirrResult::class.java)
-        } catch (e: Exception) {
-            null
-        }
-        xirrLine.text = if (xirrResult?.hasXIRR == true) {
-            String.format(Locale.getDefault(), "Portfolio XIRR: %.2f%%", xirrResult.xirr)
+        xirrLine.text = if (result?.hasXIRR == true) {
+            String.format(Locale.getDefault(), "Portfolio XIRR: %.2f%%", result.xirr)
         } else {
             ""
         }
 
-        showPeriodGains(portfolioJson, memberId)
+        showPeriodGains(result?.rollingGains ?: emptyList(), result?.calendarYearGain)
 
         holdingsCountLine.text = "${holdings.size} holding(s)"
 
-        val marketCapJson = Bridge.computeAllocationByMarketCap(portfolioJson, memberId)
-        setDonut(donutMarketCap, donutLegendMarketCap, marketCapJson)
-
-        val originJson = Bridge.computeAllocationByEquityOrigin(portfolioJson)
-        setDonut(donutOrigin, donutLegendOrigin, originJson)
-
-        val classJson = Bridge.computeAllocationByPortfolioClass(portfolioJson)
-        setDonut(donutClass, donutLegendClass, classJson)
+        setDonut(donutMarketCap, donutLegendMarketCap, result?.marketCapSlices ?: emptyList())
+        setDonut(donutOrigin, donutLegendOrigin, result?.originSlices ?: emptyList())
+        setDonut(donutClass, donutLegendClass, result?.classSlices ?: emptyList())
     }
 
     /**
@@ -273,25 +270,8 @@ class MainActivity : AppCompatActivity() {
      * own gain sign, not just the text - a loss day or a down year reads
      * as a red chip, not just red text on a plain background.
      */
-    private fun showPeriodGains(portfolioJson: String, memberId: String) {
-        val today = java.text.SimpleDateFormat("yyyy-MM-dd", Locale.US).format(java.util.Date())
-
-        val rollingJson = Bridge.computePeriodGains(portfolioJson, memberId, today)
-        val gainType = object : TypeToken<List<PeriodGain>>() {}.type
-        val rollingGains: List<PeriodGain> = try {
-            gson.fromJson(rollingJson, gainType) ?: emptyList()
-        } catch (e: Exception) {
-            emptyList()
-        }
+    private fun showPeriodGains(rollingGains: List<PeriodGain>, calendarYearGain: PeriodGain?) {
         val byLabel = rollingGains.associateBy { it.label }
-
-        val calendarYearJson = Bridge.computeCalendarYearGain(portfolioJson, memberId, today)
-        val calendarYearGain: PeriodGain? = try {
-            gson.fromJson(calendarYearJson, PeriodGain::class.java)
-        } catch (e: Exception) {
-            null
-        }
-
         bindPeriodGainLine(periodGainDayChip, byLabel["Day"])
         bindPeriodGainLine(periodGainYearChip, byLabel["Year"])
         bindPeriodGainLine(periodGainCalendarYearChip, calendarYearGain)
@@ -338,13 +318,7 @@ class MainActivity : AppCompatActivity() {
         incognitoButton.setImageResource(if (IncognitoMode.isEnabled) R.drawable.ic_eye_off else R.drawable.ic_eye)
     }
 
-    private fun setDonut(chart: DonutChartView, legend: DonutLegendView, allocationJson: String) {
-        val sliceType = object : TypeToken<List<AllocationSlice>>() {}.type
-        val slices: List<AllocationSlice> = try {
-            gson.fromJson(allocationJson, sliceType) ?: emptyList()
-        } catch (e: Exception) {
-            emptyList()
-        }
+    private fun setDonut(chart: DonutChartView, legend: DonutLegendView, slices: List<AllocationSlice>) {
         val chartSlices = slices.map {
             DonutChartView.Slice(it.label, it.percent.toFloat(), CapSegmentColors.forLabel(this, it.label))
         }
