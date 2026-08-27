@@ -418,9 +418,36 @@ func periodGainForWindow(
 // NOT scoped to any member/axis filter - see ComputePeriodGains' doc
 // comment for why the Day anchor must be shared across every scope), or
 // "" if none do.
+// latestPriceDateAcrossPortfolio returns the most recent date any REAL
+// HOLDING (an Asset - never a Benchmark) in the whole portfolio has a
+// stored price for (deliberately NOT scoped to any member/axis filter -
+// see ComputePeriodGains' doc comment for why the Day anchor must be
+// shared across every member scope), or "" if none do.
+//
+// Explicitly excludes Benchmark price records even though they live in
+// the exact same p.Prices slice as fund NAV history (see
+// store.Benchmark's doc comment for why - keyed by Benchmark.ID acting
+// as an AssetID) - this was a confirmed real regression: a tracked
+// index refreshed more recently than any actual holding (routine, since
+// index levels and fund NAVs publish on different schedules and are
+// refreshed by separate actions) made this function anchor Day to a
+// date NO REAL HOLDING has any data for, so every holding carried
+// forward flatly at both ends of the window - reporting a flat ₹0 for
+// every member AND the family total simultaneously, which is what made
+// it look like the whole feature had broken rather than one specific
+// scope, and had nothing to do with device timezone (this function
+// never reads a clock at all - it only compares date STRINGS already
+// stored in Prices).
 func latestPriceDateAcrossPortfolio(p *store.Portfolio) string {
+	assetIDs := make(map[string]bool, len(p.Assets))
+	for _, a := range p.Assets {
+		assetIDs[a.ID] = true
+	}
 	latest := ""
 	for _, rec := range p.Prices {
+		if !assetIDs[rec.AssetID] {
+			continue // a Benchmark's price history, not a real holding - see doc comment above
+		}
 		if rec.Date > latest {
 			latest = rec.Date
 		}
