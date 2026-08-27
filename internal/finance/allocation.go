@@ -33,7 +33,7 @@ func AllocationByAssetClass(holdings []Holding, classByAssetID map[string]string
 		if !h.HasPrice {
 			continue
 		}
-		class := EffectiveAssetClass(classByAssetID[h.AssetID], h.AssetName)
+		class := EffectiveAssetClass(classByAssetID[h.AssetID], h.AssetName, h.AssetClassOverride)
 		totals[class] += h.CurrentValue
 		total += h.CurrentValue
 	}
@@ -41,7 +41,17 @@ func AllocationByAssetClass(holdings []Holding, classByAssetID map[string]string
 }
 
 // EffectiveAssetClass resolves the asset class actually used for
-// allocation reporting. AMFI's own category is authoritative and kept
+// allocation reporting. override, when it's one of "Equity", "Debt",
+// "Commodity", or "Others" (see Asset.AssetClassOverride's doc
+// comment), wins immediately over everything else - a person's manual
+// correction for a specific mis-heuristic-ed fund (e.g. a Nifty Next 50
+// fund-of-fund the name-heuristic below can't recognize) is more
+// trustworthy than either AMFI's bucket or the heuristic. Any other
+// override value (including "") is treated as "no override" and falls
+// through to the normal resolution below, so an unrecognized value
+// fails safe rather than silently misclassifying.
+//
+// Absent an override: AMFI's own category is authoritative and kept
 // as-is for "Equity", "Debt", "Hybrid", and "Solution Oriented" - those
 // are already correctly bucketed by AMFI itself. But AMFI's "Other"
 // bucket lumps every index fund, ETF, and fund-of-fund together
@@ -52,8 +62,15 @@ func AllocationByAssetClass(holdings []Holding, classByAssetID map[string]string
 // (GuessMarketCapSegment) is used to recover the real asset class: any
 // cap-size segment (Large/Mid/Small/Multi/Flexi Cap) implies Equity,
 // since cap-size is an equity-only concept; Debt and Commodity segments
-// map straight across.
-func EffectiveAssetClass(amfiClass, fundName string) string {
+// map straight across. A name like "... Fund of Fund" that matches none
+// of those patterns falls all the way through to "Unclassified" - which
+// is exactly the gap AssetClassOverride exists to let the person close.
+func EffectiveAssetClass(amfiClass, fundName, override string) string {
+	switch override {
+	case "Equity", "Debt", "Commodity", "Others":
+		return override
+	}
+
 	switch amfiClass {
 	case "Equity", "Debt", "Hybrid", "Solution Oriented":
 		return amfiClass
@@ -346,7 +363,7 @@ func AllocationByEquityOrigin(holdings []Holding, classByAssetID map[string]stri
 		if !h.HasPrice {
 			continue
 		}
-		if EffectiveAssetClass(classByAssetID[h.AssetID], h.AssetName) != "Equity" {
+		if EffectiveAssetClass(classByAssetID[h.AssetID], h.AssetName, h.AssetClassOverride) != "Equity" {
 			continue
 		}
 		if comp, ok := compositionByAsset[h.AssetID]; ok {
@@ -379,7 +396,7 @@ func AllocationByPortfolioClass(holdings []Holding, classByAssetID map[string]st
 		if !h.HasPrice {
 			continue
 		}
-		class := EffectiveAssetClass(classByAssetID[h.AssetID], h.AssetName)
+		class := EffectiveAssetClass(classByAssetID[h.AssetID], h.AssetName, h.AssetClassOverride)
 		switch class {
 		case "Equity", "Debt", "Commodity":
 			totals[class] += h.CurrentValue
