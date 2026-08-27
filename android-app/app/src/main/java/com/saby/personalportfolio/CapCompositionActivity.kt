@@ -1,5 +1,6 @@
 package com.saby.personalportfolio
 
+import android.app.AlertDialog
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -52,8 +53,61 @@ class CapCompositionActivity : AppCompatActivity() {
             },
             onFetchFromEtMoney = { assetId, url, rowHolder ->
                 fetchFromEtMoney(assetId, url, rowHolder)
-            }
+            },
+            onEditAssetClass = { asset -> showAssetClassPicker(asset, recyclerView) }
         )
+    }
+
+    /**
+     * Manual Equity/Debt/Commodity/Others override for one fund - see
+     * store.Asset.AssetClassOverride's doc comment for why this exists
+     * (a fund-of-fund or similarly-named fund the name-heuristic can't
+     * recognize, otherwise stuck under "Others" in Allocation even
+     * though it's plainly one of the other three). "Auto" clears the
+     * override and goes back to AMFI-then-heuristic resolution.
+     */
+    private fun showAssetClassPicker(asset: AssetSummary, recyclerView: RecyclerView) {
+        val labels = arrayOf("Auto (automatic detection)", "Equity", "Debt", "Commodity", "Others")
+        val values = arrayOf("", "Equity", "Debt", "Commodity", "Others")
+        val currentIndex = values.indexOf(asset.assetClassOverride).let { if (it < 0) 0 else it }
+
+        AlertDialog.Builder(this)
+            .setTitle(FundNameFormatter.shorten(asset.name).ifBlank { asset.name })
+            .setSingleChoiceItems(labels, currentIndex) { dialog, which ->
+                dialog.dismiss()
+                saveAssetClassOverride(asset.id, values[which], recyclerView)
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun saveAssetClassOverride(assetId: String, classOverride: String, recyclerView: RecyclerView) {
+        backgroundExecutor.execute {
+            try {
+                val portfolioPath = PortfolioStorage.filePath(this)
+                val currentPortfolioJson = PortfolioLoadCache.load(portfolioPath)
+                if (isBridgeError(currentPortfolioJson)) {
+                    mainThread.post { Toast.makeText(this, "Failed to load portfolio: $currentPortfolioJson", Toast.LENGTH_LONG).show() }
+                    return@execute
+                }
+                val updatedJson = Bridge.setAssetClassOverride(currentPortfolioJson, assetId, classOverride)
+                if (isBridgeError(updatedJson)) {
+                    mainThread.post { Toast.makeText(this, "Failed to set class: $updatedJson", Toast.LENGTH_LONG).show() }
+                    return@execute
+                }
+                val saveResult = Bridge.savePortfolio(portfolioPath, updatedJson)
+                if (isBridgeError(saveResult)) {
+                    mainThread.post { Toast.makeText(this, "Failed to save: $saveResult", Toast.LENGTH_LONG).show() }
+                    return@execute
+                }
+                mainThread.post {
+                    Toast.makeText(this, "Saved", Toast.LENGTH_SHORT).show()
+                    loadAndBindAdapter(recyclerView) // refresh so the row shows the new override immediately
+                }
+            } catch (e: Exception) {
+                mainThread.post { Toast.makeText(this, "Failed: ${e.message}", Toast.LENGTH_LONG).show() }
+            }
+        }
     }
 
     private fun isBridgeError(json: String): Boolean = json.trimStart().startsWith("{\"error\"")
