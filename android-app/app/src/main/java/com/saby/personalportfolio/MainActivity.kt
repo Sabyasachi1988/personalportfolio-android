@@ -297,7 +297,15 @@ class MainActivity : AppCompatActivity() {
             chip.amount.text = IndianCurrencyFormatter.formatSigned(g.gain, decimals = 0)
             chip.percent.text = String.format(Locale.getDefault(), "%+.1f%%", g.percent)
             chip.container.setOnClickListener {
-                donutToast?.cancel()
+                // A dialog, not a Toast - the earlier Toast-based version
+                // of this message was a confirmed real bug: modern
+                // Android compresses a long Toast into a single
+                // truncated line ("...thi..."), and the newly-added date
+                // range sat at the END of that string, past the
+                // truncation cutoff, so it never actually became visible
+                // - the exact information this was built to surface.
+                // AlertDialog always shows the full text, no truncation.
+                //
                 // Shows the ACTUAL dates being compared, not just what
                 // the figure means - added after two separate real bugs
                 // in "Day"'s anchor-date logic each produced a
@@ -308,20 +316,18 @@ class MainActivity : AppCompatActivity() {
                 // zero-width range that looks like a typo.
                 val rangeText = if (g.startDate.isNotBlank() && g.endDate.isNotBlank()) {
                     if (g.startDate == g.endDate) {
-                        " (as of ${g.endDate}, nothing to compare against yet)"
+                        "As of ${g.endDate} - nothing to compare against yet."
                     } else {
-                        " (${g.startDate} → ${g.endDate})"
+                        "Comparing ${g.startDate} → ${g.endDate}."
                     }
                 } else {
                     ""
                 }
-                val toast = Toast.makeText(
-                    this,
-                    "Market movement only - excludes any money added or withdrawn during this period$rangeText",
-                    Toast.LENGTH_LONG
-                )
-                donutToast = toast
-                toast.show()
+                android.app.AlertDialog.Builder(this)
+                    .setTitle(g.label)
+                    .setMessage("Market movement only - excludes any money added or withdrawn during this period.\n\n$rangeText")
+                    .setPositiveButton("OK", null)
+                    .show()
             }
         }
         val bgColor = androidx.core.content.ContextCompat.getColor(this, bgColorRes)
