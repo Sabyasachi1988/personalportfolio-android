@@ -15,6 +15,7 @@ import java.util.Locale
 object ReturnsCardBinder {
 
     private class CellViews(root: View) {
+        val label: TextView = root.findViewById(R.id.returnsCellLabel)
         val value: TextView = root.findViewById(R.id.returnsCellValue)
         val range: TextView = root.findViewById(R.id.returnsCellRange)
     }
@@ -40,8 +41,8 @@ object ReturnsCardBinder {
             typeBadge.setTextColor(ContextCompat.getColor(context, R.color.colorNeutral))
         }
 
-        bindTrailingCell(CellViews(cardRoot.findViewById(R.id.returnsCellDay)), row.day)
-        bindTrailingCell(CellViews(cardRoot.findViewById(R.id.returnsCellMonth)), row.month)
+        bindTrailingCell(CellViews(cardRoot.findViewById(R.id.returnsCellDay)), "Day", row.day)
+        bindTrailingCell(CellViews(cardRoot.findViewById(R.id.returnsCellMonth)), "1 Month", row.month)
 
         bindTenureRow(TenureViews(cardRoot.findViewById(R.id.returnsRowOneYear)), "1Y", row.oneYearTrailing, row.oneYearRolling)
         bindTenureRow(TenureViews(cardRoot.findViewById(R.id.returnsRowThreeYear)), "3Y", row.threeYearTrailing, row.threeYearRolling)
@@ -49,7 +50,8 @@ object ReturnsCardBinder {
         bindTenureRow(TenureViews(cardRoot.findViewById(R.id.returnsRowTenYear)), "10Y", row.tenYearTrailing, row.tenYearRolling)
     }
 
-    private fun bindTrailingCell(cell: CellViews, r: TrailingReturn) {
+    private fun bindTrailingCell(cell: CellViews, label: String, r: TrailingReturn) {
+        cell.label.text = label
         val context = cell.value.context
         if (!r.hasData) {
             cell.value.text = "—"
