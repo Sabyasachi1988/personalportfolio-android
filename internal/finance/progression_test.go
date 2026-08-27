@@ -586,6 +586,92 @@ func TestComputePeriodGains_DayAnchorsToLatestPriceNotCalendarToday(t *testing.T
 	}
 }
 
+func TestComputePeriodGains_DayAnchorIsSharedAcrossMemberScopes(t *testing.T) {
+	// The exact confirmed real bug (reported live: mother's own Day
+	// figure showed a real -614 move, but "Me" and "All (family)" both
+	// showed a flat 0 - even though family is only Me + Mother). Root
+	// cause: each member scope picked its OWN latest-priced date as the
+	// Day anchor, so "Mother" anchored to HER OWN most-recent price date
+	// (where she genuinely had a fresh price update), while "family"
+	// anchored to whichever member's data was MORE recent overall (in
+	// the real report, "Me"'s) - a date where Mother's fund had no fresh
+	// price yet, so it carried forward flat and contributed nothing to
+	// the family total. Two different scopes were answering "what
+	// changed" for two different CALENDAR DAYS, so they could never be
+	// expected to add up. Fixed by anchoring Day to the latest price
+	// date across the WHOLE portfolio, shared by every member scope - a
+	// member without a fresh price exactly on that shared date now
+	// consistently shows flat (carried forward) in EVERY scope that
+	// includes them, rather than surfacing a real move only in their own
+	// standalone view on a different day nobody else is looking at.
+	p := &store.Portfolio{
+		Members: []store.Member{{ID: "me", Name: "Me"}, {ID: "mom", Name: "Mother"}},
+		Accounts: []store.Account{
+			{ID: "acc-me", MemberID: "me", Name: "My Account", Currency: "INR"},
+			{ID: "acc-mom", MemberID: "mom", Name: "Mother's Account", Currency: "INR"},
+		},
+		Assets: []store.Asset{
+			{ID: "a-me", AccountID: "acc-me", Name: "My Fund"},
+			{ID: "a-mom", AccountID: "acc-mom", Name: "Mother's Fund"},
+		},
+		Transactions: []store.StoredTransaction{
+			{ID: "t-me", AccountID: "acc-me", AssetID: "a-me", Date: "2023-01-01", Type: store.Purchase, Amount: 10000, Units: units(100)},
+			{ID: "t-mom", AccountID: "acc-mom", AssetID: "a-mom", Date: "2023-01-01", Type: store.Purchase, Amount: 10000, Units: units(100)},
+		},
+		Prices: []store.PriceRecord{
+			// My fund: priced up through the portfolio's overall latest
+			// date (2024-01-19), with a real move that day.
+			{AssetID: "a-me", Date: "2024-01-18", Price: 100},
+			{AssetID: "a-me", Date: "2024-01-19", Price: 106}, // +6 per unit, real move
+			// Mother's fund: last priced 2024-01-17 - two days STALER
+			// than the portfolio's overall latest date. She has no
+			// price recorded for 2024-01-18 or 2024-01-19 at all, so
+			// both carry forward the same 94 - flat, not a real
+			// same-day comparison.
+			{AssetID: "a-mom", Date: "2024-01-16", Price: 100},
+			{AssetID: "a-mom", Date: "2024-01-17", Price: 94},
+		},
+	}
+	today := time.Date(2024, 1, 22, 0, 0, 0, 0, time.UTC)
+
+	dayGain := func(memberID string) PeriodGain {
+		for _, g := range ComputePeriodGains(p, memberID, today) {
+			if g.Label == "Day" {
+				return g
+			}
+		}
+		t.Fatalf("no Day entry returned for memberID %q", memberID)
+		return PeriodGain{}
+	}
+
+	family := dayGain("")
+	mother := dayGain("mom")
+	me := dayGain("me")
+
+	// Mother has no fresh price on the shared anchor date (2024-01-19) -
+	// both start and end carry forward the same 2024-01-17 price, so her
+	// OWN scope now correctly shows flat too, consistent with family,
+	// instead of surfacing a real move dated two days earlier that no
+	// other scope was looking at.
+	if mother.Gain != 0 {
+		t.Errorf("mother.Gain = %v, want 0 (no fresh price on the shared anchor date, so it carries forward flat)", mother.Gain)
+	}
+	// I DO have a fresh price on the shared anchor date - my real move
+	// must still surface.
+	wantMeGain := round2(100 * (106.0 - 100.0)) // +600
+	if me.Gain != wantMeGain {
+		t.Errorf("me.Gain = %v, want %v (my real move on the shared anchor date)", me.Gain, wantMeGain)
+	}
+	// The core property that was broken: family must equal the sum of
+	// its members, computed on the SAME calendar day.
+	if family.Gain != mother.Gain+me.Gain {
+		t.Errorf("family.Gain = %v, want %v (mother %v + me %v) - family must equal the sum of its members", family.Gain, mother.Gain+me.Gain, mother.Gain, me.Gain)
+	}
+	if family.Gain != wantMeGain {
+		t.Errorf("family.Gain = %v, want %v - my real move must reach the family total, not vanish", family.Gain, wantMeGain)
+	}
+}
+
 func TestComputePeriodGains_InsufficientHistoryReportsNoData(t *testing.T) {
 	p := &store.Portfolio{
 		Members:  []store.Member{{ID: "m1", Name: "Saby"}},
