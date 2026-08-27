@@ -326,7 +326,7 @@ func ComputePeriodGains(p *store.Portfolio, memberID string, today time.Time) []
 
 	results := make([]PeriodGain, 0, 2)
 
-	if dayAnchorStr := latestPriceDateAcrossPortfolio(p); dayAnchorStr != "" {
+	if dayAnchorStr := dayAnchorDate(p); dayAnchorStr != "" {
 		if dayAnchorTime, err := time.Parse(dateLayout, dayAnchorStr); err == nil {
 			dayEndPoint := computeProgressionPoint(p, accountByID, assetByID, included, weights, dayAnchorStr)
 			dayStartStr := dayAnchorTime.AddDate(0, 0, -1).Format(dateLayout)
@@ -429,56 +429,80 @@ func periodGainForWindow(
 	}
 }
 
-// latestPriceDateAcrossPortfolio returns the most recent date any REAL
-// HOLDING (an Asset - never a Benchmark) in the whole portfolio has a
-// SETTLED price for (deliberately NOT scoped to any member/axis filter -
-// see ComputePeriodGains' doc comment for why the Day anchor must be
-// shared across every member scope), or "" if none do.
+// dayAnchorDate returns the date used to anchor the "Day" comparison -
+// deliberately NOT "the single most recent date ANY real holding has a
+// SETTLED price for" (an earlier version of this function, named
+// latestPriceDateAcrossPortfolio, worked that way), and NOT scoped to
+// any member/axis filter (see ComputePeriodGains' doc comment for why
+// the anchor must be shared across every member scope).
 //
-// Excludes Benchmark price records even though they live in the exact
-// same p.Prices slice as fund NAV history (see store.Benchmark's doc
-// comment for why - keyed by Benchmark.ID acting as an AssetID) - a
-// confirmed real regression: a tracked index refreshed more recently
-// than any actual holding made this function anchor Day to a date NO
-// REAL HOLDING has any data for.
+// This is the third, and hopefully final, iteration of this specific
+// piece of logic - each earlier version fixed one real, live-reported
+// symptom, but "pick whichever single holding is most recent" turned
+// out to be the WRONG general shape, not just missing one filter:
+//   - v1 didn't exclude Benchmark price records (they share the same
+//     p.Prices slice as fund NAV, keyed by Benchmark.ID) - a tracked
+//     index refreshed more recently than any holding anchored Day to a
+//     date no real holding had data for.
+//   - v2 excluded Benchmarks but didn't exclude Source == "YAHOO" (a
+//     LIVE, mid-session intraday quote) - a live ETF quote is
+//     continuously dated "today" throughout a trading session, while
+//     settled sources (AMFI, TIGZIG_HISTORY, YAHOO_HISTORY) have no
+//     record for "today" until the session actually closes.
+//   - v3 (Benchmarks + live quotes both excluded) STILL anchored to
+//     the single most recent SETTLED date - and broke again: verified
+//     directly against AMFI's own live NAV file that different AMCs
+//     publish on genuinely different schedules even under normal
+//     conditions (e.g. Tata Mutual Fund's NAVs sitting 2 days behind
+//     Nippon India/HDFC/ICICI's, LIC and Edelweiss a day behind, all
+//     in the same day's file) - so ANY portfolio spanning more than one
+//     AMC could have one fund house's fresher NAV drag the whole
+//     anchor into a day the REST of the portfolio hasn't published for
+//     yet, carrying everything else forward flat and reporting a false
+//     ₹0 (or a wildly understated figure) even though most of the
+//     portfolio genuinely moved.
 //
-// ALSO excludes records with Source == "YAHOO" (a LIVE, mid-session
-// intraday quote from RefreshSymbolPrices - see that function's doc
-// comment) - a second, related, confirmed real bug found the same way:
-// a live ETF/stock quote is dated "today" continuously throughout a
-// trading session, while mutual fund NAV (the majority of a typical
-// portfolio, published ONCE per day only after market close via
-// RefreshAmfiPrices/AMFI, or backfilled via TigZig/TIGZIG_HISTORY) and
-// even Yahoo's own settled daily close (YAHOO_HISTORY) have NO record
-// for "today" until the session actually closes and a real batch value
-// publishes. A live quote pulled the shared anchor forward to a day
-// where every mutual fund NAV carries forward flat, reporting Day as a
-// false ₹0 for the whole portfolio during market hours - exactly the
-// live-reported symptom, correctly diagnosed as "today's session hasn't
-// settled yet, so the anchor should stay on the last SETTLED day (AMFI/
-// TIGZIG_HISTORY/YAHOO_HISTORY), not jump forward the moment any one
-// live-quoted holding ticks into a new calendar day". AMFI,
-// TIGZIG_HISTORY, and YAHOO_HISTORY are all safe to include - each
-// represents a real, once-published, settled value, never a live
-// continuously-changing one.
-func latestPriceDateAcrossPortfolio(p *store.Portfolio) string {
+// The actual fix: anchor to whichever settled date the LARGEST NUMBER
+// of real holdings have actually reached - the majority, not the single
+// fastest-to-publish outlier. A holding whose AMC hasn't published that
+// date yet simply carries forward flat for this window (same as
+// before), but a single early-updating fund can no longer single-
+// handedly drag the comparison into a day the rest of the portfolio
+// hasn't caught up to. Ties (e.g. exactly 2 holdings, each on its own
+// distinct date) break toward the more recent date, matching the
+// straightforward behavior when there's no real majority to prefer.
+func dayAnchorDate(p *store.Portfolio) string {
 	assetIDs := make(map[string]bool, len(p.Assets))
 	for _, a := range p.Assets {
 		assetIDs[a.ID] = true
 	}
-	latest := ""
+
+	latestByAsset := make(map[string]string)
 	for _, rec := range p.Prices {
 		if !assetIDs[rec.AssetID] {
-			continue // a Benchmark's price history, not a real holding - see doc comment above
+			continue // a Benchmark's price history, not a real holding
 		}
 		if rec.Source == "YAHOO" {
-			continue // a live, mid-session quote, not a settled value - see doc comment above
+			continue // a live, mid-session quote, not a settled value
 		}
-		if rec.Date > latest {
-			latest = rec.Date
+		if rec.Date > latestByAsset[rec.AssetID] {
+			latestByAsset[rec.AssetID] = rec.Date
 		}
 	}
-	return latest
+
+	counts := make(map[string]int, len(latestByAsset))
+	for _, d := range latestByAsset {
+		counts[d]++
+	}
+	best := ""
+	bestCount := 0
+	for d, c := range counts {
+		if c > bestCount || (c == bestCount && d > best) {
+			best = d
+			bestCount = c
+		}
+	}
+	return best
 }
 
 // earliestIncludedTransactionDate returns the earliest transaction date
