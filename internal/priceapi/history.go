@@ -104,31 +104,49 @@ type YahooPricePoint struct {
 
 // yahooAdjCloseResponse mirrors GET yfin-h.tigzig.com/v1/get-adj-close/
 // (documented at https://yfin-h.tigzig.com/openapi.json): an object
-// keyed by date ("YYYY-MM-DD"), each value an object of
+// keyed by date ("YYYY-MM-DD"), each value NORMALLY an object of
 // {ticker: adjusted_close}. Per that spec, a ticker absent for a given
 // date is JSON null (a real trading gap, e.g. a market holiday); a
 // ticker missing from the whole fetch comes back as the STRING
-// "Data not available" instead of a number for every date - both cases
-// are handled below via interface{} rather than assuming every value is
-// a plain float64.
+// "Data not available" instead of a number for every date.
 //
-// Honesty flag, per this project's standing policy on unconfirmed
-// primary sources: this shape is taken directly from the published
-// OpenAPI spec, not independently confirmed with a successful live call
-// from this sandbox - every attempt here (including the provider's own
-// zero-parameter root endpoint) returned validation errors, which
-// points to a client/tooling issue on this end rather than a broken
-// service, but that couldn't be fully isolated without direct network
-// access to verify further. If this shape turns out wrong in practice,
-// parsing below fails loudly (an error surfaced to the person via the
-// Update Price History screen), not a silent misread.
-type yahooAdjCloseResponse map[string]map[string]interface{}
+// Values are kept as raw json.RawMessage here (not parsed straight to
+// map[string]interface{}) because a live, narrow/incremental date range
+// - the normal case now that fetches are incremental (see
+// FetchYahooAdjClose's doc comment) - was confirmed to sometimes return
+// a BARE STRING for an entire date's value (not nested under a ticker
+// key at all), for reasons not yet isolated further (this sandbox can't
+// reach yfin-h.tigzig.com directly to probe it). Un-parsed raw values
+// let each date be decoded independently in FetchYahooAdjClose, so one
+// date with this unexpected shape is skipped rather than failing
+// json.Unmarshal for the ENTIRE response - which is exactly what a
+// confirmed real failure looked like before this: a hard parse error on
+// every one of 6 benchmark tickers the moment their fetch window
+// narrowed to 1-2 days, even though the request itself succeeded
+// (HTTP 200).
+type yahooAdjCloseResponse map[string]json.RawMessage
 
 // FetchYahooAdjClose fetches split/dividend-adjusted daily close prices
 // for one ticker (Yahoo Finance convention - "NIFTYBEES.NS" for an
 // NSE-listed ETF, "RELIANCE.NS", a bare US ticker like "AAPL", etc.)
 // from `since` to today, via TigZig's Yahoo Finance proxy. See
 // yahooAdjCloseResponse's doc comment for the response-shape caveat.
+//
+// end_date is deliberately today PLUS ONE DAY, not literally today -
+// this Go code's `today` is computed in UTC (time.Now().UTC()), but
+// every ticker this function is ever called for (NSE-listed ETFs,
+// Nifty/Sensex/etc. indices) trades only in IST (UTC+5:30). Near
+// midnight IST, UTC's calendar date is still the PREVIOUS day - so if
+// an asset's latest cached price is already dated with today's IST
+// date, the incremental `since` (day after that) could legitimately be
+// LATER than a same-moment UTC "today", making start_date > end_date -
+// a confirmed real failure (the API correctly rejected it: "end_date
+// (2026-08-27) is before start_date (2026-08-28)"). A one-day buffer on
+// end_date costs nothing (the API simply returns however much real data
+// exists up to its own actual latest date, never fabricates future
+// data) and fully absorbs that timezone gap without needing to load an
+// IST timezone database on a platform (Android, via gomobile) where
+// that's a real dependency risk rather than a given.
 //
 // Deliberately does NOT treat zero results as an error itself (unlike
 // earlier versions of this function) - a narrow, incremental `since`
@@ -142,9 +160,9 @@ func FetchYahooAdjClose(ticker string, since string) ([]YahooPricePoint, error) 
 	if ticker == "" {
 		return nil, fmt.Errorf("ticker cannot be empty")
 	}
-	today := time.Now().UTC().Format("2006-01-02")
+	endDate := time.Now().UTC().AddDate(0, 0, 1).Format("2006-01-02")
 	url := "https://yfin-h.tigzig.com/v1/get-adj-close/?tickers=" + neturl.QueryEscape(ticker) +
-		"&start_date=" + neturl.QueryEscape(since) + "&end_date=" + neturl.QueryEscape(today)
+		"&start_date=" + neturl.QueryEscape(since) + "&end_date=" + neturl.QueryEscape(endDate)
 
 	resp, err := http.Get(url)
 	if err != nil {
@@ -160,13 +178,33 @@ func FetchYahooAdjClose(ticker string, since string) ([]YahooPricePoint, error) 
 		return nil, fmt.Errorf("yahoo adj-close returned status %d for %s: %s", resp.StatusCode, ticker, string(body))
 	}
 
+	return ParseYahooAdjClose(body, ticker)
+}
+
+// ParseYahooAdjClose parses one ticker's points out of a raw
+// yfin-h.tigzig.com/v1/get-adj-close/ response body - split out from
+// FetchYahooAdjClose (same pattern as ParseFrankfurterTimeSeries below)
+// so this parsing logic, including the resilience described in
+// yahooAdjCloseResponse's doc comment, is directly testable against a
+// real captured response shape rather than only through a live HTTP call.
+func ParseYahooAdjClose(body []byte, ticker string) ([]YahooPricePoint, error) {
 	var raw yahooAdjCloseResponse
 	if err := json.Unmarshal(body, &raw); err != nil {
 		return nil, fmt.Errorf("parsing yahoo adj-close response for %s: %w", ticker, err)
 	}
 
 	points := make([]YahooPricePoint, 0, len(raw))
-	for date, byTicker := range raw {
+	unparseableDates := 0
+	for date, rawPerDate := range raw {
+		var byTicker map[string]interface{}
+		if err := json.Unmarshal(rawPerDate, &byTicker); err != nil {
+			// This date's value wasn't the normal {ticker: price} object
+			// - e.g. the bare-string shape described in
+			// yahooAdjCloseResponse's doc comment. Skip just this date
+			// rather than failing the whole fetch.
+			unparseableDates++
+			continue
+		}
 		v, ok := byTicker[ticker]
 		if !ok || v == nil {
 			continue // no price for this ticker on this date - a real trading gap, not an error
@@ -176,6 +214,16 @@ func FetchYahooAdjClose(ticker string, since string) ([]YahooPricePoint, error) 
 			continue // the documented "Data not available" string sentinel (or any other unexpected type) - skip rather than guess
 		}
 		points = append(points, YahooPricePoint{Date: date, Price: price})
+	}
+	// Every single date came back in the unexpected shape - unlike a few
+	// stray dates mixed with mostly-good data, this smells like a
+	// genuinely broken ticker/mapping rather than an occasional API
+	// quirk, and silently reporting "0 new, no error" would hide that
+	// indefinitely (this endpoint's own 0-is-fine behavior, from the
+	// doc comment above, is meant for a legitimately quiet date range,
+	// not for a request that couldn't be understood at all).
+	if len(raw) > 0 && unparseableDates == len(raw) {
+		return nil, fmt.Errorf("yahoo adj-close response for %s had no data in the expected shape (%d date(s), all unparseable)", ticker, unparseableDates)
 	}
 	sort.Slice(points, func(i, j int) bool { return points[i].Date < points[j].Date })
 	return points, nil
