@@ -35,6 +35,7 @@ class TransactionsActivity : AppCompatActivity() {
 
     private var allTransactions: List<StoredTransactionEntry> = emptyList()
     private var assetNameById: Map<String, String> = emptyMap()
+    private var assetRawNameById: Map<String, String> = emptyMap() // NEVER nickname-resolved - see buildTransactionsCsv's use
     private var assetIsinById: Map<String, String> = emptyMap()
 
     private val createCsvFile = registerForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { uri ->
@@ -107,7 +108,8 @@ class TransactionsActivity : AppCompatActivity() {
             PortfolioAssetsSnapshot(emptyList(), emptyList(), emptyList())
         }
 
-        assetNameById = snapshot.assets.orEmpty().associate { it.id to it.name }
+        assetNameById = snapshot.assets.orEmpty().associate { it.id to NicknameResolver.resolve(it.name, it.nickname) }
+        assetRawNameById = snapshot.assets.orEmpty().associate { it.id to it.name }
         assetIsinById = snapshot.assets.orEmpty().associate { it.id to it.isin }
         allTransactions = snapshot.transactions.orEmpty()
 
@@ -363,13 +365,18 @@ class TransactionsActivity : AppCompatActivity() {
     // Always exports the FULL list in chronological order, regardless of
     // whatever search/sort is currently applied to the on-screen list -
     // this is meant to be a complete record (e.g. for tax filing), not
-    // just a dump of whatever happens to be visible at export time.
+    // just a dump of whatever happens to be visible at export time. Uses
+    // assetRawNameById (the real scheme name), NOT assetNameById (which
+    // is nickname-resolved for on-screen display) - a personal nickname
+    // like "Midcap A" would be useless, or actively wrong, on a record
+    // meant to match against AMC/tax paperwork that only knows the real
+    // fund name.
     private fun buildTransactionsCsv(): String {
         val header = listOf("Date", "Fund Name", "ISIN", "Type", "Amount", "Units")
         val rows = allTransactions.sortedBy { it.date }.map { txn ->
             listOf(
                 txn.date,
-                FundNameFormatter.shorten(assetNameById[txn.assetId] ?: ""),
+                FundNameFormatter.shorten(assetRawNameById[txn.assetId] ?: ""),
                 assetIsinById[txn.assetId] ?: "",
                 txn.type,
                 txn.amount.toString(),
