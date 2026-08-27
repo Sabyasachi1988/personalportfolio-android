@@ -38,6 +38,9 @@ class ReturnsActivity : AppCompatActivity() {
         findViewById<View>(R.id.returnsCompareButton).setOnClickListener {
             startActivity(Intent(this, ComparisonActivity::class.java))
         }
+        findViewById<View>(R.id.returnsManageNamesButton).setOnClickListener {
+            startActivity(Intent(this, ManageNamesActivity::class.java))
+        }
     }
 
     override fun onResume() {
