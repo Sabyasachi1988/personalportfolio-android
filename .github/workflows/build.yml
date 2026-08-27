@@ -45,14 +45,42 @@ jobs:
           gomobile init
 
       - name: Build bridge.aar from the Go code
+        id: gomobile_bind
+        continue-on-error: true
         env:
           ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
         run: |
+          set -o pipefail
           mkdir -p android-app/app/libs
           gomobile bind -target=android -androidapi 24 \
             -javapkg=com.ledger \
             -o android-app/app/libs/bridge.aar \
-            ./mobile/bridge
+            ./mobile/bridge 2>&1 | tee /tmp/gomobile_log.txt
+
+      # Mirrors the Gradle-failure issue-posting step below - gomobile
+      # bind's own failure previously had NO equivalent, so a failure
+      # here just stopped the job with no error text reachable from
+      # anywhere (GitHub's raw log storage lives on Azure blob storage,
+      # which isn't reachable from every network either, same reasoning
+      # as the Gradle step's comment).
+      - name: Post gomobile bind error details to an issue (only runs if that step failed)
+        if: steps.gomobile_bind.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tail -c 30000 /tmp/gomobile_log.txt > /tmp/gomobile_tail.txt
+          jq -Rs --arg title "gomobile-bind-error run ${{ github.run_id }}" \
+            '{title: $title, body: ("```\n" + . + "\n```")}' \
+            /tmp/gomobile_tail.txt > /tmp/gomobile_issue_payload.json
+          curl -s -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/issues" \
+            -d @/tmp/gomobile_issue_payload.json
+
+      - name: Fail the job if gomobile bind actually failed
+        if: steps.gomobile_bind.outcome == 'failure'
+        run: exit 1
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
