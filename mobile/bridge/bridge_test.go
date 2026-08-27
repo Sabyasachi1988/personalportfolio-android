@@ -37,6 +37,29 @@ func commitCounts(t *testing.T, commitResult string) (committed, skippedDuplicat
 	return wrapped.Committed, wrapped.SkippedDuplicates
 }
 
+// seededPortfolio builds a starter portfolio JSON containing exactly
+// the given member names, each with a real, known ID - CommitStagedRows
+// no longer auto-creates a member from a free-text name match (see its
+// own doc comment for why: a typo used to silently spawn a phantom
+// duplicate member). Every test below that used to start from an empty
+// "" portfolio and rely on that auto-create now seeds the member(s) it
+// needs up front instead, then passes that member's real ID.
+func seededPortfolio(t *testing.T, names ...string) (portfolioJSON string, idByName map[string]string) {
+	t.Helper()
+	idByName = make(map[string]string, len(names))
+	var members []store.Member
+	for _, n := range names {
+		id := "member-" + n
+		idByName[n] = id
+		members = append(members, store.Member{ID: id, Name: n})
+	}
+	b, err := json.Marshal(store.Portfolio{Members: members})
+	if err != nil {
+		t.Fatalf("failed to build seeded portfolio: %v", err)
+	}
+	return string(b), idByName
+}
+
 // TestCommitStagedRows_CSVWithoutISINReimportDoesNotDuplicateAsset
 // reproduces the exact bug reported: broker trade-CSV exports (Zerodha
 // Console included) commonly have NO ISIN column at all, unlike a CAS
@@ -63,13 +86,14 @@ func TestCommitStagedRows_CSVWithoutISINReimportDoesNotDuplicateAsset(t *testing
 		return string(b)
 	}
 
-	afterFirst := CommitStagedRows("", makeRows(), "Me")
+	seed, ids := seededPortfolio(t, "Me")
+	afterFirst := CommitStagedRows(seed, makeRows(), ids["Me"])
 	firstCommitted, _ := commitCounts(t, afterFirst)
 	if firstCommitted != 1 {
 		t.Fatalf("first import: committed=%d, want 1", firstCommitted)
 	}
 
-	afterSecond := CommitStagedRows(extractPortfolio(t, afterFirst), makeRows(), "Me")
+	afterSecond := CommitStagedRows(extractPortfolio(t, afterFirst), makeRows(), ids["Me"])
 	secondCommitted, secondSkipped := commitCounts(t, afterSecond)
 	if secondCommitted != 0 {
 		t.Errorf("second (overlapping) CSV import: committed=%d, want 0", secondCommitted)
@@ -120,7 +144,8 @@ func TestCommitStagedRows_NameMatchBackfillsISINWhenLaterRowHasOne(t *testing.T)
 	}
 	b, _ := json.Marshal(rows)
 
-	result := CommitStagedRows("", string(b), "Me")
+	seed, ids := seededPortfolio(t, "Me")
+	result := CommitStagedRows(seed, string(b), ids["Me"])
 	committed, _ := commitCounts(t, result)
 	if committed != 2 {
 		t.Fatalf("committed=%d, want 2", committed)
@@ -161,7 +186,8 @@ func TestCommitStagedRows_FolioLessETFRowGetsStockTypeAndSymbolPrefill(t *testin
 	}
 	b, _ := json.Marshal(rows)
 
-	result := CommitStagedRows("", string(b), "Me")
+	seed, ids := seededPortfolio(t, "Me")
+	result := CommitStagedRows(seed, string(b), ids["Me"])
 	committed, _ := commitCounts(t, result)
 	if committed != 1 {
 		t.Fatalf("committed=%d, want 1", committed)
@@ -200,7 +226,8 @@ func TestCommitStagedRows_FolioedRowStillGetsMutualFundType(t *testing.T) {
 	}
 	b, _ := json.Marshal(rows)
 
-	result := CommitStagedRows("", string(b), "Me")
+	seed, ids := seededPortfolio(t, "Me")
+	result := CommitStagedRows(seed, string(b), ids["Me"])
 	var p store.Portfolio
 	if err := json.Unmarshal([]byte(extractPortfolio(t, result)), &p); err != nil {
 		t.Fatalf("invalid JSON: %v", err)
@@ -248,13 +275,14 @@ func TestCommitStagedRows_ReimportingSameStatementDoesNotDuplicate(t *testing.T)
 	// parsing has no visibility into what's already stored) - the
 	// dedup has to happen here, at commit time, against what's already
 	// in the portfolio.
-	afterFirst := CommitStagedRows("", makeRows(), "Me")
+	seed, ids := seededPortfolio(t, "Me")
+	afterFirst := CommitStagedRows(seed, makeRows(), ids["Me"])
 	firstCommitted, firstSkipped := commitCounts(t, afterFirst)
 	if firstCommitted != 2 || firstSkipped != 0 {
 		t.Fatalf("first import: committed=%d skippedDuplicates=%d, want 2 and 0", firstCommitted, firstSkipped)
 	}
 
-	afterSecond := CommitStagedRows(extractPortfolio(t, afterFirst), makeRows(), "Me")
+	afterSecond := CommitStagedRows(extractPortfolio(t, afterFirst), makeRows(), ids["Me"])
 	secondCommitted, secondSkipped := commitCounts(t, afterSecond)
 	if secondCommitted != 0 {
 		t.Errorf("second (duplicate) import: committed=%d, want 0 - nothing new should be added", secondCommitted)
@@ -299,7 +327,8 @@ func TestCommitStagedRows_GenuinelyDifferentTransactionsAreNotTreatedAsDuplicate
 	}
 	rowsJSON, _ := json.Marshal(rows)
 
-	result := CommitStagedRows("", string(rowsJSON), "Me")
+	seed, ids := seededPortfolio(t, "Me")
+	result := CommitStagedRows(seed, string(rowsJSON), ids["Me"])
 	committed, skipped := commitCounts(t, result)
 	if committed != 2 || skipped != 0 {
 		t.Fatalf("committed=%d skippedDuplicates=%d, want 2 and 0 - two genuinely different transactions must both be kept", committed, skipped)
@@ -561,7 +590,8 @@ func TestCommitStagedRows_CreatesLinkedTransactions(t *testing.T) {
 	}
 	rowsJSON, _ := json.Marshal(rows)
 
-	result := CommitStagedRows("", string(rowsJSON), "Me")
+	seed, ids := seededPortfolio(t, "Me")
+	result := CommitStagedRows(seed, string(rowsJSON), ids["Me"])
 
 	var p store.Portfolio
 	if err := json.Unmarshal([]byte(extractPortfolio(t, result)), &p); err != nil {
@@ -616,13 +646,14 @@ func TestCommitStagedRows_ReimportReusesExistingAssetAndAccount(t *testing.T) {
 		return string(b)
 	}
 
-	// First commit, starting from an empty portfolio.
-	afterFirst := CommitStagedRows("", makeRows("2025-01-01"), "Me")
+	// First commit, starting from a portfolio seeded with just "Me".
+	seed, ids := seededPortfolio(t, "Me")
+	afterFirst := CommitStagedRows(seed, makeRows("2025-01-01"), ids["Me"])
 
 	// Second commit, starting from the first commit's own embedded
 	// portfolio - as the real app does (see ImportActivity.kt, which
 	// extracts .portfolio before calling savePortfolio/re-committing).
-	afterSecond := CommitStagedRows(extractPortfolio(t, afterFirst), makeRows("2025-02-01"), "Me")
+	afterSecond := CommitStagedRows(extractPortfolio(t, afterFirst), makeRows("2025-02-01"), ids["Me"])
 
 	var p store.Portfolio
 	if err := json.Unmarshal([]byte(extractPortfolio(t, afterSecond)), &p); err != nil {
@@ -849,8 +880,11 @@ func TestCommitStagedRows_TwoDifferentMembersSameISINGetSeparateAssets(t *testin
 
 	// The person imports their own CAS, then imports their mother's CAS
 	// into the SAME portfolio file - both happen to hold the same fund.
-	afterMe := CommitStagedRows("", makeRows(), "Me")
-	afterBoth := CommitStagedRows(extractPortfolio(t, afterMe), makeRows(), "Mom")
+	// Both members seeded up front since CommitStagedRows requires each
+	// to already exist (see its own doc comment).
+	seed, ids := seededPortfolio(t, "Me", "Mom")
+	afterMe := CommitStagedRows(seed, makeRows(), ids["Me"])
+	afterBoth := CommitStagedRows(extractPortfolio(t, afterMe), makeRows(), ids["Mom"])
 
 	var p store.Portfolio
 	if err := json.Unmarshal([]byte(extractPortfolio(t, afterBoth)), &p); err != nil {
@@ -888,6 +922,54 @@ func TestCommitStagedRows_TwoDifferentMembersSameISINGetSeparateAssets(t *testin
 	momHoldings := finance.FilterHoldingsByMember(holdingsAll, momMemberID)
 	if len(meHoldings) != 1 || len(momHoldings) != 1 {
 		t.Errorf("expected each member to see exactly their own 1 holding, got Me=%d Mom=%d", len(meHoldings), len(momHoldings))
+	}
+}
+
+func TestCommitStagedRows_UnknownMemberIDIsAnErrorNotAutoCreate(t *testing.T) {
+	// The core fix this session: a mistyped/unrecognized member ID must
+	// fail loudly, not silently spawn a phantom new member. Confirmed
+	// real risk this guards against: the old free-text-name path
+	// created a brand-new Member on ANY name that didn't exactly match
+	// an existing one - a simple typo ("Mom" vs "Mother") went unnoticed
+	// and produced a duplicate family member that doesn't actually
+	// exist. The Kotlin side now only offers a dropdown of real existing
+	// members (see ImportActivity.kt), but the bridge itself must not
+	// rely on the UI alone to prevent this.
+	rows := []casimport.StagedRow{{
+		Txn:    store.Transaction{Date: "2025-01-01", Amount: 100, Type: store.Purchase, Scheme: "SOME FUND", ISIN: "INF1"},
+		Status: "NEW",
+	}}
+	b, _ := json.Marshal(rows)
+	seed, _ := seededPortfolio(t, "Me")
+
+	result := CommitStagedRows(seed, string(b), "member-does-not-exist")
+	if !strings.Contains(result, "error") {
+		t.Fatalf("expected an error for an unknown member ID, got: %s", result)
+	}
+
+	var p store.Portfolio
+	if err := json.Unmarshal([]byte(seed), &p); err != nil {
+		t.Fatalf("invalid seed JSON: %v", err)
+	}
+	if len(p.Members) != 1 {
+		t.Fatalf("seed portfolio should still have exactly 1 Member, got %d - a failed commit must not have mutated anything", len(p.Members))
+	}
+}
+
+func TestCommitStagedRows_EmptyMemberIDIsAnError(t *testing.T) {
+	// No member selected at all (e.g. the person hasn't picked one from
+	// the dropdown yet) - must fail clearly rather than falling back to
+	// some default member.
+	rows := []casimport.StagedRow{{
+		Txn:    store.Transaction{Date: "2025-01-01", Amount: 100, Type: store.Purchase, Scheme: "SOME FUND", ISIN: "INF1"},
+		Status: "NEW",
+	}}
+	b, _ := json.Marshal(rows)
+	seed, _ := seededPortfolio(t, "Me")
+
+	result := CommitStagedRows(seed, string(b), "")
+	if !strings.Contains(result, "error") {
+		t.Fatalf("expected an error when no member is selected, got: %s", result)
 	}
 }
 
