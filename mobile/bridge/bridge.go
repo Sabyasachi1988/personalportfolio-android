@@ -22,6 +22,7 @@ import (
 	"math"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"ledger/internal/casimport"
@@ -1680,7 +1681,238 @@ func UpdateBenchmarkHistory(portfolioJSON string, benchmarkID string, since stri
 	return string(out)
 }
 
-// ReturnsTableRow is one row of the Returns screen's table - one fund
+// UpdateAllHistoryResult bundles the outcome of UpdateAllHistory across
+// all 4 fetch types (NAV, ETF/stock price, FX, benchmark/index), plus
+// the updated portfolio JSON - one combined result instead of the
+// caller making 4 separate round trips through the individual
+// Update*History functions above.
+type UpdateAllHistoryResult struct {
+	NavSucceeded       int
+	NavTotal           int
+	NavFailures        []string
+	PriceSucceeded     int
+	PriceTotal         int
+	PriceFailures      []string
+	FxSucceeded        int
+	FxTotal            int
+	FxFailures         []string
+	BenchmarkSucceeded int
+	BenchmarkTotal     int
+	BenchmarkFailures  []string
+	PortfolioJSON      string
+}
+
+// historyOutcome is one concurrent fetch's result, collected before any
+// of them touch the portfolio - see UpdateAllHistory's doc comment for
+// why. Never part of the bridge's exported API surface (no function
+// takes or returns it), so it isn't a gomobile-binding concern the way
+// UpdateAllHistoryResult above is.
+type historyOutcome struct {
+	kind      string // "nav", "price", "fx", "benchmark"
+	label     string
+	priceRecs []store.PriceRecord
+	fxRecs    []store.FXRate
+	err       error
+}
+
+// UpdateAllHistory is the single-call replacement for looping over
+// UpdateHistoricalNav/UpdateHistoricalPrice/UpdateHistoricalFX/
+// UpdateBenchmarkHistory one at a time (the previous approach, still
+// used individually by BenchmarksActivity's own per-index Refresh).
+// Each fetch is now genuinely incremental (see those functions' own doc
+// comments), so an already-current portfolio's fetches are individually
+// fast - but a real portfolio has many funds/indices, and doing 20+ of
+// them SEQUENTIALLY still costs 20+ round-trip latencies even when each
+// one returns almost nothing, which is exactly what was reported as
+// "still 12-13 seconds even when nothing changed". This runs every
+// fetch CONCURRENTLY instead (well within TigZig's documented 300
+// requests/minute limit for any realistic personal-portfolio fund
+// count), which turns that cost from "sum of every round trip" into
+// "the single slowest round trip".
+//
+// Concurrency safety: every goroutine below only READS the portfolio
+// (via PriceSeries/FXRates, to compute its own incremental "since") and
+// does its own independent network fetch - nothing touches p.Prices/
+// p.FXRates (the only fields any Upsert* call mutates) until AFTER
+// wg.Wait(), applied single-threaded in the loop below. This matters
+// because Portfolio.PriceSeries lazily builds and caches an internal
+// index on its FIRST call with no locking (see its own doc comment) -
+// calling it concurrently from many goroutines before that index exists
+// would be a genuine data race (concurrent writes to the same map).
+// The p.PriceSeries("") call up front forces that one-time build
+// safely, single-threaded, before any goroutine starts; every
+// concurrent PriceSeries call after that is a plain, safe map read.
+func UpdateAllHistory(portfolioJSON string) string {
+	var p store.Portfolio
+	if portfolioJSON != "" {
+		if err := json.Unmarshal([]byte(portfolioJSON), &p); err != nil {
+			return fmt.Sprintf(`{"error":%q}`, "invalid portfolio JSON: "+err.Error())
+		}
+	}
+	p.PriceSeries("") // force the one-time index build before any concurrent reads - see doc comment above
+
+	const fxFallbackSince = "2015-01-01"
+	const benchmarkFallbackSince = "2000-01-01"
+
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	var outcomes []historyOutcome
+	record := func(o historyOutcome) {
+		mu.Lock()
+		outcomes = append(outcomes, o)
+		mu.Unlock()
+	}
+
+	for _, a := range p.Assets {
+		if a.ISIN == "" {
+			continue
+		}
+		a := a
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			since := dayAfterLatest(p.PriceSeries(a.ID))
+			history, err := priceapi.FetchTigzigNavHistory(a.ISIN, since)
+			o := historyOutcome{kind: "nav", label: a.DisplayName()}
+			if err != nil {
+				o.err = err
+			} else {
+				for _, pt := range history.Data {
+					o.priceRecs = append(o.priceRecs, store.PriceRecord{AssetID: a.ID, Date: pt.Date, Price: pt.Nav, Source: "TIGZIG_HISTORY"})
+				}
+			}
+			record(o)
+		}()
+	}
+
+	for _, a := range p.Assets {
+		if a.ISIN != "" || a.Symbol == "" {
+			continue
+		}
+		a := a
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			since := fxFallbackSince
+			if incremental := dayAfterLatest(p.PriceSeries(a.ID)); incremental != "" {
+				since = incremental
+			}
+			points, err := priceapi.FetchYahooAdjClose(a.Symbol, since)
+			o := historyOutcome{kind: "price", label: fmt.Sprintf("%s (%s)", a.DisplayName(), a.Symbol)}
+			if err != nil {
+				o.err = err
+			} else {
+				for _, pt := range points {
+					o.priceRecs = append(o.priceRecs, store.PriceRecord{AssetID: a.ID, Date: pt.Date, Price: pt.Price, Source: "YAHOO_HISTORY"})
+				}
+			}
+			record(o)
+		}()
+	}
+
+	currencies := map[string]bool{}
+	for _, acc := range p.Accounts {
+		if acc.Currency != "" && acc.Currency != "INR" {
+			currencies[acc.Currency] = true
+		}
+	}
+	for currency := range currencies {
+		currency := currency
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			since := fxFallbackSince
+			if incremental := dayAfterLatestFX(p.FXRates, currency); incremental != "" {
+				since = incremental
+			}
+			rates, err := priceapi.FetchFrankfurterHistory(currency, since)
+			o := historyOutcome{kind: "fx", label: currency}
+			if err != nil {
+				o.err = err
+			} else {
+				o.fxRecs = rates
+			}
+			record(o)
+		}()
+	}
+
+	for _, b := range p.Benchmarks {
+		b := b
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			since := benchmarkFallbackSince
+			if incremental := dayAfterLatest(p.PriceSeries(b.ID)); incremental != "" {
+				since = incremental
+			}
+			points, err := priceapi.FetchYahooAdjClose(b.YahooTicker, since)
+			o := historyOutcome{kind: "benchmark", label: b.DisplayName()}
+			if err != nil {
+				o.err = err
+			} else {
+				for _, pt := range points {
+					o.priceRecs = append(o.priceRecs, store.PriceRecord{AssetID: b.ID, Date: pt.Date, Price: pt.Price, Source: "YAHOO_HISTORY"})
+				}
+			}
+			record(o)
+		}()
+	}
+
+	wg.Wait()
+
+	// Single-threaded from here on - every p.Upsert* call below is safe
+	// precisely because nothing else touches p concurrently anymore.
+	result := UpdateAllHistoryResult{}
+	for _, o := range outcomes {
+		switch o.kind {
+		case "nav":
+			result.NavTotal++
+			if o.err != nil {
+				result.NavFailures = append(result.NavFailures, o.label+": "+o.err.Error())
+			} else {
+				p.UpsertPrices(o.priceRecs)
+				result.NavSucceeded++
+			}
+		case "price":
+			result.PriceTotal++
+			if o.err != nil {
+				result.PriceFailures = append(result.PriceFailures, o.label+": "+o.err.Error())
+			} else {
+				p.UpsertPrices(o.priceRecs)
+				result.PriceSucceeded++
+			}
+		case "fx":
+			result.FxTotal++
+			if o.err != nil {
+				result.FxFailures = append(result.FxFailures, o.label+": "+o.err.Error())
+			} else {
+				p.UpsertFXRates(o.fxRecs)
+				result.FxSucceeded++
+			}
+		case "benchmark":
+			result.BenchmarkTotal++
+			if o.err != nil {
+				result.BenchmarkFailures = append(result.BenchmarkFailures, o.label+": "+o.err.Error())
+			} else {
+				p.UpsertPrices(o.priceRecs)
+				result.BenchmarkSucceeded++
+			}
+		}
+	}
+
+	portfolioOut, err := json.Marshal(p)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+	result.PortfolioJSON = string(portfolioOut)
+
+	out, err := json.Marshal(result)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+	return string(out)
+}
+
 // (an actual portfolio holding) or one benchmark index. Day and Month
 // are trailing-only (see finance.TrailingReturn's doc comment on why a
 // rolling distribution of sub-year windows wouldn't mean much); each of
