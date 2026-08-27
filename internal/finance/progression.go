@@ -283,13 +283,48 @@ type PeriodGain struct {
 // to this exact collapse (365 days is long enough that the start and end
 // virtually never land on the same cached price purely from data being a
 // few days stale).
+// ComputePeriodGains computes rolling Day and Year (365d) gains for the
+// WHOLE portfolio (always AxisWholePortfolio - a dashboard-level
+// summary, not scoped to any one axis/fund/group/tag), for a compact
+// "how's it doing lately" strip. See periodGainForWindow's doc comment
+// for exactly what Gain/Percent mean and why.
+//
+// Day is DELIBERATELY anchored to the most recent date ANY asset in the
+// WHOLE PORTFOLIO actually has price data for - NOT literal calendar
+// today, and NOT scoped to memberID. This mirrors a confirmed bug fix
+// in finance.ComputeTrailingReturn (see its doc comment): if prices
+// haven't been re-fetched today (the normal case - AMFI/exchange data
+// usually lags, and this app only updates on request), comparing
+// "today" against "yesterday" would resolve BOTH through carry-forward
+// to the exact same cached price for every stale asset, silently
+// reporting Day as flat every single time regardless of what actually
+// happened in the market.
+//
+// The anchor is deliberately UNSCOPED by memberID (unlike everything
+// else this function computes, which IS member-scoped) - a confirmed
+// real bug: if it were scoped to only the current member's assets, two
+// members whose funds happen to have been priced on different actual
+// dates (e.g. one member's holdings refreshed today, the other's not
+// yet) would each anchor "Day" to a DIFFERENT calendar day, and "family"
+// (the union) would anchor to whichever is more recent - so a member
+// with a real move on their own most-recent date could show a nonzero
+// Day figure alone, while that same move vanishes from the family
+// total, because family's stale carry-forward at ITS OWN more-recent
+// anchor date shows no change for that member's assets at all. Sharing
+// one anchor date across every member scope means "Day" always answers
+// the same question - what changed on THIS specific date - and a
+// family total once again equals the sum of its members' figures.
+// Year keeps the literal calendar-today anchor since it isn't
+// vulnerable to this exact collapse (365 days is long enough that the
+// start and end virtually never land on the same cached price purely
+// from data being a few days stale).
 func ComputePeriodGains(p *store.Portfolio, memberID string, today time.Time) []PeriodGain {
 	accountByID, assetByID, included, weights := progressionInputs(p, memberID, AxisWholePortfolio)
 	earliestDate := earliestIncludedTransactionDate(p, included)
 
 	results := make([]PeriodGain, 0, 2)
 
-	if dayAnchorStr := latestIncludedPriceDate(p, included); dayAnchorStr != "" {
+	if dayAnchorStr := latestPriceDateAcrossPortfolio(p); dayAnchorStr != "" {
 		if dayAnchorTime, err := time.Parse(dateLayout, dayAnchorStr); err == nil {
 			dayEndPoint := computeProgressionPoint(p, accountByID, assetByID, included, weights, dayAnchorStr)
 			dayStartStr := dayAnchorTime.AddDate(0, 0, -1).Format(dateLayout)
@@ -378,16 +413,14 @@ func periodGainForWindow(
 	return PeriodGain{Label: label, Gain: round2(gain), Percent: round2(percent), HasData: true}
 }
 
-// latestIncludedPriceDate returns the most recent date any included
-// asset actually has a stored price for, or "" if none do - used by
-// ComputePeriodGains to anchor the "Day" window to real data rather
-// than literal calendar today (see that function's doc comment for why).
-func latestIncludedPriceDate(p *store.Portfolio, included map[string]bool) string {
+// latestPriceDateAcrossPortfolio returns the most recent date ANY asset
+// in the WHOLE portfolio actually has a stored price for (deliberately
+// NOT scoped to any member/axis filter - see ComputePeriodGains' doc
+// comment for why the Day anchor must be shared across every scope), or
+// "" if none do.
+func latestPriceDateAcrossPortfolio(p *store.Portfolio) string {
 	latest := ""
 	for _, rec := range p.Prices {
-		if !included[rec.AssetID] {
-			continue
-		}
 		if rec.Date > latest {
 			latest = rec.Date
 		}
