@@ -12,6 +12,23 @@
         android:textStyle="bold"
         android:textSize="15sp" />
 
+    <!-- Manual Equity/Debt/Commodity/Others correction - see
+         store.Asset.AssetClassOverride's doc comment. Most funds never
+         need this (AMFI's own category, or the name-based heuristic for
+         AMFI's generic "Other" bucket, gets it right); this exists for
+         the funds that don't - e.g. a fund-of-fund whose name doesn't
+         match any heuristic pattern and would otherwise land in
+         "Others" even though it's plainly equity. -->
+    <TextView
+        android:id="@+id/assetClassRow"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:textSize="12sp"
+        android:textColor="@color/colorSecondary"
+        android:padding="4dp"
+        android:background="?attr/selectableItemBackground" />
+
     <!-- Optional: paste the fund's ETMoney page URL once, then tap Fetch
          to auto-fill the four fields below from it (best-effort parse -
          review the numbers before saving, same as any manual entry).
