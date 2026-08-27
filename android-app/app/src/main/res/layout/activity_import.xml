@@ -25,13 +25,27 @@
         android:layout_marginTop="12dp"
         android:text="Add to Portfolio" />
 
-    <EditText
-        android:id="@+id/memberNameInput"
+    <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="12dp"
-        android:hint="Whose statement is this? (default: Me)"
-        android:inputType="textPersonName" />
+        android:text="Whose statement is this?" />
+
+    <Spinner
+        android:id="@+id/memberSpinner"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp" />
+
+    <TextView
+        android:id="@+id/memberSpinnerHint"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:textSize="12sp"
+        android:textColor="@color/colorNeutral"
+        android:text="No family members yet - add one via Settings → Manage Members first."
+        android:visibility="gone" />
 
     <TextView
         android:id="@+id/statusText"
