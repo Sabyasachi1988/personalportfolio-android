@@ -86,7 +86,7 @@ func ComputeHoldings(p *store.Portfolio) []Holding {
 		}
 		h := Holding{
 			AssetID:      asset.ID,
-			AssetName:    asset.Name,
+			AssetName:    asset.DisplayName(),
 			ISIN:         asset.ISIN,
 			AccountName:  accountName[asset.AccountID],
 			MemberID:     accountMember[asset.AccountID],
