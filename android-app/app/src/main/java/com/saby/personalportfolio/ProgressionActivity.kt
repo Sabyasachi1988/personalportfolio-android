@@ -292,14 +292,14 @@ class ProgressionActivity : AppCompatActivity() {
         popup.setOnMenuItemClickListener { item ->
             when (val id = item.itemId) {
                 fundCategoryId -> showCategoryPicker(
-                    items = assets.map { FundNameFormatter.shorten(it.name).ifBlank { "(unnamed asset)" } },
+                    items = assets.map { NicknameResolver.resolve(it.name, it.nickname).ifBlank { "(unnamed asset)" } },
                     onSelected = { i ->
                         val asset = assets.getOrNull(i)
                         if (asset != null) {
                             selectedAssetId = asset.id
                             selectedGroupLabel = null
                             selectedTag = null
-                            axisTab.text = FundNameFormatter.shorten(asset.name).ifBlank { "(unnamed asset)" }
+                            axisTab.text = NicknameResolver.resolve(asset.name, asset.nickname).ifBlank { "(unnamed asset)" }
                             loadAndShowProgression()
                         }
                     }
