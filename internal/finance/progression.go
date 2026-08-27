@@ -153,7 +153,7 @@ func assetProgressionWeights(p *store.Portfolio, accountByID map[string]store.Ac
 
 		var isEquity bool
 		if acct.Currency == "INR" {
-			isEquity = EffectiveAssetClass(asset.AssetClass, asset.Name) == "Equity"
+			isEquity = EffectiveAssetClass(asset.AssetClass, asset.Name, asset.AssetClassOverride) == "Equity"
 		} else {
 			isEquity = classifyForeignAsset(asset.Name) == "Equity"
 		}
