@@ -801,6 +801,83 @@ func TestComputePeriodGains_DayAnchorIgnoresLiveIntradayQuotes(t *testing.T) {
 	}
 }
 
+func TestComputePeriodGains_DayAnchorPrefersMajorityDateOverSingleOutlier(t *testing.T) {
+	// The real, confirmed root cause behind the SAME symptom recurring a
+	// third time: verified directly against AMFI's own live NAV file
+	// that different AMCs publish on genuinely different schedules even
+	// under completely normal conditions (Tata Mutual Fund's NAVs
+	// sitting 2 days behind Nippon India/HDFC/ICICI's, LIC and Edelweiss
+	// a day behind, all observed in the SAME day's real file - nothing
+	// to do with benchmarks or live quotes, both already excluded).
+	// Anchoring to "whichever single holding is most recent" meant a
+	// SINGLE fast-publishing outlier could drag the whole comparison
+	// into a day the REST of the portfolio hasn't published for yet -
+	// carrying the majority forward flat and reporting only the
+	// outlier's move (or a false/understated total) even though most of
+	// the portfolio genuinely moved. Fixed by anchoring to whichever
+	// settled date the MAJORITY of real holdings have actually reached,
+	// not the single fastest-to-publish outlier.
+	p := &store.Portfolio{
+		Members:  []store.Member{{ID: "me", Name: "Me"}},
+		Accounts: []store.Account{{ID: "acc-me", MemberID: "me", Name: "My Account", Currency: "INR"}},
+		Assets: []store.Asset{
+			{ID: "a-hdfc", AccountID: "acc-me", Name: "HDFC Fund"},
+			{ID: "a-nippon", AccountID: "acc-me", Name: "Nippon Fund"},
+			{ID: "a-fastfund", AccountID: "acc-me", Name: "Fast-Publishing Fund"}, // the single outlier, AHEAD of the rest
+		},
+		Transactions: []store.StoredTransaction{
+			{ID: "t-hdfc", AccountID: "acc-me", AssetID: "a-hdfc", Date: "2023-01-01", Type: store.Purchase, Amount: 10000, Units: units(100)},
+			{ID: "t-nippon", AccountID: "acc-me", AssetID: "a-nippon", Date: "2023-01-01", Type: store.Purchase, Amount: 10000, Units: units(100)},
+			{ID: "t-fastfund", AccountID: "acc-me", AssetID: "a-fastfund", Date: "2023-01-01", Type: store.Purchase, Amount: 10000, Units: units(100)},
+		},
+		Prices: []store.PriceRecord{
+			// HDFC and Nippon: the MAJORITY (2 of 3 holdings), settled
+			// through 2026-08-26 - AMFI hasn't published either one's
+			// 27th yet.
+			{AssetID: "a-hdfc", Date: "2026-08-25", Price: 100, Source: "AMFI"},
+			{AssetID: "a-hdfc", Date: "2026-08-26", Price: 103, Source: "AMFI"}, // +3/unit, real move
+			{AssetID: "a-nippon", Date: "2026-08-25", Price: 100, Source: "AMFI"},
+			{AssetID: "a-nippon", Date: "2026-08-26", Price: 105, Source: "AMFI"}, // +5/unit, real move
+			// The single outlier: already has 27-Aug published, ahead of
+			// the other two. Also has a 25-Aug price (flat vs its own
+			// 26-Aug one) so it has REAL continuous history like any
+			// actual held fund would - without this, it would have no
+			// price at all on the majority's start date, and going from
+			// "unpriced" to "priced" during the window would itself
+			// look like a phantom gain, which isn't the mechanism this
+			// test is checking.
+			{AssetID: "a-fastfund", Date: "2026-08-25", Price: 100, Source: "AMFI"},
+			{AssetID: "a-fastfund", Date: "2026-08-26", Price: 100, Source: "AMFI"},
+			{AssetID: "a-fastfund", Date: "2026-08-27", Price: 101, Source: "AMFI"}, // +1/unit
+		},
+	}
+	today := time.Date(2026, 8, 28, 0, 0, 0, 0, time.UTC)
+
+	var day PeriodGain
+	for _, g := range ComputePeriodGains(p, "", today) {
+		if g.Label == "Day" {
+			day = g
+		}
+	}
+
+	if !day.HasData {
+		t.Fatalf("Day.HasData = false, want true")
+	}
+	// The buggy version anchored to 2026-08-27 (the single outlier's
+	// date, the MAX across all three), where HDFC and Nippon have no
+	// data yet and carry forward flat - silently dropping their real
+	// +300/+500 moves and reporting only the outlier's +100.
+	if day.EndDate != "2026-08-26" {
+		t.Errorf("Day.EndDate = %q, want 2026-08-26 (the date the MAJORITY - HDFC and Nippon - actually reached, not the single outlier's 2026-08-27)", day.EndDate)
+	}
+	// HDFC (+300) + Nippon (+500) + the outlier (flat, carried forward
+	// from its own 26-Aug price at both ends of THIS window) = +800.
+	wantGain := round2(100*(103.0-100.0) + 100*(105.0-100.0))
+	if day.Gain != wantGain {
+		t.Errorf("Day.Gain = %v, want %v - the majority's real moves must both surface, with the fast-publishing outlier correctly flat rather than distorting the anchor date", day.Gain, wantGain)
+	}
+}
+
 func TestComputePeriodGains_InsufficientHistoryReportsNoData(t *testing.T) {
 	p := &store.Portfolio{
 		Members:  []store.Member{{ID: "m1", Name: "Saby"}},
