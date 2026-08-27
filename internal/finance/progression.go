@@ -431,24 +431,36 @@ func periodGainForWindow(
 
 // latestPriceDateAcrossPortfolio returns the most recent date any REAL
 // HOLDING (an Asset - never a Benchmark) in the whole portfolio has a
-// stored price for (deliberately NOT scoped to any member/axis filter -
+// SETTLED price for (deliberately NOT scoped to any member/axis filter -
 // see ComputePeriodGains' doc comment for why the Day anchor must be
 // shared across every member scope), or "" if none do.
 //
-// Explicitly excludes Benchmark price records even though they live in
-// the exact same p.Prices slice as fund NAV history (see
-// store.Benchmark's doc comment for why - keyed by Benchmark.ID acting
-// as an AssetID) - this was a confirmed real regression: a tracked
-// index refreshed more recently than any actual holding (routine, since
-// index levels and fund NAVs publish on different schedules and are
-// refreshed by separate actions) made this function anchor Day to a
-// date NO REAL HOLDING has any data for, so every holding carried
-// forward flatly at both ends of the window - reporting a flat ₹0 for
-// every member AND the family total simultaneously, which is what made
-// it look like the whole feature had broken rather than one specific
-// scope, and had nothing to do with device timezone (this function
-// never reads a clock at all - it only compares date STRINGS already
-// stored in Prices).
+// Excludes Benchmark price records even though they live in the exact
+// same p.Prices slice as fund NAV history (see store.Benchmark's doc
+// comment for why - keyed by Benchmark.ID acting as an AssetID) - a
+// confirmed real regression: a tracked index refreshed more recently
+// than any actual holding made this function anchor Day to a date NO
+// REAL HOLDING has any data for.
+//
+// ALSO excludes records with Source == "YAHOO" (a LIVE, mid-session
+// intraday quote from RefreshSymbolPrices - see that function's doc
+// comment) - a second, related, confirmed real bug found the same way:
+// a live ETF/stock quote is dated "today" continuously throughout a
+// trading session, while mutual fund NAV (the majority of a typical
+// portfolio, published ONCE per day only after market close via
+// RefreshAmfiPrices/AMFI, or backfilled via TigZig/TIGZIG_HISTORY) and
+// even Yahoo's own settled daily close (YAHOO_HISTORY) have NO record
+// for "today" until the session actually closes and a real batch value
+// publishes. A live quote pulled the shared anchor forward to a day
+// where every mutual fund NAV carries forward flat, reporting Day as a
+// false ₹0 for the whole portfolio during market hours - exactly the
+// live-reported symptom, correctly diagnosed as "today's session hasn't
+// settled yet, so the anchor should stay on the last SETTLED day (AMFI/
+// TIGZIG_HISTORY/YAHOO_HISTORY), not jump forward the moment any one
+// live-quoted holding ticks into a new calendar day". AMFI,
+// TIGZIG_HISTORY, and YAHOO_HISTORY are all safe to include - each
+// represents a real, once-published, settled value, never a live
+// continuously-changing one.
 func latestPriceDateAcrossPortfolio(p *store.Portfolio) string {
 	assetIDs := make(map[string]bool, len(p.Assets))
 	for _, a := range p.Assets {
@@ -458,6 +470,9 @@ func latestPriceDateAcrossPortfolio(p *store.Portfolio) string {
 	for _, rec := range p.Prices {
 		if !assetIDs[rec.AssetID] {
 			continue // a Benchmark's price history, not a real holding - see doc comment above
+		}
+		if rec.Source == "YAHOO" {
+			continue // a live, mid-session quote, not a settled value - see doc comment above
 		}
 		if rec.Date > latest {
 			latest = rec.Date
