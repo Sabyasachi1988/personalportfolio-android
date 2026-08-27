@@ -174,6 +174,90 @@ func ComputeHoldings(portfolioJSON string) string {
 // CapComposition where present, falling back to the GuessMarketCapSegment
 // heuristic otherwise (same behavior as the desktop Allocation tab).
 // memberID scopes to one member's holdings; empty means the whole family.
+// DashboardResult bundles every figure MainActivity's Dashboard screen
+// needs into ONE JSON payload from ONE portfolio-JSON unmarshal, instead
+// of the 7 separate bridge calls it used to make (computeHoldingsForMember,
+// computePortfolioXIRR, computePeriodGains, computeCalendarYearGain,
+// computeAllocationByMarketCap, computeAllocationByEquityOrigin,
+// computeAllocationByPortfolioClass) - each of which independently
+// re-parsed the SAME portfolio JSON on the Go side. PortfolioLoadCache
+// (Kotlin side) already avoids re-reading/re-parsing the JSON STRING on
+// every screen visit, but it can't avoid this - each bridge call is a
+// fresh JNI crossing into Go, and json.Unmarshal has to run again inside
+// each one regardless of what Kotlin already cached. This was the
+// confirmed remaining cause of "especially going to the dashboard" lag.
+// Field names deliberately match each existing bridge function's own
+// JSON output shape (e.g. "xirr"/"hasXIRR" matching ComputePortfolioXIRR's
+// map output) so the Kotlin-side data classes barely change.
+type DashboardResult struct {
+	Holdings         []finance.Holding
+	XIRR             float64 `json:"xirr"`
+	HasXIRR          bool    `json:"hasXIRR"`
+	RollingGains     []finance.PeriodGain
+	CalendarYearGain finance.PeriodGain
+	MarketCapSlices  []finance.AllocationSlice
+	OriginSlices     []finance.AllocationSlice
+	ClassSlices      []finance.AllocationSlice
+}
+
+// ComputeDashboard is the combined replacement for the 7 calls described
+// in DashboardResult's doc comment - see that comment for why this
+// exists. today is "yyyy-MM-dd", same convention as ComputePeriodGains/
+// ComputeCalendarYearGain.
+func ComputeDashboard(portfolioJSON string, memberID string, today string) string {
+	var p store.Portfolio
+	if portfolioJSON != "" {
+		if err := json.Unmarshal([]byte(portfolioJSON), &p); err != nil {
+			return fmt.Sprintf(`{"error":%q}`, "invalid portfolio JSON: "+err.Error())
+		}
+	}
+	t, err := time.Parse("2006-01-02", today)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, "invalid today date: "+err.Error())
+	}
+
+	allHoldings := finance.ComputeHoldings(&p)
+	memberHoldings := finance.FilterHoldingsByMember(allHoldings, memberID)
+	xirr, hasXIRR := finance.PortfolioXIRR(&p, memberHoldings)
+
+	classByAsset := make(map[string]string, len(p.Assets))
+	for _, a := range p.Assets {
+		classByAsset[a.ID] = a.AssetClass
+	}
+	capCompByAsset := make(map[string]store.CapComposition)
+	originCompByAsset := make(map[string]store.EquityOriginComposition)
+	for _, a := range p.Assets {
+		if c, ok := p.GetCapComposition(a.ID); ok {
+			capCompByAsset[a.ID] = c
+		}
+		if c, ok := p.GetEquityOriginComposition(a.ID); ok {
+			originCompByAsset[a.ID] = c
+		}
+	}
+
+	result := DashboardResult{
+		Holdings:         memberHoldings,
+		XIRR:             xirr,
+		HasXIRR:          hasXIRR,
+		RollingGains:     finance.ComputePeriodGains(&p, memberID, t),
+		CalendarYearGain: finance.ComputeCalendarYearGain(&p, memberID, t),
+		// Market cap allocation is member-scoped (matches
+		// ComputeAllocationByMarketCap's own memberHoldings use);
+		// origin/class allocation are whole-family always (matches
+		// ComputeAllocationByEquityOrigin/ByPortfolioClass, which never
+		// took a memberID param in the first place).
+		MarketCapSlices: finance.AllocationByMarketCapSegment(memberHoldings, capCompByAsset),
+		OriginSlices:    finance.AllocationByEquityOrigin(allHoldings, classByAsset, originCompByAsset),
+		ClassSlices:     finance.AllocationByPortfolioClass(allHoldings, classByAsset),
+	}
+
+	out, err := json.Marshal(result)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+	return string(out)
+}
+
 func ComputeAllocationByMarketCap(portfolioJSON string, memberID string) string {
 	var p store.Portfolio
 	if portfolioJSON != "" {
