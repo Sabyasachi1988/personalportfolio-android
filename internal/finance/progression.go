@@ -255,10 +255,12 @@ func computeProgressionSeries(
 // ComputeCalendarYearGain returns - same methodology either way, only
 // how the start date is chosen differs.
 type PeriodGain struct {
-	Label   string  // e.g. "Day", "Year", "Calendar Year"
-	Gain    float64 // INR, market-movement only - contributions during the window excluded, see doc comment
-	Percent float64 // Gain / start-of-window Value * 100
-	HasData bool    // false if the portfolio's history doesn't yet reach back to this window's start date
+	Label     string  // e.g. "Day", "Year", "Calendar Year"
+	Gain      float64 // INR, market-movement only - contributions during the window excluded, see doc comment
+	Percent   float64 // Gain / start-of-window Value * 100
+	HasData   bool    // false if the portfolio's history doesn't yet reach back to this window's start date
+	StartDate string  // yyyy-MM-dd, the window's actual start - see periodGainForWindow's doc comment for why this is now exposed
+	EndDate   string  // yyyy-MM-dd, the window's actual end
 }
 
 // ComputePeriodGains computes rolling Day and Year (365d) gains for the
@@ -390,6 +392,17 @@ func ComputeCalendarYearGain(p *store.Portfolio, memberID string, today time.Tim
 // doesn't reach back to the window's start date - e.g. a Calendar Year
 // figure requested in February for a portfolio opened that same month
 // has no real January 1st baseline to compare against.
+//
+// StartDate/EndDate are exposed on the result (see PeriodGain's doc
+// comment) so the actual dates being compared are visible to the
+// person, not just the resulting number - added specifically because
+// two separate real bugs in "Day"'s anchor-date logic (member-scoped
+// anchoring, then an unfiltered Benchmark date leaking in) both
+// produced a plausible-looking but WRONG figure with no way to tell
+// from the UI alone which dates were actually being compared. Surfacing
+// the dates turns "the number looks wrong, why" into something
+// checkable without needing another round of guessing against
+// synthetic test data.
 func periodGainForWindow(
 	p *store.Portfolio,
 	accountByID map[string]store.Account,
@@ -410,14 +423,12 @@ func periodGainForWindow(
 	if startPoint.Value != 0 {
 		percent = gain / startPoint.Value * 100
 	}
-	return PeriodGain{Label: label, Gain: round2(gain), Percent: round2(percent), HasData: true}
+	return PeriodGain{
+		Label: label, Gain: round2(gain), Percent: round2(percent), HasData: true,
+		StartDate: startDateStr, EndDate: endPoint.Date,
+	}
 }
 
-// latestPriceDateAcrossPortfolio returns the most recent date ANY asset
-// in the WHOLE portfolio actually has a stored price for (deliberately
-// NOT scoped to any member/axis filter - see ComputePeriodGains' doc
-// comment for why the Day anchor must be shared across every scope), or
-// "" if none do.
 // latestPriceDateAcrossPortfolio returns the most recent date any REAL
 // HOLDING (an Asset - never a Benchmark) in the whole portfolio has a
 // stored price for (deliberately NOT scoped to any member/axis filter -
