@@ -20,7 +20,8 @@ data class AssetSummary(
     // emptyList()` default here is a safety net for older cached JSON
     // only, not something this screen relies on for correctness.
     @SerializedName("Tags") val tags: List<String> = emptyList(),
-    @SerializedName("PrimaryTag") val primaryTag: String = ""
+    @SerializedName("PrimaryTag") val primaryTag: String = "",
+    @SerializedName("Nickname") val nickname: String = ""
 )
 
 data class AccountSummary(
