@@ -174,6 +174,60 @@ func ComputeHoldings(portfolioJSON string) string {
 // CapComposition where present, falling back to the GuessMarketCapSegment
 // heuristic otherwise (same behavior as the desktop Allocation tab).
 // memberID scopes to one member's holdings; empty means the whole family.
+// NameListEntry is one row of the Manage Names screen - one asset OR
+// benchmark's identity, its real/default Name, and its current Nickname
+// (empty if none set). Deliberately includes EVERY asset/benchmark, not
+// just ones with price history (unlike ComputeReturnsTable) - renaming
+// should be possible before a fund has ever been priced.
+type NameListEntry struct {
+	SeriesID    string
+	Name        string // the real/default name - NEVER the nickname, so the edit screen always shows what it's overriding
+	Nickname    string
+	IsBenchmark bool
+}
+
+// ComputeNameList powers the Manage Names screen - see NameListEntry's
+// doc comment.
+func ComputeNameList(portfolioJSON string) string {
+	var p store.Portfolio
+	if portfolioJSON != "" {
+		if err := json.Unmarshal([]byte(portfolioJSON), &p); err != nil {
+			return fmt.Sprintf(`{"error":%q}`, "invalid portfolio JSON: "+err.Error())
+		}
+	}
+	entries := make([]NameListEntry, 0, len(p.Assets)+len(p.Benchmarks))
+	for _, a := range p.Assets {
+		entries = append(entries, NameListEntry{SeriesID: a.ID, Name: a.Name, Nickname: a.Nickname, IsBenchmark: false})
+	}
+	for _, b := range p.Benchmarks {
+		entries = append(entries, NameListEntry{SeriesID: b.ID, Name: b.Name, Nickname: b.Nickname, IsBenchmark: true})
+	}
+	out, err := json.Marshal(entries)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+	return string(out)
+}
+
+// SetNickname sets or clears (given "") the personal display name for
+// an asset or benchmark - see store.Portfolio.SetNickname's doc
+// comment. Returns the updated portfolio as JSON, same convention as
+// every other Set*/Add*/Remove* bridge function.
+func SetNickname(portfolioJSON string, seriesID string, nickname string) string {
+	var p store.Portfolio
+	if portfolioJSON != "" {
+		if err := json.Unmarshal([]byte(portfolioJSON), &p); err != nil {
+			return fmt.Sprintf(`{"error":%q}`, "invalid portfolio JSON: "+err.Error())
+		}
+	}
+	p.SetNickname(seriesID, strings.TrimSpace(nickname))
+	out, err := json.Marshal(p)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+	return string(out)
+}
+
 // DashboardResult bundles every figure MainActivity's Dashboard screen
 // needs into ONE JSON payload from ONE portfolio-JSON unmarshal, instead
 // of the 7 separate bridge calls it used to make (computeHoldingsForMember,
@@ -892,7 +946,7 @@ func RemoveDuplicateTransactions(portfolioJSON string) string {
 	}
 	assetNameByID := make(map[string]string, len(p.Assets))
 	for _, a := range p.Assets {
-		assetNameByID[a.ID] = a.Name
+		assetNameByID[a.ID] = a.DisplayName()
 	}
 
 	keep := make([]store.StoredTransaction, 0, len(p.Transactions))
@@ -1536,14 +1590,14 @@ func ComputeReturnsTable(portfolioJSON string) string {
 		if len(series) == 0 {
 			continue // never had a price fetched - nothing to show
 		}
-		rows = append(rows, buildReturnsRow(a.ID, a.Name, false, series))
+		rows = append(rows, buildReturnsRow(a.ID, a.DisplayName(), false, series))
 	}
 	for _, b := range p.Benchmarks {
 		series := p.PriceSeries(b.ID)
 		if len(series) == 0 {
 			continue
 		}
-		rows = append(rows, buildReturnsRow(b.ID, b.Name, true, series))
+		rows = append(rows, buildReturnsRow(b.ID, b.DisplayName(), true, series))
 	}
 
 	out, err := json.Marshal(rows)
@@ -1636,13 +1690,13 @@ func ComputeMultiSeriesHistory(portfolioJSON string, seriesIDsJSON string) strin
 		nameAndKind[a.ID] = struct {
 			name        string
 			isBenchmark bool
-		}{a.Name, false}
+		}{a.DisplayName(), false}
 	}
 	for _, b := range p.Benchmarks {
 		nameAndKind[b.ID] = struct {
 			name        string
 			isBenchmark bool
-		}{b.Name, true}
+		}{b.DisplayName(), true}
 	}
 
 	items := make([]MultiSeriesHistoryItem, 0, len(seriesIDs))
@@ -1733,7 +1787,7 @@ func ComputeFundMetrics(portfolioJSON string, seriesID string, benchmarkID strin
 		for _, b := range p.Benchmarks {
 			if b.ID == benchmarkID {
 				result.BenchmarkID = b.ID
-				result.BenchmarkName = b.Name
+				result.BenchmarkName = b.DisplayName()
 				result.AutoSelected = autoSelected
 				benchSeries := p.PriceSeries(b.ID)
 				if beta, ok := finance.ComputeBeta(fundSeries, benchSeries); ok {
