@@ -12,11 +12,13 @@ class CapCompositionAdapter(
     private val assets: List<AssetSummary>,
     private val existingByAssetId: Map<String, CapCompositionEntry>,
     private val onSave: (assetId: String, large: Double, mid: Double, small: Double, cash: Double, rowHolder: RowHolder) -> Unit,
-    private val onFetchFromEtMoney: (assetId: String, url: String, rowHolder: RowHolder) -> Unit
+    private val onFetchFromEtMoney: (assetId: String, url: String, rowHolder: RowHolder) -> Unit,
+    private val onEditAssetClass: (asset: AssetSummary) -> Unit
 ) : RecyclerView.Adapter<CapCompositionAdapter.RowHolder>() {
 
     class RowHolder(view: View) : RecyclerView.ViewHolder(view) {
         val name: TextView = view.findViewById(R.id.assetName)
+        val assetClassRow: TextView = view.findViewById(R.id.assetClassRow)
         val etMoneyUrlInput: EditText = view.findViewById(R.id.etMoneyUrlInput)
         val fetchButton: Button = view.findViewById(R.id.fetchEtMoneyButton)
         val etMoneyStatusLabel: TextView = view.findViewById(R.id.etMoneyStatusLabel)
@@ -37,6 +39,13 @@ class CapCompositionAdapter(
     override fun onBindViewHolder(holder: RowHolder, position: Int) {
         val asset = assets[position]
         holder.name.text = FundNameFormatter.shorten(asset.name).ifBlank { "(unnamed asset)" }
+        holder.assetClassRow.text = if (asset.assetClassOverride.isNotBlank()) {
+            "Class override: ${asset.assetClassOverride} — tap to change"
+        } else {
+            val amfi = asset.assetClass.ifBlank { "none" }
+            "Class: automatic (AMFI category: $amfi) — tap to override"
+        }
+        holder.assetClassRow.setOnClickListener { onEditAssetClass(asset) }
         holder.etMoneyUrlInput.setText(asset.etMoneyUrl)
         holder.etMoneyStatusLabel.visibility = View.GONE
 
