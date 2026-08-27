@@ -4,7 +4,11 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.view.View
+import android.widget.AdapterView
+import android.widget.ArrayAdapter
 import android.widget.Button
+import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
@@ -15,6 +19,19 @@ import com.google.gson.Gson
 import com.ledger.bridge.Bridge
 import java.util.concurrent.Executors
 
+/**
+ * CAS PDF / CSV import screen. Whose portfolio a statement belongs to
+ * is picked from a dropdown of REAL, EXISTING members - never free
+ * text, and never defaulted to "Me". This replaced an EditText that
+ * defaulted to "Me" and matched whatever was typed against existing
+ * members by exact name, silently creating a brand-new member on any
+ * mismatch - a confirmed real risk: a typo ("Mom" vs "Mother") would
+ * spawn a phantom duplicate family member nobody actually meant to
+ * create. See bridge.CommitStagedRows' own doc comment for the other
+ * half of this fix (it now requires a real member ID and errors rather
+ * than auto-creating on a mismatch, so this isn't relying on the UI
+ * alone to prevent it).
+ */
 class ImportActivity : AppCompatActivity() {
 
     private val gson = Gson()
@@ -24,9 +41,16 @@ class ImportActivity : AppCompatActivity() {
     private lateinit var statusText: TextView
     private lateinit var transactionsList: RecyclerView
     private lateinit var commitButton: Button
-    private lateinit var memberNameInput: android.widget.EditText
+    private lateinit var memberSpinner: Spinner
+    private lateinit var memberSpinnerHint: TextView
 
     private var lastImportedRows: List<StagedRow> = emptyList()
+    // Index 0 is always the "— Select member —" placeholder (not a real
+    // choice); indices 1.. map 1:1 with members - same convention
+    // MainActivity's own member spinner already uses, just without an
+    // "All (family)" option here (a statement belongs to exactly one
+    // person, never "family" as a whole).
+    private var members: List<Member> = emptyList()
 
     private val pickPdf = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
@@ -48,7 +72,15 @@ class ImportActivity : AppCompatActivity() {
         transactionsList = findViewById(R.id.transactionsList)
         transactionsList.layoutManager = LinearLayoutManager(this)
         commitButton = findViewById(R.id.commitButton)
-        memberNameInput = findViewById(R.id.memberNameInput)
+        memberSpinner = findViewById(R.id.memberSpinner)
+        memberSpinnerHint = findViewById(R.id.memberSpinnerHint)
+
+        memberSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                updateCommitButtonEnabled()
+            }
+            override fun onNothingSelected(parent: AdapterView<*>?) {}
+        }
 
         findViewById<Button>(R.id.importButton).setOnClickListener {
             pickPdf.launch(arrayOf("application/pdf"))
@@ -66,6 +98,54 @@ class ImportActivity : AppCompatActivity() {
         commitButton.setOnClickListener { commitImportedRows() }
 
         commitButton.isEnabled = false
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Reload every time this screen becomes visible, not just once
+        // in onCreate - a member added via Manage Members (a natural
+        // thing to do right before importing that person's first
+        // statement) should show up here without having to leave and
+        // re-enter this Activity.
+        loadMembers()
+    }
+
+    private fun isBridgeError(json: String): Boolean = json.trimStart().startsWith("{\"error\"")
+
+    private fun loadMembers() {
+        val portfolioPath = PortfolioStorage.filePath(this)
+        val portfolioJson = PortfolioLoadCache.load(portfolioPath)
+        val snapshot: PortfolioManualEntrySnapshot = try {
+            gson.fromJson(portfolioJson, PortfolioManualEntrySnapshot::class.java)
+        } catch (e: Exception) {
+            PortfolioManualEntrySnapshot(emptyList(), emptyList(), emptyList())
+        }
+        val previousSelectionMemberId = selectedMemberId()
+        members = snapshot.members.orEmpty()
+
+        val labels = listOf("— Select member —") + members.map { it.name }
+        memberSpinner.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, labels)
+
+        // Keep the same member selected across a reload if they're still
+        // present (e.g. after coming back from Manage Members having
+        // added someone ELSE, not changed who was already picked here).
+        val restoredIndex = members.indexOfFirst { it.id == previousSelectionMemberId }
+        memberSpinner.setSelection(if (restoredIndex >= 0) restoredIndex + 1 else 0)
+
+        memberSpinnerHint.visibility = if (members.isEmpty()) View.VISIBLE else View.GONE
+        updateCommitButtonEnabled()
+    }
+
+    /** The selected member's real ID, or null if the placeholder ("— Select member —") is still selected. */
+    private fun selectedMemberId(): String? {
+        val position = memberSpinner.selectedItemPosition
+        if (position <= 0) return null // 0 is the placeholder
+        return members.getOrNull(position - 1)?.id
+    }
+
+    private fun updateCommitButtonEnabled() {
+        val hasStagedRows = lastImportedRows.any { it.status == "NEW" }
+        commitButton.isEnabled = hasStagedRows && selectedMemberId() != null
     }
 
     private fun importFile(uri: Uri, isCsv: Boolean) {
@@ -95,7 +175,7 @@ class ImportActivity : AppCompatActivity() {
             statusText.text = "Import error: ${result.error}"
             transactionsList.adapter = TransactionAdapter(emptyList())
             lastImportedRows = emptyList()
-            commitButton.isEnabled = false
+            updateCommitButtonEnabled()
             return
         }
 
@@ -112,13 +192,18 @@ class ImportActivity : AppCompatActivity() {
         }
 
         transactionsList.adapter = TransactionAdapter(staged)
-        commitButton.isEnabled = staged.any { it.status == "NEW" }
+        updateCommitButtonEnabled()
     }
 
     private fun commitImportedRows() {
         val newRows = lastImportedRows.filter { it.status == "NEW" }
         if (newRows.isEmpty()) {
             Toast.makeText(this, "No NEW rows to add", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val memberId = selectedMemberId()
+        if (memberId == null) {
+            Toast.makeText(this, "Pick whose statement this is first", Toast.LENGTH_SHORT).show()
             return
         }
 
@@ -136,8 +221,7 @@ class ImportActivity : AppCompatActivity() {
                 }
 
                 val rowsJson = gson.toJson(newRows)
-                val memberName = memberNameInput.text.toString().trim().ifBlank { "Me" }
-                val commitResultJson = Bridge.commitStagedRows(currentPortfolioJson, rowsJson, memberName)
+                val commitResultJson = Bridge.commitStagedRows(currentPortfolioJson, rowsJson, memberId)
                 if (isBridgeError(commitResultJson)) {
                     mainThread.post { failCommit("Failed to link transactions: $commitResultJson") }
                     return@execute
@@ -171,13 +255,9 @@ class ImportActivity : AppCompatActivity() {
         }
     }
 
-    private fun isBridgeError(json: String): Boolean {
-        return json.trimStart().startsWith("{\"error\"")
-    }
-
     private fun failCommit(message: String) {
         statusText.text = message
-        commitButton.isEnabled = true
+        updateCommitButtonEnabled()
     }
 }
 
