@@ -40,17 +40,33 @@ type TigzigNavResponse struct {
 	Data                []TigzigNavPoint `json:"data"`
 }
 
-// FetchTigzigNavHistory fetches one mutual fund's full NAV history by
-// ISIN. Deliberately one call per fund via the single-identifier form,
-// not the bulk `schemes=` form: the bulk response's exact shape
-// (documented as wrapping results under a "schemes" key) could not be
-// independently confirmed with a live call from this sandbox - tigzig.com
-// isn't reachable from here - so rather than guess at an unverified
-// shape, this uses only the form whose JSON was actually inspected live.
-// TigZig's per-IP limit is 300 requests/minute, far more than a personal
-// portfolio's fund count needs even one-at-a-time.
-func FetchTigzigNavHistory(isin string) (TigzigNavResponse, error) {
+// FetchTigzigNavHistory fetches one mutual fund's NAV history by ISIN,
+// optionally bounded to since..present (since="" means the scheme's
+// entire available history). Deliberately one call per fund via the
+// single-identifier form, not the bulk `schemes=` form: the bulk
+// response's exact shape (documented as wrapping results under a
+// "schemes" key) could not be independently confirmed with a live call
+// from this sandbox - tigzig.com isn't reachable from here - so rather
+// than guess at an unverified shape, this uses only the form whose JSON
+// was actually inspected live. TigZig's per-IP limit is 300
+// requests/minute, far more than a personal portfolio's fund count
+// needs even one-at-a-time.
+//
+// The since parameter itself IS independently confirmed, unlike the
+// bulk form above - TigZig's own live OpenAPI spec at
+// https://api.tigzig.com/mf/v1/openapi.json documents
+// "GET /mf/v1/nav?scheme=120468&since=2024-01-01&to=2024-12-31" as a
+// supported bounded-window call, and explicitly states an empty window
+// (nothing published yet in that range) returns 200 with `data: []`,
+// not an error - see the empty-result handling below, which
+// distinguishes "asked for everything, got nothing" (a real failure)
+// from "asked for a recent window, got nothing new yet" (a normal,
+// successful outcome when a fund is already up to date).
+func FetchTigzigNavHistory(isin string, since string) (TigzigNavResponse, error) {
 	url := "https://api.tigzig.com/mf/v1/nav?scheme=" + neturl.QueryEscape(isin)
+	if since != "" {
+		url += "&since=" + neturl.QueryEscape(since)
+	}
 	resp, err := http.Get(url)
 	if err != nil {
 		return TigzigNavResponse{}, fmt.Errorf("tigzig nav request failed: %w", err)
@@ -69,7 +85,11 @@ func FetchTigzigNavHistory(isin string) (TigzigNavResponse, error) {
 	if err := json.Unmarshal(body, &out); err != nil {
 		return TigzigNavResponse{}, fmt.Errorf("parsing tigzig response for ISIN %s: %w", isin, err)
 	}
-	if out.Count == 0 || len(out.Data) == 0 {
+	// An empty result is only a real failure for an UNBOUNDED request
+	// (since=="") - a bounded/incremental request legitimately returns
+	// zero new rows when the fund is already up to date, per the doc
+	// comment above.
+	if since == "" && (out.Count == 0 || len(out.Data) == 0) {
 		return TigzigNavResponse{}, fmt.Errorf("no NAV history found for ISIN %s", isin)
 	}
 	return out, nil
@@ -109,6 +129,15 @@ type yahooAdjCloseResponse map[string]map[string]interface{}
 // NSE-listed ETF, "RELIANCE.NS", a bare US ticker like "AAPL", etc.)
 // from `since` to today, via TigZig's Yahoo Finance proxy. See
 // yahooAdjCloseResponse's doc comment for the response-shape caveat.
+//
+// Deliberately does NOT treat zero results as an error itself (unlike
+// earlier versions of this function) - a narrow, incremental `since`
+// window for an asset that's already up to date is EXPECTED to come
+// back empty (weekend/holiday, or simply nothing new published yet),
+// and that is success, not failure. Distinguishing that from a
+// genuinely bad ticker requires knowing whether this is a first-ever
+// fetch or a top-up, which only the caller knows - see
+// UpdateHistoricalPrice's doc comment for where that check now lives.
 func FetchYahooAdjClose(ticker string, since string) ([]YahooPricePoint, error) {
 	if ticker == "" {
 		return nil, fmt.Errorf("ticker cannot be empty")
@@ -149,10 +178,6 @@ func FetchYahooAdjClose(ticker string, since string) ([]YahooPricePoint, error) 
 		points = append(points, YahooPricePoint{Date: date, Price: price})
 	}
 	sort.Slice(points, func(i, j int) bool { return points[i].Date < points[j].Date })
-
-	if len(points) == 0 {
-		return nil, fmt.Errorf("no price history found for %s", ticker)
-	}
 	return points, nil
 }
 
@@ -185,6 +210,12 @@ type FrankfurterTimeSeriesResponse struct {
 // 1.0 by definition. Only dates Frankfurter actually published are
 // returned (weekends/holidays are naturally absent, not zero-filled or
 // interpolated).
+//
+// Deliberately does NOT treat zero results as an error itself, same
+// reasoning as FetchYahooAdjClose's doc comment - a narrow incremental
+// `since` for an already-current currency is expected to come back
+// empty, and that's success. See UpdateHistoricalFX for where the
+// first-fetch-vs-top-up distinction now lives.
 func FetchFrankfurterHistory(currency string, since string) ([]store.FXRate, error) {
 	if currency == "" {
 		return nil, fmt.Errorf("currency cannot be empty")
@@ -215,9 +246,6 @@ func FetchFrankfurterHistory(currency string, since string) ([]store.FXRate, err
 	rates, err := ParseFrankfurterTimeSeries(body, currency)
 	if err != nil {
 		return nil, err
-	}
-	if len(rates) == 0 {
-		return nil, fmt.Errorf("no FX rates returned for %s since %s", currency, since)
 	}
 	return rates, nil
 }
