@@ -8,24 +8,25 @@ import (
 
 // Holding summarises one asset's current position.
 type Holding struct {
-	AssetID      string
-	AssetName    string
-	ISIN         string
-	AccountName  string
-	MemberID     string
-	MemberName   string
-	GroupLabel   string   // see store.Asset.GroupLabel's doc comment - "" means ungrouped
-	Tags         []string // see store.Asset.Tags' doc comment
-	EffectiveTag string   // see store.Asset.EffectiveTag's doc comment - "" means untagged
-	UnitsHeld    float64
-	NetInvested  float64 // sum of purchase amounts minus redemption proceeds
-	CurrentPrice float64
-	HasPrice     bool
-	CurrentValue float64
-	Gain         float64 // CurrentValue - NetInvested
-	GainPercent  float64
-	XIRR         float64
-	HasXIRR      bool
+	AssetID            string
+	AssetName          string
+	ISIN               string
+	AccountName        string
+	MemberID           string
+	MemberName         string
+	GroupLabel         string   // see store.Asset.GroupLabel's doc comment - "" means ungrouped
+	Tags               []string // see store.Asset.Tags' doc comment
+	EffectiveTag       string   // see store.Asset.EffectiveTag's doc comment - "" means untagged
+	AssetClassOverride string   // see store.Asset.AssetClassOverride's doc comment - "" means no override, use EffectiveAssetClass's normal resolution
+	UnitsHeld          float64
+	NetInvested        float64 // sum of purchase amounts minus redemption proceeds
+	CurrentPrice       float64
+	HasPrice           bool
+	CurrentValue       float64
+	Gain               float64 // CurrentValue - NetInvested
+	GainPercent        float64
+	XIRR               float64
+	HasXIRR            bool
 }
 
 const dateLayout = "2006-01-02"
@@ -85,17 +86,18 @@ func ComputeHoldings(p *store.Portfolio) []Holding {
 			continue // no transactions for this asset yet
 		}
 		h := Holding{
-			AssetID:      asset.ID,
-			AssetName:    asset.DisplayName(),
-			ISIN:         asset.ISIN,
-			AccountName:  accountName[asset.AccountID],
-			MemberID:     accountMember[asset.AccountID],
-			MemberName:   memberName[accountMember[asset.AccountID]],
-			GroupLabel:   asset.GroupLabel,
-			Tags:         asset.Tags,
-			EffectiveTag: asset.EffectiveTag(),
-			UnitsHeld:    round4(acc.units),
-			NetInvested:  round2(acc.invested),
+			AssetID:            asset.ID,
+			AssetName:          asset.DisplayName(),
+			ISIN:               asset.ISIN,
+			AccountName:        accountName[asset.AccountID],
+			MemberID:           accountMember[asset.AccountID],
+			MemberName:         memberName[accountMember[asset.AccountID]],
+			GroupLabel:         asset.GroupLabel,
+			Tags:               asset.Tags,
+			EffectiveTag:       asset.EffectiveTag(),
+			AssetClassOverride: asset.AssetClassOverride,
+			UnitsHeld:          round4(acc.units),
+			NetInvested:        round2(acc.invested),
 		}
 		if pr, ok := latestPrice[asset.ID]; ok {
 			h.CurrentPrice = pr.Price
