@@ -150,3 +150,63 @@ func TestComputeRollingReturnStats_EmptySeriesReportsNoData(t *testing.T) {
 		t.Errorf("HasData = true, want false for an empty series")
 	}
 }
+
+func TestComputeTrailingReturnForCustomYears_AnnualizesFractionalWindow(t *testing.T) {
+	// A single 2.5-year window: 100 -> 100*(1.10^2.5) is exactly +10%
+	// CAGR - confirms fractional-year annualization matches the same
+	// math as ComputeTrailingReturnForYears' whole-year case. Start
+	// date set well before the actual int(2.5*365.25)-day window so
+	// priceOnOrBefore always finds a price at the computed start,
+	// regardless of the exact day-count rounding.
+	series := []store.PriceRecord{
+		{AssetID: "fund1", Date: "2021-01-01", Price: 100},
+		{AssetID: "fund1", Date: "2024-01-01", Price: 126.906}, // ~100*1.10^2.5 (100*1.10^2.5 = 126.906)
+	}
+
+	got := ComputeTrailingReturnForCustomYears(series, 2.5, "2.5 Year")
+	if !got.HasData {
+		t.Fatalf("HasData = false, want true")
+	}
+	if got.Percent < 9.9 || got.Percent > 10.1 {
+		t.Errorf("Percent = %v, want ~10.0 (annualized CAGR)", got.Percent)
+	}
+}
+
+func TestComputeTrailingReturnForCustomYears_NonPositiveYearsReportsNoData(t *testing.T) {
+	series := []store.PriceRecord{
+		{AssetID: "fund1", Date: "2024-01-01", Price: 100},
+		{AssetID: "fund1", Date: "2024-06-01", Price: 105},
+	}
+	for _, years := range []float64{0, -1.5} {
+		got := ComputeTrailingReturnForCustomYears(series, years, "bad")
+		if got.HasData {
+			t.Errorf("years=%v: HasData = true, want false", years)
+		}
+	}
+}
+
+func TestComputeRollingReturnStatsForCustomYears_AnnualizesFractionalWindow(t *testing.T) {
+	series := []store.PriceRecord{
+		{AssetID: "fund1", Date: "2021-01-01", Price: 100},
+		{AssetID: "fund1", Date: "2024-01-01", Price: 126.906},
+	}
+
+	stats := ComputeRollingReturnStatsForCustomYears(series, 2.5, "2.5 Year")
+	if !stats.HasData {
+		t.Fatalf("HasData = false, want true")
+	}
+	if stats.Median < 9.9 || stats.Median > 10.1 {
+		t.Errorf("Median = %v, want ~10.0", stats.Median)
+	}
+}
+
+func TestComputeRollingReturnStatsForCustomYears_InsufficientHistoryReportsNoData(t *testing.T) {
+	series := []store.PriceRecord{
+		{AssetID: "fund1", Date: "2024-01-01", Price: 100},
+		{AssetID: "fund1", Date: "2024-06-01", Price: 105},
+	}
+	stats := ComputeRollingReturnStatsForCustomYears(series, 2, "2 Year")
+	if stats.HasData {
+		t.Errorf("HasData = true, want false (only ~5 months of history for a 2-year window)")
+	}
+}
