@@ -1716,19 +1716,22 @@ func UpdateBenchmarkHistory(portfolioJSON string, benchmarkID string, since stri
 // caller making 4 separate round trips through the individual
 // Update*History functions above.
 type UpdateAllHistoryResult struct {
-	NavSucceeded       int
-	NavTotal           int
-	NavFailures        []string
-	PriceSucceeded     int
-	PriceTotal         int
-	PriceFailures      []string
-	FxSucceeded        int
-	FxTotal            int
-	FxFailures         []string
-	BenchmarkSucceeded int
-	BenchmarkTotal     int
-	BenchmarkFailures  []string
-	PortfolioJSON      string
+	NavSucceeded          int
+	NavTotal              int
+	NavFailures           []string
+	PriceSucceeded        int
+	PriceTotal            int
+	PriceFailures         []string
+	PriceUsedFallback     []string // labels of assets whose price history came from the fallback source, not the primary
+	FxSucceeded           int
+	FxTotal               int
+	FxFailures            []string
+	FxUsedFallback        []string // currencies whose rate history came from the fallback source
+	BenchmarkSucceeded    int
+	BenchmarkTotal        int
+	BenchmarkFailures     []string
+	BenchmarkUsedFallback []string // labels of benchmarks whose history came from the fallback source
+	PortfolioJSON         string
 }
 
 // historyOutcome is one concurrent fetch's result, collected before any
@@ -1737,11 +1740,12 @@ type UpdateAllHistoryResult struct {
 // takes or returns it), so it isn't a gomobile-binding concern the way
 // UpdateAllHistoryResult above is.
 type historyOutcome struct {
-	kind      string // "nav", "price", "fx", "benchmark"
-	label     string
-	priceRecs []store.PriceRecord
-	fxRecs    []store.FXRate
-	err       error
+	kind         string // "nav", "price", "fx", "benchmark"
+	label        string
+	priceRecs    []store.PriceRecord
+	fxRecs       []store.FXRate
+	err          error
+	usedFallback bool // true if the primary source failed and a second, independent source supplied this data instead - see UpdateAllHistory's doc comment on redundancy
 }
 
 // UpdateAllHistory is the single-call replacement for looping over
@@ -1826,13 +1830,28 @@ func UpdateAllHistory(portfolioJSON string) string {
 			if incremental := dayAfterLatest(p.PriceSeries(a.ID)); incremental != "" {
 				since = incremental
 			}
-			points, err := priceapi.FetchYahooAdjClose(a.Symbol, since)
 			o := historyOutcome{kind: "price", label: fmt.Sprintf("%s (%s)", a.DisplayName(), a.Symbol)}
+			points, err := priceapi.FetchYahooAdjClose(a.Symbol, since)
+			if err != nil {
+				// Primary (TigZig's Yahoo proxy) failed - retry via a
+				// genuinely independent second source (Yahoo's own
+				// public chart endpoint directly, no TigZig involved)
+				// before giving up on this asset entirely. See
+				// priceapi.FetchYahooAdjCloseDirect's doc comment.
+				points, err = priceapi.FetchYahooAdjCloseDirect(a.Symbol, since)
+				if err == nil {
+					o.usedFallback = true
+				}
+			}
 			if err != nil {
 				o.err = err
 			} else {
 				for _, pt := range points {
-					o.priceRecs = append(o.priceRecs, store.PriceRecord{AssetID: a.ID, Date: pt.Date, Price: pt.Price, Source: "YAHOO_HISTORY"})
+					source := "YAHOO_HISTORY"
+					if o.usedFallback {
+						source = "YAHOO_DIRECT_FALLBACK"
+					}
+					o.priceRecs = append(o.priceRecs, store.PriceRecord{AssetID: a.ID, Date: pt.Date, Price: pt.Price, Source: source})
 				}
 			}
 			record(o)
@@ -1854,8 +1873,20 @@ func UpdateAllHistory(portfolioJSON string) string {
 			if incremental := dayAfterLatestFX(p.FXRates, currency); incremental != "" {
 				since = incremental
 			}
-			rates, err := priceapi.FetchFrankfurterHistory(currency, since)
 			o := historyOutcome{kind: "fx", label: currency}
+			rates, err := priceapi.FetchFrankfurterHistory(currency, since)
+			if err != nil {
+				// Primary (Frankfurter/ECB) failed - retry via a
+				// genuinely independent second source (the
+				// fawazahmed0/currency-api project, served statically
+				// via jsDelivr, no ECB/Frankfurter involvement at all).
+				// See priceapi.FetchCurrencyApiFallbackHistory's doc
+				// comment, including its capped backfill window.
+				rates, err = priceapi.FetchCurrencyApiFallbackHistory(currency, since)
+				if err == nil {
+					o.usedFallback = true
+				}
+			}
 			if err != nil {
 				o.err = err
 			} else {
@@ -1874,13 +1905,26 @@ func UpdateAllHistory(portfolioJSON string) string {
 			if incremental := dayAfterLatest(p.PriceSeries(b.ID)); incremental != "" {
 				since = incremental
 			}
-			points, err := priceapi.FetchYahooAdjClose(b.YahooTicker, since)
 			o := historyOutcome{kind: "benchmark", label: b.DisplayName()}
+			points, err := priceapi.FetchYahooAdjClose(b.YahooTicker, since)
+			if err != nil {
+				// Same independent fallback as the ETF/stock price loop
+				// above - see priceapi.FetchYahooAdjCloseDirect's doc
+				// comment.
+				points, err = priceapi.FetchYahooAdjCloseDirect(b.YahooTicker, since)
+				if err == nil {
+					o.usedFallback = true
+				}
+			}
 			if err != nil {
 				o.err = err
 			} else {
 				for _, pt := range points {
-					o.priceRecs = append(o.priceRecs, store.PriceRecord{AssetID: b.ID, Date: pt.Date, Price: pt.Price, Source: "YAHOO_HISTORY"})
+					source := "YAHOO_HISTORY"
+					if o.usedFallback {
+						source = "YAHOO_DIRECT_FALLBACK"
+					}
+					o.priceRecs = append(o.priceRecs, store.PriceRecord{AssetID: b.ID, Date: pt.Date, Price: pt.Price, Source: source})
 				}
 			}
 			record(o)
@@ -1909,6 +1953,9 @@ func UpdateAllHistory(portfolioJSON string) string {
 			} else {
 				p.UpsertPrices(o.priceRecs)
 				result.PriceSucceeded++
+				if o.usedFallback {
+					result.PriceUsedFallback = append(result.PriceUsedFallback, o.label)
+				}
 			}
 		case "fx":
 			result.FxTotal++
@@ -1917,6 +1964,9 @@ func UpdateAllHistory(portfolioJSON string) string {
 			} else {
 				p.UpsertFXRates(o.fxRecs)
 				result.FxSucceeded++
+				if o.usedFallback {
+					result.FxUsedFallback = append(result.FxUsedFallback, o.label)
+				}
 			}
 		case "benchmark":
 			result.BenchmarkTotal++
@@ -1925,6 +1975,9 @@ func UpdateAllHistory(portfolioJSON string) string {
 			} else {
 				p.UpsertPrices(o.priceRecs)
 				result.BenchmarkSucceeded++
+				if o.usedFallback {
+					result.BenchmarkUsedFallback = append(result.BenchmarkUsedFallback, o.label)
+				}
 			}
 		}
 	}
@@ -2025,6 +2078,47 @@ func buildReturnsRow(seriesID, name string, isBenchmark bool, series []store.Pri
 		TenYearTrailing:   finance.ComputeTrailingReturnForYears(series, 10, "10 Year"),
 		TenYearRolling:    finance.ComputeRollingReturnStats(series, 10, "10 Year"),
 	}
+}
+
+// CustomPeriodReturnResult bundles the trailing figure and rolling
+// distribution for a person-typed custom tenure (see
+// ComputeCustomPeriodReturn) - the same trailing+rolling pairing every
+// fixed 1/3/5/10-Year tenure already gets in ReturnsTableRow, just for
+// an arbitrary years value instead of one of those four.
+type CustomPeriodReturnResult struct {
+	Trailing finance.TrailingReturn
+	Rolling  finance.RollingReturnStats
+}
+
+// ComputeCustomPeriodReturn computes the trailing return and rolling-
+// return distribution for one fund/benchmark over a person-typed
+// tenure in years (e.g. 2.5), rather than one of the four fixed
+// tenures ReturnsTableRow always shows - the Returns detail screen's
+// "type a period" option. years must be positive. Returns a bridge
+// error string only for malformed portfolio JSON or an unrecognized
+// seriesID; a years value too large for the series' own history comes
+// back as HasData=false on both fields, same as every other tenure.
+func ComputeCustomPeriodReturn(portfolioJSON string, seriesID string, years float64) string {
+	var p store.Portfolio
+	if portfolioJSON != "" {
+		if err := json.Unmarshal([]byte(portfolioJSON), &p); err != nil {
+			return fmt.Sprintf(`{"error":%q}`, "invalid portfolio JSON: "+err.Error())
+		}
+	}
+	series := p.PriceSeries(seriesID)
+	if len(series) == 0 {
+		return fmt.Sprintf(`{"error":%q}`, "unknown or empty seriesID: "+seriesID)
+	}
+	label := fmt.Sprintf("%g Year", years)
+	result := CustomPeriodReturnResult{
+		Trailing: finance.ComputeTrailingReturnForCustomYears(series, years, label),
+		Rolling:  finance.ComputeRollingReturnStatsForCustomYears(series, years, label),
+	}
+	out, err := json.Marshal(result)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+	return string(out)
 }
 
 // ComputePriceHistory returns the raw historical price series for one
@@ -2212,6 +2306,18 @@ func ComputeFundMetrics(portfolioJSON string, seriesID string, benchmarkID strin
 				break
 			}
 		}
+	}
+
+	// Sharpe/Sortino need only the fund's own series, no benchmark - see
+	// finance.ComputeSharpeRatio's doc comment - so these are computed
+	// unconditionally, unlike the benchmark-relative block above.
+	if sharpe, ok := finance.ComputeSharpeRatio(fundSeries); ok {
+		result.SharpeRatio = sharpe
+		result.SharpeHasData = true
+	}
+	if sortino, ok := finance.ComputeSortinoRatio(fundSeries); ok {
+		result.SortinoRatio = sortino
+		result.SortinoHasData = true
 	}
 
 	out, err := json.Marshal(result)
