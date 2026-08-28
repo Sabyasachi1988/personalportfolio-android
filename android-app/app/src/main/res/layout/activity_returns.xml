@@ -21,25 +21,17 @@
 
         <TextView
             android:id="@+id/returnsCompareButton"
+            style="@style/ActionChip"
             android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
             android:layout_marginEnd="8dp"
-            android:text="Compare"
-            android:textSize="13sp"
-            android:textColor="@color/colorSecondary"
-            android:padding="8dp"
-            android:background="?attr/selectableItemBackgroundBorderless" />
+            android:text="Compare" />
 
         <TextView
             android:id="@+id/returnsManageNamesButton"
+            style="@style/ActionChip"
             android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
             android:layout_marginEnd="8dp"
-            android:text="Names"
-            android:textSize="13sp"
-            android:textColor="@color/colorSecondary"
-            android:padding="8dp"
-            android:background="?attr/selectableItemBackgroundBorderless" />
+            android:text="Names" />
 
         <ImageButton
             android:id="@+id/returnsManageBenchmarksButton"
