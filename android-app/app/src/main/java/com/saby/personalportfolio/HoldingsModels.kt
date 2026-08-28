@@ -19,7 +19,10 @@ data class Holding(
     @SerializedName("Gain") val gain: Double,
     @SerializedName("GainPercent") val gainPercent: Double,
     @SerializedName("XIRR") val xirr: Double,
-    @SerializedName("HasXIRR") val hasXirr: Boolean
+    @SerializedName("HasXIRR") val hasXirr: Boolean,
+    @SerializedName("DayGain") val dayGain: Double = 0.0,
+    @SerializedName("DayGainPercent") val dayGainPercent: Double = 0.0,
+    @SerializedName("HasDayGain") val hasDayGain: Boolean = false
 )
 
 // Mirrors internal/finance/holdings.go's GroupedHolding struct
@@ -38,5 +41,8 @@ data class GroupedHolding(
     @SerializedName("Gain") val gain: Double,
     @SerializedName("GainPercent") val gainPercent: Double,
     @SerializedName("XIRR") val xirr: Double,
-    @SerializedName("HasXIRR") val hasXirr: Boolean
+    @SerializedName("HasXIRR") val hasXirr: Boolean,
+    @SerializedName("DayGain") val dayGain: Double = 0.0,
+    @SerializedName("DayGainPercent") val dayGainPercent: Double = 0.0,
+    @SerializedName("HasDayGain") val hasDayGain: Boolean = false
 )
