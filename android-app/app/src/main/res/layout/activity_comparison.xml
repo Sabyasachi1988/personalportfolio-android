@@ -48,14 +48,10 @@
 
         <TextView
             android:id="@+id/comparisonSetDateRange"
+            style="@style/ActionChip"
             android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="4dp"
-            android:text="Set date range"
-            android:textSize="13sp"
-            android:textColor="@color/colorSecondary"
-            android:padding="6dp"
-            android:background="?attr/selectableItemBackgroundBorderless" />
+            android:layout_marginStart="8dp"
+            android:text="Set date range" />
 
     </LinearLayout>
 
@@ -74,6 +70,15 @@
         android:layout_height="0dp"
         android:layout_weight="1"
         android:layout_marginTop="12dp" />
+
+    <!-- Independent scroller for the zoomed chart above - see
+         ChartRangeScrubberView's doc comment. Hidden automatically
+         whenever not zoomed. -->
+    <com.saby.personalportfolio.ChartRangeScrubberView
+        android:id="@+id/comparisonChartScrubber"
+        android:layout_width="match_parent"
+        android:layout_height="18dp"
+        android:layout_marginTop="8dp" />
 
     <TextView
         android:layout_width="match_parent"
