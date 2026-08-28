@@ -111,8 +111,33 @@ class ReturnsActivity : AppCompatActivity() {
             intent.putExtra(ReturnsDetailActivity.EXTRA_IS_BENCHMARK, row.isBenchmark)
             startActivity(intent)
         }
+
+        val yearsInput = cardView.findViewById<android.widget.EditText>(R.id.returnsCustomPeriodYears)
+        cardView.findViewById<View>(R.id.returnsCustomPeriodShow).setOnClickListener {
+            val years = yearsInput.text?.toString()?.trim()?.toDoubleOrNull()
+            if (years == null || years <= 0) {
+                yearsInput.error = "Enter a period in years, e.g. 2.5"
+                return@setOnClickListener
+            }
+            yearsInput.error = null
+            showCustomPeriod(cardView, row.seriesId, years)
+        }
+
         cardContainer.removeAllViews()
         cardContainer.addView(cardView)
+    }
+
+    private fun showCustomPeriod(cardView: View, seriesId: String, years: Double) {
+        val portfolioPath = PortfolioStorage.filePath(this)
+        val portfolioJson = PortfolioLoadCache.load(portfolioPath)
+        val resultJson = Bridge.computeCustomPeriodReturn(portfolioJson, seriesId, years)
+        if (isBridgeError(resultJson)) return
+        val result: CustomPeriodReturnResult = try {
+            gson.fromJson(resultJson, CustomPeriodReturnResult::class.java)
+        } catch (e: Exception) {
+            return
+        }
+        ReturnsCardBinder.bindCustomPeriod(cardView, years, result.trailing, result.rolling)
     }
 
     /**
