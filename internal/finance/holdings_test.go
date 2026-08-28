@@ -134,3 +134,84 @@ func TestGroupHoldingsByLabel_PartiallyPricedGroupOnlySumsPricedConstituents(t *
 		t.Errorf("CurrentValue = %v, want 1100 (only the priced constituent)", g.CurrentValue)
 	}
 }
+
+func TestComputeHoldings_DayGainUsesPriorDistinctDate(t *testing.T) {
+	units := 10.0
+	p := &store.Portfolio{
+		Assets: []store.Asset{
+			{ID: "a1", AccountID: "acc1", Name: "Fund A"},
+		},
+		Transactions: []store.StoredTransaction{
+			{ID: "t1", AccountID: "acc1", AssetID: "a1", Date: "2024-01-01", Amount: 1000, Units: &units},
+		},
+		Prices: []store.PriceRecord{
+			{AssetID: "a1", Date: "2024-06-01", Price: 100},
+			{AssetID: "a1", Date: "2024-06-02", Price: 105},
+		},
+	}
+	holdings := ComputeHoldings(p)
+	if len(holdings) != 1 {
+		t.Fatalf("expected 1 holding, got %d", len(holdings))
+	}
+	h := holdings[0]
+	if !h.HasDayGain {
+		t.Fatalf("HasDayGain = false, want true")
+	}
+	wantGain := round2((105.0 - 100.0) * units)
+	if h.DayGain != wantGain {
+		t.Errorf("DayGain = %v, want %v", h.DayGain, wantGain)
+	}
+	wantPercent := round2((105.0/100.0 - 1) * 100)
+	if h.DayGainPercent != wantPercent {
+		t.Errorf("DayGainPercent = %v, want %v", h.DayGainPercent, wantPercent)
+	}
+}
+
+func TestComputeHoldings_DayGainSkipsSameDateDuplicates(t *testing.T) {
+	units := 10.0
+	p := &store.Portfolio{
+		Assets: []store.Asset{
+			{ID: "a1", AccountID: "acc1", Name: "Fund A"},
+		},
+		Transactions: []store.StoredTransaction{
+			{ID: "t1", AccountID: "acc1", AssetID: "a1", Date: "2024-01-01", Amount: 1000, Units: &units},
+		},
+		Prices: []store.PriceRecord{
+			{AssetID: "a1", Date: "2024-06-01", Price: 100},
+			{AssetID: "a1", Date: "2024-06-02", Price: 105, Source: "MANUAL"},
+			{AssetID: "a1", Date: "2024-06-02", Price: 106, Source: "AMFI"},
+		},
+	}
+	holdings := ComputeHoldings(p)
+	h := holdings[0]
+	if !h.HasDayGain {
+		t.Fatalf("HasDayGain = false, want true")
+	}
+	// The prior side should skip past BOTH same-date (2024-06-02)
+	// records to the genuinely earlier date (2024-06-01, price 100),
+	// regardless of which of the two same-date records the latest-price
+	// lookup happened to pick as "the" 2024-06-02 price.
+	if h.DayGain == 0 {
+		t.Errorf("DayGain = 0, want a real day-over-day move computed against 2024-06-01's price")
+	}
+}
+
+func TestComputeHoldings_DayGainNoDataWithOnlyOneDistinctDate(t *testing.T) {
+	units := 10.0
+	p := &store.Portfolio{
+		Assets: []store.Asset{
+			{ID: "a1", AccountID: "acc1", Name: "Fund A"},
+		},
+		Transactions: []store.StoredTransaction{
+			{ID: "t1", AccountID: "acc1", AssetID: "a1", Date: "2024-01-01", Amount: 1000, Units: &units},
+		},
+		Prices: []store.PriceRecord{
+			{AssetID: "a1", Date: "2024-06-01", Price: 100},
+		},
+	}
+	holdings := ComputeHoldings(p)
+	h := holdings[0]
+	if h.HasDayGain {
+		t.Errorf("HasDayGain = true, want false (only one distinct priced date)")
+	}
+}
