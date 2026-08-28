@@ -34,4 +34,32 @@
         <item name="android:textColor">@color/colorOnSurface</item>
     </style>
 
+    <!-- A small, visually distinct "tap to change/act" control - same
+         elevated chip look as ProgressionDropdownTab (reusing
+         dropdown_tab_background) but WITHOUT the dropdown caret, since
+         this is for actions/toggles ("Compare", "Names", "Change",
+         "Set date range") rather than a picker showing a current
+         selection. Exists because several such controls across the app
+         were plain, low-contrast text links that a person could easily
+         miss as tappable at all - a confirmed real complaint ("Compare"
+         and "Names" on Returns, "Set date range"/"Change" on a fund's
+         own graph page were called out as "almost invisible"). Apply
+         this anywhere a control lets the person modify or navigate to
+         modify something, so what's tappable is obvious at a glance
+         without needing to explore the screen first. -->
+    <style name="ActionChip">
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:paddingStart">14dp</item>
+        <item name="android:paddingEnd">14dp</item>
+        <item name="android:paddingTop">8dp</item>
+        <item name="android:paddingBottom">8dp</item>
+        <item name="android:background">@drawable/dropdown_tab_background</item>
+        <item name="android:textSize">13sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:textColor">@color/colorSecondary</item>
+        <item name="android:gravity">center</item>
+        <item name="android:clickable">true</item>
+        <item name="android:focusable">true</item>
+    </style>
+
 </resources>
