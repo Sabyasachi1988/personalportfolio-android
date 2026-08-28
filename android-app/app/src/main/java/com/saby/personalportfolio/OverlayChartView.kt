@@ -69,6 +69,9 @@ class OverlayChartView @JvmOverloads constructor(
     /** Invoked on every scrub/zoom/pan with the scrubbed union-date and each series' scrubbed data - see OverlayScrubValue. */
     var onScrubbed: ((date: String, values: List<OverlayScrubValue>) -> Unit)? = null
 
+    /** Invoked whenever the visible window (zoom/pan/reset/set-range) changes - lets a hosting Activity keep an independent ChartRangeScrubberView in sync. Fires with (totalUnionDateCount, windowStart, windowEnd). */
+    var onWindowChanged: ((total: Int, start: Int, end: Int) -> Unit)? = null
+
     private var series: List<OverlaySeries> = emptyList()
     private var unionDates: List<String> = emptyList()
     // carried[s][i] = series[s]'s price carried forward to unionDates[i], or null if series[s] has no data yet at that date.
@@ -139,6 +142,7 @@ class OverlayChartView @JvmOverloads constructor(
         scrubbedIndex = windowEnd
         invalidate()
         fireScrubCallback()
+        fireWindowChangedCallback()
     }
 
     /** See class doc comment's Base-date behavior section. */
@@ -173,6 +177,21 @@ class OverlayChartView @JvmOverloads constructor(
         scrubbedIndex = windowEnd
         invalidate()
         fireScrubCallback()
+        fireWindowChangedCallback()
+    }
+
+    /**
+     * Moves the visible window to an exact (startIndex, endIndex) -
+     * the ChartRangeScrubberView counterpart to dragging directly on
+     * the chart, same as PriceHistoryChartView.setWindowByIndex.
+     */
+    fun setWindowByIndex(startIndex: Int, endIndex: Int) {
+        if (unionDates.isEmpty()) return
+        windowStart = startIndex.coerceIn(0, unionDates.size - 1)
+        windowEnd = endIndex.coerceIn(windowStart, unionDates.size - 1)
+        invalidate()
+        if (!lockBaseDate) fireScrubCallback()
+        fireWindowChangedCallback()
     }
 
     private fun baseIndex(): Int = if (lockBaseDate) lockedBaseIndex.coerceIn(0, unionDates.size - 1) else windowStart
@@ -348,6 +367,10 @@ class OverlayChartView @JvmOverloads constructor(
         onScrubbed?.invoke(unionDates[scrubbedIndex], values)
     }
 
+    private fun fireWindowChangedCallback() {
+        onWindowChanged?.invoke(unionDates.size, windowStart, windowEnd)
+    }
+
     private fun scrubAt(rawX: Float) {
         if (windowEnd - windowStart < 1) return
         val chartWidth = (width - chartPaddingLeft - chartPaddingRight).coerceAtLeast(1f)
@@ -423,6 +446,7 @@ class OverlayChartView @JvmOverloads constructor(
         windowEnd = newEnd
         invalidate()
         if (!lockBaseDate) fireScrubCallback() // auto-rebase: the base (window start) just moved
+        fireWindowChangedCallback()
     }
 
     private inner class ScaleListener : ScaleGestureDetector.SimpleOnScaleGestureListener() {
@@ -454,6 +478,7 @@ class OverlayChartView @JvmOverloads constructor(
             windowEnd = newEnd
             invalidate()
             if (!lockBaseDate) fireScrubCallback() // auto-rebase: the base (window start) just moved
+            fireWindowChangedCallback()
             return true
         }
     }
@@ -464,6 +489,7 @@ class OverlayChartView @JvmOverloads constructor(
             windowEnd = (unionDates.size - 1).coerceAtLeast(0)
             invalidate()
             if (!lockBaseDate) fireScrubCallback()
+            fireWindowChangedCallback()
             return true
         }
     }
