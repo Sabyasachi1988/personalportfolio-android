@@ -1,6 +1,7 @@
 package finance
 
 import (
+	"fmt"
 	"testing"
 
 	"ledger/internal/store"
@@ -36,16 +37,26 @@ func TestComputeMaxDrawdown_NeverDeclinesFromPeakReturnsZero(t *testing.T) {
 	}
 }
 
-// buildCorrelatedSeries builds two price series over the same dates
-// where fund moves exactly `multiplier`x the benchmark's daily % move -
-// gives a known, exact expected Beta to assert against, rather than
-// eyeballing a plausible-looking number.
-func buildCorrelatedSeries(n int, multiplier float64) (fund, bench []store.PriceRecord) {
+// buildCorrelatedMonthlySeries builds two price series, ONE POINT PER
+// CALENDAR MONTH, where the fund moves exactly `multiplier`x the
+// benchmark's monthly % move - gives a known, exact expected Beta/
+// Capture to assert against, rather than eyeballing a plausible-looking
+// number. One point per month (not per day) matters here: ComputeBeta/
+// ComputeInformationRatio/ComputeCaptureRatios now resample to
+// month-end (see alignedMonthlyReturns' doc comment), so a test series
+// with many same-month days would collapse to far fewer effective
+// periods than `n` suggests.
+func buildCorrelatedMonthlySeries(n int, multiplier float64) (fund, bench []store.PriceRecord) {
 	fundPrice, benchPrice := 100.0, 100.0
-	dailyMoves := []float64{0.01, -0.005, 0.02, -0.01, 0.015, -0.02, 0.005, 0.01, -0.008, 0.012}
+	// Alternating up/down monthly moves so both ComputeCaptureRatios
+	// directions get real data to work with, with a mean well above
+	// assumedAnnualRiskFreeRate (~6.5%/yr, ~0.53%/mo) so Sharpe/Sortino
+	// tests asserting a positive ratio aren't sensitive to exactly where
+	// that constant sits.
+	monthlyMoves := []float64{0.05, -0.02, 0.06, -0.03, 0.045, -0.04, 0.035, 0.04, -0.015, 0.05}
 	for i := 0; i < n; i++ {
-		move := dailyMoves[i%len(dailyMoves)]
-		date := dateFor(i)
+		move := monthlyMoves[i%len(monthlyMoves)]
+		date := monthFor(i)
 		fund = append(fund, store.PriceRecord{Date: date, Price: fundPrice})
 		bench = append(bench, store.PriceRecord{Date: date, Price: benchPrice})
 		fundPrice *= 1 + move*multiplier
@@ -54,33 +65,20 @@ func buildCorrelatedSeries(n int, multiplier float64) (fund, bench []store.Price
 	return fund, bench
 }
 
-func dateFor(i int) string {
-	// Simple sequential dates, format matches dateLayout ("2006-01-02").
-	day := 1 + i
-	return "2024-01-" + padDay(day)
-}
-
-func padDay(d int) string {
-	if d < 10 {
-		return "0" + itoa(d)
-	}
-	return itoa(d)
-}
-
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	digits := ""
-	for n > 0 {
-		digits = string(rune('0'+n%10)) + digits
-		n /= 10
-	}
-	return digits
+// monthFor returns the last day of month `i` (0-indexed from Jan 2020)
+// in dateLayout format - a distinct calendar month per index, which is
+// what buildCorrelatedMonthlySeries needs (lastPricePerMonth keeps the
+// LAST record seen per month, so any day within the month works, but
+// spreading across real distinct months is what actually exercises the
+// monthly resampling instead of collapsing to one point).
+func monthFor(i int) string {
+	year := 2020 + i/12
+	month := i%12 + 1
+	return fmt.Sprintf("%04d-%02d-%02d", year, month, 15)
 }
 
 func TestComputeBeta_ExactMultiplierGivesExpectedBeta(t *testing.T) {
-	fund, bench := buildCorrelatedSeries(15, 1.5)
+	fund, bench := buildCorrelatedMonthlySeries(18, 1.5)
 	got, ok := ComputeBeta(fund, bench)
 	if !ok {
 		t.Fatalf("HasData = false, want true")
@@ -93,15 +91,15 @@ func TestComputeBeta_ExactMultiplierGivesExpectedBeta(t *testing.T) {
 }
 
 func TestComputeBeta_TooFewOverlappingPeriodsReportsNoData(t *testing.T) {
-	fund, bench := buildCorrelatedSeries(5, 1.0)
+	fund, bench := buildCorrelatedMonthlySeries(10, 1.0)
 	_, ok := ComputeBeta(fund, bench)
 	if ok {
-		t.Errorf("HasData = true, want false (fewer than 10 overlapping periods)")
+		t.Errorf("HasData = true, want false (fewer than 12 overlapping monthly periods)")
 	}
 }
 
 func TestComputeInformationRatio_IdenticalSeriesHasNoTrackingError(t *testing.T) {
-	fund, bench := buildCorrelatedSeries(15, 1.0)
+	fund, bench := buildCorrelatedMonthlySeries(18, 1.0)
 	// Identical returns every period -> zero excess-return stddev ->
 	// undefined IR (division by zero avoided, not a real ratio).
 	_, ok := ComputeInformationRatio(fund, bench)
@@ -111,7 +109,7 @@ func TestComputeInformationRatio_IdenticalSeriesHasNoTrackingError(t *testing.T)
 }
 
 func TestComputeInformationRatio_ConsistentOutperformanceIsPositive(t *testing.T) {
-	fund, bench := buildCorrelatedSeries(15, 1.2)
+	fund, bench := buildCorrelatedMonthlySeries(18, 1.2)
 	got, ok := ComputeInformationRatio(fund, bench)
 	if !ok {
 		t.Fatalf("HasData = false, want true")
@@ -122,17 +120,72 @@ func TestComputeInformationRatio_ConsistentOutperformanceIsPositive(t *testing.T
 }
 
 func TestComputeCaptureRatios_AmplifiedFundCapturesMoreBothWays(t *testing.T) {
-	fund, bench := buildCorrelatedSeries(15, 1.5)
+	fund, bench := buildCorrelatedMonthlySeries(18, 1.5)
 	up, down, upOK, downOK := ComputeCaptureRatios(fund, bench)
 	if !upOK || !downOK {
 		t.Fatalf("expected both capture ratios to have data, got upOK=%v downOK=%v", upOK, downOK)
 	}
-	// A 1.5x-amplified fund should show ~150% capture in both directions.
-	if up < 140 || up > 160 {
-		t.Errorf("UpCapture = %v, want ~150", up)
+	// A 1.5x-amplified fund should show materially more than 100%
+	// capture in both directions - not pinned to exactly ~150% since
+	// compounding a per-period 1.5x amplification across many periods
+	// naturally drifts the cumulative ratio somewhat above a flat 150
+	// (compounding is super-linear), but it should be clearly, robustly
+	// above 100 either way.
+	if up < 130 || up > 200 {
+		t.Errorf("UpCapture = %v, want clearly >100, roughly 130-200", up)
 	}
-	if down < 140 || down > 160 {
-		t.Errorf("DownCapture = %v, want ~150", down)
+	if down < 130 || down > 200 {
+		t.Errorf("DownCapture = %v, want clearly >100, roughly 130-200", down)
+	}
+}
+
+func TestComputeCaptureRatios_TooFewMonthlyPeriodsReportsNoData(t *testing.T) {
+	// Only 2 down-months in this short a series - below the new 6-month
+	// minimum, so Down Capture specifically should report no data even
+	// though there's enough data overall for Beta/IR (18 months, but
+	// most of them up-months per the alternating pattern).
+	fund, bench := buildCorrelatedMonthlySeries(8, 1.0)
+	_, _, _, downOK := ComputeCaptureRatios(fund, bench)
+	if downOK {
+		t.Errorf("DownCapture HasData = true, want false (fewer than 6 down-months)")
+	}
+}
+
+func TestComputeSharpeRatio_StrongConsistentGrowthIsPositive(t *testing.T) {
+	fund, _ := buildCorrelatedMonthlySeries(18, 1.0)
+	got, ok := ComputeSharpeRatio(fund)
+	if !ok {
+		t.Fatalf("HasData = false, want true")
+	}
+	if got <= 0 {
+		t.Errorf("Sharpe = %v, want positive for a fund with strong average growth", got)
+	}
+}
+
+func TestComputeSharpeRatio_TooFewMonthsReportsNoData(t *testing.T) {
+	fund, _ := buildCorrelatedMonthlySeries(6, 1.0)
+	_, ok := ComputeSharpeRatio(fund)
+	if ok {
+		t.Errorf("HasData = true, want false (fewer than 12 months)")
+	}
+}
+
+func TestComputeSortinoRatio_HasDataWhenDownMonthsExist(t *testing.T) {
+	fund, _ := buildCorrelatedMonthlySeries(18, 1.0)
+	got, ok := ComputeSortinoRatio(fund)
+	if !ok {
+		t.Fatalf("HasData = false, want true (series has real down-months)")
+	}
+	if got <= 0 {
+		t.Errorf("Sortino = %v, want positive for a fund with strong average growth", got)
+	}
+}
+
+func TestComputeSortinoRatio_TooFewMonthsReportsNoData(t *testing.T) {
+	fund, _ := buildCorrelatedMonthlySeries(6, 1.0)
+	_, ok := ComputeSortinoRatio(fund)
+	if ok {
+		t.Errorf("HasData = true, want false (fewer than 12 months)")
 	}
 }
 
