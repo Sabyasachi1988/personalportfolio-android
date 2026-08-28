@@ -47,6 +47,7 @@ class GroupedHoldingsAdapter(
         val currentValue: TextView = view.findViewById(R.id.holdingCurrentValue)
         val gainBadge: TextView = view.findViewById(R.id.holdingGainBadge)
         val secondaryLine: TextView = view.findViewById(R.id.holdingSecondaryLine)
+        val dayGain: TextView = view.findViewById(R.id.holdingDayGain)
     }
 
     override fun getItemViewType(position: Int): Int {
@@ -95,14 +96,16 @@ class GroupedHoldingsAdapter(
                 holder.itemView.context, if (row.gain >= 0) R.color.colorGain else R.color.colorLoss
             )
             val gainSign = if (row.gain >= 0) "+" else ""
-            holder.gainBadge.text = String.format(Locale.getDefault(), "%s%.1f%%", gainSign, row.gainPercent)
+            holder.gainBadge.text = String.format(Locale.getDefault(), "%s%.2f%%", gainSign, row.gainPercent)
             holder.gainBadge.setTextColor(gainColor)
+            HoldingsAdapter.bindDayGain(holder.dayGain, row.hasDayGain, row.dayGain, row.dayGainPercent)
         } else {
             holder.currentValue.text = "Price not available"
             holder.gainBadge.text = ""
+            holder.dayGain.visibility = View.GONE
         }
 
-        val xirrPart = if (row.hasXirr) String.format(Locale.getDefault(), " · XIRR %.1f%%", row.xirr) else ""
+        val xirrPart = if (row.hasXirr) String.format(Locale.getDefault(), " · XIRR %.2f%%", row.xirr) else ""
         val investedPart = "Invested ${IndianCurrencyFormatter.format(row.netInvested, decimals = 0)}"
         holder.secondaryLine.text = if (row.isGroup) {
             "${row.assetIds.size} funds · $investedPart$xirrPart · tap to see which"
