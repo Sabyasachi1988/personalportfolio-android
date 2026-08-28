@@ -173,7 +173,7 @@ class DonutLegendView @JvmOverloads constructor(
             }
 
             val percentText = TextView(context).apply {
-                text = String.format(Locale.getDefault(), "%.1f%%", slice.percent)
+                text = String.format(Locale.getDefault(), "%.2f%%", slice.percent)
                 textSize = 13f
                 setTextColor(textColor)
                 if (chipMode) {
