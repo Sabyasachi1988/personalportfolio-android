@@ -51,6 +51,9 @@ class PriceHistoryChartView @JvmOverloads constructor(
 
     var onPointScrubbed: ((windowStartPoint: PricePoint, currentPoint: PricePoint) -> Unit)? = null
 
+    /** Invoked whenever the visible window (zoom/pan/reset/set-range) changes - lets a hosting Activity keep an independent ChartRangeScrubberView in sync. Fires with (totalPointCount, windowStart, windowEnd). */
+    var onWindowChanged: ((total: Int, start: Int, end: Int) -> Unit)? = null
+
     private var points: List<PricePoint> = emptyList()
     private var windowStart = 0
     private var windowEnd = 0 // inclusive
@@ -91,7 +94,16 @@ class PriceHistoryChartView @JvmOverloads constructor(
     // date labels without the line itself running under them.
     private val chartPaddingTop = 20f
     private val chartPaddingRight = 16f
-    private val chartPaddingLeft = 96f
+    // chartPaddingLeftMin is a FLOOR, not the actual left padding used -
+    // see onDraw's own computation of the real left padding from the
+    // actual y-axis label widths. A fixed 96f here was a confirmed real
+    // bug: a NAV/index level with 4+ digits (e.g. "2,297.09") measures
+    // wider than the old fixed budget at this text size, so the label
+    // (drawn right-aligned, growing LEFTWARD from chartLeft-12f) got
+    // clipped against the view's own left edge instead of fully
+    // displaying. The floor just keeps small numbers from pulling the
+    // axis in uncomfortably tight.
+    private val chartPaddingLeftMin = 96f
     private val chartPaddingBottom = 44f
 
     private val dateStoredFormat = SimpleDateFormat("yyyy-MM-dd", Locale.US)
@@ -104,6 +116,13 @@ class PriceHistoryChartView @JvmOverloads constructor(
     private var panLastX = 0f
     private var isPanning = false
 
+    // The actual left padding used by the most recent onDraw - touch
+    // handling (scrubAt/panBy) must use this SAME value, not the fixed
+    // floor, or scrub/pan math would drift out of sync with where the
+    // chart was actually drawn whenever a large NAV widened the axis
+    // beyond chartPaddingLeftMin. Starts at the floor before any draw.
+    private var lastDrawnChartLeft = chartPaddingLeftMin
+
     fun setPoints(newPoints: List<PricePoint>) {
         points = newPoints.sortedBy { it.date }
         windowStart = 0
@@ -111,6 +130,7 @@ class PriceHistoryChartView @JvmOverloads constructor(
         scrubbedIndex = if (points.isNotEmpty()) points.size - 1 else -1
         invalidate()
         fireScrubCallback()
+        fireWindowChangedCallback()
     }
 
     /**
@@ -138,11 +158,32 @@ class PriceHistoryChartView @JvmOverloads constructor(
         scrubbedIndex = windowEnd
         invalidate()
         fireScrubCallback()
+        fireWindowChangedCallback()
     }
 
     private fun fireScrubCallback() {
         if (scrubbedIndex !in points.indices || windowStart !in points.indices) return
         onPointScrubbed?.invoke(points[windowStart], points[scrubbedIndex])
+    }
+
+    private fun fireWindowChangedCallback() {
+        onWindowChanged?.invoke(points.size, windowStart, windowEnd)
+    }
+
+    /**
+     * Moves the visible window to an exact (startIndex, endIndex), same
+     * window-size-preserving semantics as panBy - the ChartRangeScrubberView
+     * counterpart to dragging directly on the chart, see that class's
+     * doc comment for why a second, independent way to move the window
+     * exists at all.
+     */
+    fun setWindowByIndex(startIndex: Int, endIndex: Int) {
+        if (points.isEmpty()) return
+        windowStart = startIndex.coerceIn(0, points.size - 1)
+        windowEnd = endIndex.coerceIn(windowStart, points.size - 1)
+        invalidate()
+        fireScrubCallback()
+        fireWindowChangedCallback()
     }
 
     /** True once the visible window is narrower than the full series - see class doc comment. */
@@ -155,16 +196,32 @@ class PriceHistoryChartView @JvmOverloads constructor(
 
         val w = width.toFloat()
         val h = height.toFloat()
-        val chartLeft = chartPaddingLeft
+
+        val minPrice = visible.minOf { it.price }
+        val maxPrice = visible.maxOf { it.price }
+        val midPrice = (minPrice + maxPrice) / 2.0
+        val priceRange = (maxPrice - minPrice).let { if (it <= 0.0) 1.0 else it }
+
+        // Widest of the 3 y-axis labels actually being drawn THIS frame
+        // (not a fixed guess) decides how much left padding the chart
+        // needs, so a large NAV/index level (4+ digits, e.g.
+        // "2,297.09") gets the room it needs instead of being clipped -
+        // see chartPaddingLeftMin's doc comment for the bug this fixes.
+        val maxLabel = PricePerUnitFormatter.format(maxPrice, decimals = 2)
+        val midLabel = PricePerUnitFormatter.format(midPrice, decimals = 2)
+        val minLabel = PricePerUnitFormatter.format(minPrice, decimals = 2)
+        val widestLabelWidth = maxOf(
+            axisLabelPaint.measureText(maxLabel),
+            axisLabelPaint.measureText(midLabel),
+            axisLabelPaint.measureText(minLabel)
+        )
+        val chartLeft = (widestLabelWidth + 28f).coerceAtLeast(chartPaddingLeftMin)
+        lastDrawnChartLeft = chartLeft
         val chartRight = w - chartPaddingRight
         val chartTop = chartPaddingTop
         val chartBottom = h - chartPaddingBottom
         val chartWidth = (chartRight - chartLeft).coerceAtLeast(1f)
         val chartHeight = (chartBottom - chartTop).coerceAtLeast(1f)
-
-        val minPrice = visible.minOf { it.price }
-        val maxPrice = visible.maxOf { it.price }
-        val priceRange = (maxPrice - minPrice).let { if (it <= 0.0) 1.0 else it }
 
         fun xFor(localIndex: Int): Float = chartLeft + chartWidth * localIndex / (visible.size - 1).toFloat().coerceAtLeast(1f)
         fun yFor(price: Double): Float = chartTop + chartHeight * (1f - ((price - minPrice) / priceRange).toFloat())
@@ -175,7 +232,6 @@ class PriceHistoryChartView @JvmOverloads constructor(
         // range, which is what makes zoom actually useful for reading
         // fine-grained moves rather than just stretching the same line.
         axisLabelPaint.textAlign = Paint.Align.RIGHT
-        val midPrice = (minPrice + maxPrice) / 2.0
         listOf(maxPrice to chartTop, midPrice to chartTop + chartHeight / 2f, minPrice to chartBottom).forEach { (price, y) ->
             canvas.drawLine(chartLeft, y, chartRight, y, gridlinePaint)
             canvas.drawText(PricePerUnitFormatter.format(price, decimals = 2), chartLeft - 12f, y + 8f, axisLabelPaint)
@@ -220,8 +276,8 @@ class PriceHistoryChartView @JvmOverloads constructor(
 
     private fun scrubAt(rawX: Float) {
         if (windowEnd - windowStart < 1) return
-        val chartLeft = chartPaddingLeft
-        val chartWidth = (width - chartPaddingLeft - chartPaddingRight).coerceAtLeast(1f)
+        val chartLeft = lastDrawnChartLeft
+        val chartWidth = (width - chartLeft - chartPaddingRight).coerceAtLeast(1f)
         val fraction = ((rawX - chartLeft) / chartWidth).coerceIn(0f, 1f)
         val windowSize = windowEnd - windowStart
         val localIndex = (fraction * windowSize).toInt().coerceIn(0, windowSize)
@@ -230,6 +286,7 @@ class PriceHistoryChartView @JvmOverloads constructor(
             scrubbedIndex = index
             invalidate()
             fireScrubCallback()
+            fireWindowChangedCallback()
         }
     }
 
@@ -278,7 +335,7 @@ class PriceHistoryChartView @JvmOverloads constructor(
 
     private fun panBy(dxPixels: Float) {
         val windowSize = windowEnd - windowStart
-        val chartWidth = (width - chartPaddingLeft - chartPaddingRight).coerceAtLeast(1f)
+        val chartWidth = (width - lastDrawnChartLeft - chartPaddingRight).coerceAtLeast(1f)
         val indexDelta = (-dxPixels / chartWidth * windowSize).toInt()
         if (indexDelta == 0) return
         var newStart = windowStart + indexDelta
@@ -297,6 +354,7 @@ class PriceHistoryChartView @JvmOverloads constructor(
         windowEnd = newEnd
         invalidate()
         fireScrubCallback()
+        fireWindowChangedCallback()
     }
 
     private inner class ScaleListener : ScaleGestureDetector.SimpleOnScaleGestureListener() {
@@ -313,8 +371,8 @@ class PriceHistoryChartView @JvmOverloads constructor(
             // Keep the focal point's underlying data index fixed on
             // screen while resizing, so zooming feels anchored to where
             // the fingers actually are rather than always re-centering.
-            val chartWidth = (width - chartPaddingLeft - chartPaddingRight).coerceAtLeast(1f)
-            val focalFraction = ((detector.focusX - chartPaddingLeft) / chartWidth).coerceIn(0f, 1f)
+            val chartWidth = (width - lastDrawnChartLeft - chartPaddingRight).coerceAtLeast(1f)
+            val focalFraction = ((detector.focusX - lastDrawnChartLeft) / chartWidth).coerceIn(0f, 1f)
             val focalIndex = windowStart + focalFraction * windowSize
 
             var newStart = (focalIndex - focalFraction * newWindowSize).toInt()
@@ -333,6 +391,7 @@ class PriceHistoryChartView @JvmOverloads constructor(
             windowEnd = newEnd
             invalidate()
             fireScrubCallback()
+            fireWindowChangedCallback()
             return true
         }
     }
@@ -343,6 +402,7 @@ class PriceHistoryChartView @JvmOverloads constructor(
             windowEnd = (points.size - 1).coerceAtLeast(0)
             invalidate()
             fireScrubCallback()
+            fireWindowChangedCallback()
             return true
         }
     }
