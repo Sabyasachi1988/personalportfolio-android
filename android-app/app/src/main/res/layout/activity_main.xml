@@ -89,8 +89,15 @@
                 <!-- Three compact donuts, side by side, swipeable - sized
                      so about 1.3 cards show at once as a hint that more
                      are off to the right, rather than three cramped tiny
-                     donuts squeezed to fit the full screen width. -->
-                <HorizontalScrollView
+                     donuts squeezed to fit the full screen width. Uses
+                     SnappingHorizontalScrollView (not a plain
+                     HorizontalScrollView) so a swipe always settles on
+                     a full card - without it, the person could stop
+                     scrolling anywhere, leaving one card's donut fully
+                     visible and its neighbor half-cut-off, which read
+                     as the donuts being "offset" from each other rather
+                     than cleanly aligned for comparison. -->
+                <com.saby.personalportfolio.SnappingHorizontalScrollView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="8dp"
@@ -224,7 +231,7 @@
 
                     </LinearLayout>
 
-                </HorizontalScrollView>
+                </com.saby.personalportfolio.SnappingHorizontalScrollView>
 
                 <TextView
                     android:id="@+id/dashboardAllocationHint"
