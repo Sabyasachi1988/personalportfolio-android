@@ -135,7 +135,7 @@ class MainActivity : AppCompatActivity() {
         donutToast?.cancel()
         val toast = android.widget.Toast.makeText(
             this,
-            String.format(Locale.getDefault(), "%s: %.1f%%", label, percent),
+            String.format(Locale.getDefault(), "%s: %.2f%%", label, percent),
             android.widget.Toast.LENGTH_SHORT
         )
         donutToast = toast
@@ -223,7 +223,7 @@ class MainActivity : AppCompatActivity() {
             val gain = totalCurrentValue - totalInvested
             val gainPct = if (totalInvested != 0.0) (gain / totalInvested) * 100 else 0.0
             gainLine.text = String.format(
-                Locale.getDefault(), "%s (%.1f%%) overall",
+                Locale.getDefault(), "%s (%.2f%%) overall",
                 IndianCurrencyFormatter.formatSigned(gain), gainPct
             )
             gainLine.setTextColor(
@@ -295,7 +295,7 @@ class MainActivity : AppCompatActivity() {
             // paise-level precision on a summary figure like this adds
             // visual noise without adding real information.
             chip.amount.text = IndianCurrencyFormatter.formatSigned(g.gain, decimals = 0)
-            chip.percent.text = String.format(Locale.getDefault(), "%+.1f%%", g.percent)
+            chip.percent.text = String.format(Locale.getDefault(), "%+.2f%%", g.percent)
             chip.container.setOnClickListener {
                 // A dialog, not a Toast - the earlier Toast-based version
                 // of this message was a confirmed real bug: modern
