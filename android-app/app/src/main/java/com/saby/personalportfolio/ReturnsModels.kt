@@ -63,7 +63,7 @@ data class PortfolioBenchmarksSnapshot(
     @SerializedName("Prices") val prices: List<PricePoint>?
 )
 
-/** Mirrors bridge.FundMetricsResult - Beta/Info Ratio/Capture/Max Drawdown plus which benchmark was used. */
+/** Mirrors bridge.FundMetricsResult - Beta/Info Ratio/Capture/Sharpe/Sortino/Max Drawdown plus which benchmark was used. */
 data class FundMetricsResult(
     @SerializedName("Beta") val beta: Double,
     @SerializedName("BetaHasData") val betaHasData: Boolean,
@@ -75,9 +75,19 @@ data class FundMetricsResult(
     @SerializedName("DownCaptureHasData") val downCaptureHasData: Boolean,
     @SerializedName("MaxDrawdown") val maxDrawdown: Double,
     @SerializedName("MaxDrawdownHasData") val maxDrawdownHasData: Boolean,
+    @SerializedName("SharpeRatio") val sharpeRatio: Double = 0.0,
+    @SerializedName("SharpeHasData") val sharpeHasData: Boolean = false,
+    @SerializedName("SortinoRatio") val sortinoRatio: Double = 0.0,
+    @SerializedName("SortinoHasData") val sortinoHasData: Boolean = false,
     @SerializedName("BenchmarkID") val benchmarkId: String?,
     @SerializedName("BenchmarkName") val benchmarkName: String?,
     @SerializedName("AutoSelected") val autoSelected: Boolean
+)
+
+/** Mirrors bridge.CustomPeriodReturnResult - a person-typed tenure's trailing + rolling figures. */
+data class CustomPeriodReturnResult(
+    @SerializedName("Trailing") val trailing: TrailingReturn,
+    @SerializedName("Rolling") val rolling: RollingReturnStats
 )
 
 /** Mirrors bridge.MultiSeriesHistoryItem - one series' identity plus its raw price points, for the overlay comparison chart. */
