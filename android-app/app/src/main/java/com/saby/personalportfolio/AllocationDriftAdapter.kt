@@ -32,13 +32,12 @@ class AllocationDriftAdapter(private val slices: List<AllocationDriftSlice>) :
 
     override fun onBindViewHolder(holder: RowHolder, position: Int) {
         val slice = slices[position]
-        HorizontalCardWidth.apply(holder.itemView, isOnlyCard = slices.size == 1)
         holder.label.text = slice.label
 
         val driftSign = if (slice.drift > 0) "+" else ""
         holder.values.text = String.format(
             Locale.getDefault(),
-            "Actual: %.1f%%  |  Target: %.1f%%  |  Drift: %s%.1f%%",
+            "Actual: %.2f%%  |  Target: %.2f%%  |  Drift: %s%.2f%%",
             slice.actual, slice.target, driftSign, slice.drift
         )
 
