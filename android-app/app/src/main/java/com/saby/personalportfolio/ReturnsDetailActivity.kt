@@ -35,6 +35,7 @@ class ReturnsDetailActivity : AppCompatActivity() {
         val nameView = findViewById<TextView>(R.id.returnsDetailName)
         val scrubbedView = findViewById<TextView>(R.id.returnsDetailScrubbed)
         val chart = findViewById<PriceHistoryChartView>(R.id.returnsDetailChart)
+        val chartScrubber = findViewById<ChartRangeScrubberView>(R.id.returnsDetailChartScrubber)
         val emptyState = findViewById<TextView>(R.id.returnsDetailEmptyState)
 
         nameView.text = name
@@ -69,13 +70,15 @@ class ReturnsDetailActivity : AppCompatActivity() {
             val priceText = "$displayDate: ${PricePerUnitFormatter.format(currentPoint.price, decimals = 2)}"
             val cagr = CagrCalculator.compute(windowStartPoint.price, windowStartPoint.date, currentPoint.price, currentPoint.date)
             scrubbedView.text = if (cagr != null && windowStartPoint.date != currentPoint.date) {
-                val cagrText = String.format(Locale.getDefault(), "%+.1f%% CAGR", cagr)
+                val cagrText = String.format(Locale.getDefault(), "%+.2f%% CAGR", cagr)
                 "$priceText\nFrom ${formatDisplayDate(windowStartPoint.date)}: $cagrText"
             } else {
                 priceText
             }
         }
         chart.setPoints(points)
+        chart.onWindowChanged = { total, start, end -> chartScrubber.setRange(total, start, end) }
+        chartScrubber.onRangeDragged = { start, end -> chart.setWindowByIndex(start, end) }
 
         findViewById<View>(R.id.returnsDetailSetDateRange).setOnClickListener {
             showDateRangeDialog(points) { start, end -> chart.setWindowByDates(start, end) }
@@ -124,9 +127,11 @@ class ReturnsDetailActivity : AppCompatActivity() {
 
         bindMetricRow(R.id.returnsDetailMetricBeta, "Beta", m.beta, m.betaHasData, decimals = 2, suffix = "")
         bindMetricRow(R.id.returnsDetailMetricInfoRatio, "Information Ratio", m.informationRatio, m.infoRatioHasData, decimals = 2, suffix = "")
-        bindMetricRow(R.id.returnsDetailMetricUpCapture, "Up Capture", m.upCapture, m.upCaptureHasData, decimals = 0, suffix = "%")
-        bindMetricRow(R.id.returnsDetailMetricDownCapture, "Down Capture", m.downCapture, m.downCaptureHasData, decimals = 0, suffix = "%")
-        bindMetricRow(R.id.returnsDetailMetricMaxDrawdown, "Max Drawdown", m.maxDrawdown, m.maxDrawdownHasData, decimals = 1, suffix = "%")
+        bindMetricRow(R.id.returnsDetailMetricUpCapture, "Up Capture", m.upCapture, m.upCaptureHasData, decimals = 2, suffix = "%")
+        bindMetricRow(R.id.returnsDetailMetricDownCapture, "Down Capture", m.downCapture, m.downCaptureHasData, decimals = 2, suffix = "%")
+        bindMetricRow(R.id.returnsDetailMetricMaxDrawdown, "Max Drawdown", m.maxDrawdown, m.maxDrawdownHasData, decimals = 2, suffix = "%")
+        bindMetricRow(R.id.returnsDetailMetricSharpe, "Sharpe Ratio", m.sharpeRatio, m.sharpeHasData, decimals = 2, suffix = "")
+        bindMetricRow(R.id.returnsDetailMetricSortino, "Sortino Ratio", m.sortinoRatio, m.sortinoHasData, decimals = 2, suffix = "")
     }
 
     private fun bindMetricRow(viewId: Int, label: String, value: Double, hasData: Boolean, decimals: Int, suffix: String) {
