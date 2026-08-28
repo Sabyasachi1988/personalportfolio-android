@@ -27,6 +27,9 @@ type Holding struct {
 	GainPercent        float64
 	XIRR               float64
 	HasXIRR            bool
+	DayGain            float64 // (latest price - prior price) * UnitsHeld, this fund's own most recent two distinct priced dates
+	DayGainPercent     float64
+	HasDayGain         bool // false if this asset has fewer than 2 distinct priced dates yet
 }
 
 const dateLayout = "2006-01-02"
@@ -106,6 +109,12 @@ func ComputeHoldings(p *store.Portfolio) []Holding {
 			h.Gain = round2(h.CurrentValue - h.NetInvested)
 			if h.NetInvested != 0 {
 				h.GainPercent = round2(h.Gain / h.NetInvested * 100)
+			}
+
+			if priorPrice, ok := priorDistinctPrice(p.PriceSeries(asset.ID)); ok && priorPrice > 0 {
+				h.DayGain = round2((pr.Price - priorPrice) * acc.units)
+				h.DayGainPercent = round2((pr.Price/priorPrice - 1) * 100)
+				h.HasDayGain = true
 			}
 
 			flows := append([]CashFlow{}, acc.flows...)
@@ -195,18 +204,21 @@ func PortfolioTotals(holdings []Holding) (invested, value float64, anyPriced boo
 // a caller can still drill into or filter by the individual holdings
 // even when they're shown consolidated here.
 type GroupedHolding struct {
-	DisplayName  string // GroupLabel if grouped, else the single constituent's AssetName
-	IsGroup      bool
-	AssetIDs     []string
-	MemberID     string
-	MemberName   string
-	NetInvested  float64
-	HasPrice     bool // true if at least one constituent has a price; value/gain/XIRR below only reflect the priced constituents
-	CurrentValue float64
-	Gain         float64
-	GainPercent  float64
-	XIRR         float64
-	HasXIRR      bool
+	DisplayName    string // GroupLabel if grouped, else the single constituent's AssetName
+	IsGroup        bool
+	AssetIDs       []string
+	MemberID       string
+	MemberName     string
+	NetInvested    float64
+	HasPrice       bool // true if at least one constituent has a price; value/gain/XIRR below only reflect the priced constituents
+	CurrentValue   float64
+	Gain           float64
+	GainPercent    float64
+	XIRR           float64
+	HasXIRR        bool
+	DayGain        float64 // sum of each priced constituent's own DayGain - see Holding.DayGain's doc comment
+	DayGainPercent float64 // DayGain as a percent of the group's CurrentValue as of the PRIOR day (CurrentValue - DayGain), not NetInvested - matches Holding.DayGainPercent's own price-over-price meaning
+	HasDayGain     bool    // true only if EVERY priced constituent has day-gain data - a partial sum would understate the real day move for whichever constituent lacks it
 }
 
 // GroupHoldingsByLabel consolidates holdings sharing the same
@@ -274,6 +286,7 @@ func GroupHoldingsByLabel(p *store.Portfolio, holdings []Holding) []GroupedHoldi
 		}
 
 		var flows []CashFlow
+		allPricedHaveDayGain := true
 		for _, h := range b.members {
 			g.AssetIDs = append(g.AssetIDs, h.AssetID)
 			g.NetInvested += h.NetInvested
@@ -288,6 +301,11 @@ func GroupHoldingsByLabel(p *store.Portfolio, holdings []Holding) []GroupedHoldi
 				if h.UnitsHeld > 0.0001 {
 					flows = append(flows, CashFlow{Date: time.Now(), Amount: h.CurrentValue})
 				}
+				if h.HasDayGain {
+					g.DayGain += h.DayGain
+				} else {
+					allPricedHaveDayGain = false
+				}
 			}
 		}
 		g.NetInvested = round2(g.NetInvested)
@@ -297,6 +315,14 @@ func GroupHoldingsByLabel(p *store.Portfolio, holdings []Holding) []GroupedHoldi
 			if g.NetInvested != 0 {
 				g.GainPercent = round2(g.Gain / g.NetInvested * 100)
 			}
+			if allPricedHaveDayGain {
+				g.DayGain = round2(g.DayGain)
+				priorValue := g.CurrentValue - g.DayGain
+				if priorValue != 0 {
+					g.DayGainPercent = round2(g.DayGain / priorValue * 100)
+				}
+				g.HasDayGain = true
+			}
 		}
 		if rate, ok := XIRR(flows); ok {
 			g.XIRR = round2(rate * 100)
@@ -305,6 +331,28 @@ func GroupHoldingsByLabel(p *store.Portfolio, holdings []Holding) []GroupedHoldi
 		out = append(out, g)
 	}
 	return out
+}
+
+// priorDistinctPrice returns the price at the second-most-recent DISTINCT
+// date in an already-sorted-ascending series (e.g. from
+// store.Portfolio.PriceSeries) - the "prior" side of a per-fund Day
+// gain/loss figure (see Holding.DayGain's doc comment). Distinct dates,
+// not just the second-to-last record, because a series can carry more
+// than one record for the same date (e.g. a manual entry alongside a
+// fetched one) - the day-over-day comparison should skip past any
+// same-date duplicates to the genuinely prior trading day. Returns
+// ok=false if the series has fewer than 2 distinct dates.
+func priorDistinctPrice(series []store.PriceRecord) (float64, bool) {
+	if len(series) < 2 {
+		return 0, false
+	}
+	latestDate := series[len(series)-1].Date
+	for i := len(series) - 2; i >= 0; i-- {
+		if series[i].Date != latestDate {
+			return series[i].Price, true
+		}
+	}
+	return 0, false
 }
 
 func round2(f float64) float64 {
