@@ -27,6 +27,7 @@ class ComparisonActivity : AppCompatActivity() {
     private lateinit var pickButton: TextView
     private lateinit var lockSwitch: com.google.android.material.switchmaterial.SwitchMaterial
     private lateinit var chart: OverlayChartView
+    private lateinit var chartScrubber: ChartRangeScrubberView
     private lateinit var scrubbedView: TextView
     private lateinit var emptyState: TextView
 
@@ -52,11 +53,14 @@ class ComparisonActivity : AppCompatActivity() {
         pickButton = findViewById(R.id.comparisonPickButton)
         lockSwitch = findViewById(R.id.comparisonLockSwitch)
         chart = findViewById(R.id.comparisonChart)
+        chartScrubber = findViewById(R.id.comparisonChartScrubber)
         scrubbedView = findViewById(R.id.comparisonScrubbed)
         emptyState = findViewById(R.id.comparisonEmptyState)
 
         pickButton.setOnClickListener { showPicker() }
         lockSwitch.setOnCheckedChangeListener { _, checked -> chart.setLockBaseDate(checked) }
+        chart.onWindowChanged = { total, start, end -> chartScrubber.setRange(total, start, end) }
+        chartScrubber.onRangeDragged = { start, end -> chart.setWindowByIndex(start, end) }
         findViewById<View>(R.id.comparisonSetDateRange).setOnClickListener {
             val bounds = currentUnionDateBounds ?: return@setOnClickListener
             DateRangePicker.show(this, bounds.first, bounds.second) { start, end -> chart.setWindowByDates(start, end) }
@@ -87,7 +91,7 @@ class ComparisonActivity : AppCompatActivity() {
                 "no data yet"
             } else {
                 val base = String.format(Locale.getDefault(), "%.1f", sv.normalizedValue)
-                val cagrText = sv.cagrPercent?.let { String.format(Locale.getDefault(), " (%+.1f%% CAGR)", it) }.orEmpty()
+                val cagrText = sv.cagrPercent?.let { String.format(Locale.getDefault(), " (%+.2f%% CAGR)", it) }.orEmpty()
                 "$base$cagrText"
             }
             val line = "●  ${FundNameFormatter.shorten(sv.series.name).ifBlank { sv.series.name }}: $valueText\n"
