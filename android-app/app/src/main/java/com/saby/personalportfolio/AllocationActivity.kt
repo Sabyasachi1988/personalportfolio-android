@@ -66,7 +66,7 @@ class AllocationActivity : AppCompatActivity() {
         summary = marketCapPage.findViewById(R.id.allocationSummary)
         subCaption = marketCapPage.findViewById(R.id.allocationSubCaption)
         recyclerView = marketCapPage.findViewById(R.id.allocationRecyclerView)
-        recyclerView.layoutManager = LinearLayoutManager(this, RecyclerView.HORIZONTAL, false)
+        recyclerView.layoutManager = LinearLayoutManager(this, RecyclerView.VERTICAL, false)
         donutChart = marketCapPage.findViewById(R.id.donutChart)
         donutChart.onSliceTapped = { _, _ -> openMarketCapExpanded() }
         marketCapPage.findViewById<TextView>(R.id.marketCapTapHint).setOnClickListener { openMarketCapExpanded() }
@@ -79,7 +79,7 @@ class AllocationActivity : AppCompatActivity() {
 
         summaryOrigin = equityOriginPage.findViewById(R.id.allocationSummaryOrigin)
         recyclerViewOrigin = equityOriginPage.findViewById(R.id.allocationRecyclerViewOrigin)
-        recyclerViewOrigin.layoutManager = LinearLayoutManager(this, RecyclerView.HORIZONTAL, false)
+        recyclerViewOrigin.layoutManager = LinearLayoutManager(this, RecyclerView.VERTICAL, false)
         donutChartOrigin = equityOriginPage.findViewById(R.id.donutChartOrigin)
         donutChartOrigin.onSliceTapped = { _, _ -> openOriginExpanded() }
         equityOriginPage.findViewById<TextView>(R.id.equityOriginTapHint).setOnClickListener { openOriginExpanded() }
@@ -96,7 +96,7 @@ class AllocationActivity : AppCompatActivity() {
         summaryClass = portfolioClassPage.findViewById(R.id.allocationSummaryClass)
         subCaptionClass = portfolioClassPage.findViewById(R.id.allocationSubCaptionClass)
         recyclerViewClass = portfolioClassPage.findViewById(R.id.allocationRecyclerViewClass)
-        recyclerViewClass.layoutManager = LinearLayoutManager(this, RecyclerView.HORIZONTAL, false)
+        recyclerViewClass.layoutManager = LinearLayoutManager(this, RecyclerView.VERTICAL, false)
         donutChartClass = portfolioClassPage.findViewById(R.id.donutChartClass)
         donutChartClass.onSliceTapped = { _, _ -> openClassExpanded() }
         portfolioClassPage.findViewById<TextView>(R.id.portfolioClassTapHint).setOnClickListener { openClassExpanded() }
@@ -106,7 +106,7 @@ class AllocationActivity : AppCompatActivity() {
 
         summaryTags = tagsPage.findViewById(R.id.allocationSummaryTags)
         recyclerViewTags = tagsPage.findViewById(R.id.allocationRecyclerViewTags)
-        recyclerViewTags.layoutManager = LinearLayoutManager(this, RecyclerView.HORIZONTAL, false)
+        recyclerViewTags.layoutManager = LinearLayoutManager(this, RecyclerView.VERTICAL, false)
         donutChartTags = tagsPage.findViewById(R.id.donutChartTags)
         donutChartTags.onSliceTapped = { _, _ -> openTagsExpanded() }
         tagsPage.findViewById<TextView>(R.id.tagsTapHint).setOnClickListener { openTagsExpanded() }
