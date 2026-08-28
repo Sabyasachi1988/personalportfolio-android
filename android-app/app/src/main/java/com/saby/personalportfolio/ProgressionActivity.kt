@@ -801,7 +801,7 @@ class ProgressionActivity : AppCompatActivity() {
 
         val gainConverted = ProgressionCurrency.convert(p.gain, display, currentAxis, p)
         gainText.text = ProgressionCurrency.formatSigned(gainConverted) +
-            String.format(Locale.getDefault(), "  (%.1f%%)", p.gainPercent)
+            String.format(Locale.getDefault(), "  (%.2f%%)", p.gainPercent)
         gainText.setTextColor(
             androidx.core.content.ContextCompat.getColor(
                 this, if (p.gain >= 0) R.color.colorGain else R.color.colorLoss
@@ -812,7 +812,7 @@ class ProgressionActivity : AppCompatActivity() {
             ProgressionCurrency.convert(p.invested, display, currentAxis, p)
         )
         xirrText.text = if (p.hasXIRR) {
-            String.format(Locale.getDefault(), "XIRR: %.1f%%", p.xirr)
+            String.format(Locale.getDefault(), "XIRR: %.2f%%", p.xirr)
         } else {
             "XIRR: not available for this point"
         }
