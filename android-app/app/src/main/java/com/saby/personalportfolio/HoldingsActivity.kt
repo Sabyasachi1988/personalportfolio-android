@@ -264,7 +264,7 @@ class HoldingsActivity : AppCompatActivity() {
                 val totalGain = totalValue - totalInvested
                 val gainPct = if (totalInvested != 0.0) (totalGain / totalInvested) * 100 else 0.0
                 gainText.text = String.format(
-                    Locale.getDefault(), "%s  (%.1f%%)",
+                    Locale.getDefault(), "%s  (%.2f%%)",
                     IndianCurrencyFormatter.formatSigned(totalGain), gainPct
                 )
                 gainText.setTextColor(
