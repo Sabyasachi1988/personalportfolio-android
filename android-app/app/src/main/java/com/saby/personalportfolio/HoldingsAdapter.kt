@@ -31,6 +31,7 @@ class HoldingsAdapter(private val holdings: List<Holding>) :
         val currentValue: TextView = view.findViewById(R.id.holdingCurrentValue)
         val gainBadge: TextView = view.findViewById(R.id.holdingGainBadge)
         val secondaryLine: TextView = view.findViewById(R.id.holdingSecondaryLine)
+        val dayGain: TextView = view.findViewById(R.id.holdingDayGain)
     }
 
     override fun getItemViewType(position: Int): Int {
@@ -77,21 +78,49 @@ class HoldingsAdapter(private val holdings: List<Holding>) :
                 rowHolder.itemView.context, if (h.gain >= 0) R.color.colorGain else R.color.colorLoss
             )
             val gainSign = if (h.gain >= 0) "+" else ""
-            rowHolder.gainBadge.text = String.format(Locale.getDefault(), "%s%.1f%%", gainSign, h.gainPercent)
+            rowHolder.gainBadge.text = String.format(Locale.getDefault(), "%s%.2f%%", gainSign, h.gainPercent)
             rowHolder.gainBadge.setTextColor(gainColor)
 
-            val xirrPart = if (h.hasXirr) String.format(Locale.getDefault(), " · XIRR %.1f%%", h.xirr) else ""
+            val xirrPart = if (h.hasXirr) String.format(Locale.getDefault(), " · XIRR %.2f%%", h.xirr) else ""
             rowHolder.secondaryLine.text = String.format(
                 Locale.getDefault(),
                 "%s units · Invested %s%s",
                 unitsDisplay(h.unitsHeld), IndianCurrencyFormatter.format(h.netInvested, decimals = 0), xirrPart
             )
+            bindDayGain(rowHolder.dayGain, h.hasDayGain, h.dayGain, h.dayGainPercent)
         } else {
             rowHolder.currentValue.text = "Price not available"
             rowHolder.gainBadge.text = ""
             rowHolder.secondaryLine.text = String.format(
                 Locale.getDefault(), "%s units · Invested %s", unitsDisplay(h.unitsHeld), IndianCurrencyFormatter.format(h.netInvested, decimals = 0)
             )
+            rowHolder.dayGain.visibility = View.GONE
+        }
+    }
+
+    // Shared by HoldingsAdapter and GroupedHoldingsAdapter's own
+    // per-row Day gain/loss line - see Holding.DayGain's doc comment
+    // (internal/finance/holdings.go) for what this figure measures:
+    // this fund's own most recent day-over-day move, not a
+    // portfolio-wide anchored figure the way the Dashboard's Day chip
+    // is.
+    companion object {
+        fun bindDayGain(view: TextView, hasDayGain: Boolean, dayGain: Double, dayGainPercent: Double) {
+            if (!hasDayGain) {
+                view.visibility = View.GONE
+                return
+            }
+            view.visibility = View.VISIBLE
+            val percentSign = if (dayGainPercent >= 0) "+" else ""
+            val color = androidx.core.content.ContextCompat.getColor(
+                view.context, if (dayGain >= 0) R.color.colorGain else R.color.colorLoss
+            )
+            view.text = String.format(
+                Locale.getDefault(),
+                "Day: %s (%s%.2f%%)",
+                IndianCurrencyFormatter.formatSigned(dayGain, decimals = 0), percentSign, dayGainPercent
+            )
+            view.setTextColor(color)
         }
     }
 
