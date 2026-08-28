@@ -229,6 +229,203 @@ func ParseYahooAdjClose(body []byte, ticker string) ([]YahooPricePoint, error) {
 	return points, nil
 }
 
+// FetchYahooAdjCloseDirect is FetchYahooAdjClose's independent second
+// source, used as a fallback when the TigZig proxy (yfin-h.tigzig.com)
+// is unreachable or errors - hits Yahoo Finance's own public chart
+// endpoint directly, with no TigZig involvement at all, so a TigZig
+// outage can't take down both. Confirmed shape via a live third-party
+// reference (query1.finance.yahoo.com/v8/finance/chart/{ticker} returns
+// {"chart":{"result":[{"timestamp":[...],"indicators":{"quote":[{"close":
+// [...]}],"adjclose":[{"adjclose":[...]}]}}],"error":null}}, Unix-epoch-
+// second timestamps, one price array position per timestamp position,
+// null entries for gaps). Sets a browser-like User-Agent header since
+// this unofficial endpoint is known to sometimes reject bare
+// script/server requests without one. Uses "adjclose" (split/dividend-
+// adjusted) to match FetchYahooAdjClose's own semantics, so callers can
+// treat the two sources' points as directly comparable/mergeable.
+func FetchYahooAdjCloseDirect(ticker string, since string) ([]YahooPricePoint, error) {
+	if ticker == "" {
+		return nil, fmt.Errorf("ticker cannot be empty")
+	}
+	period1 := int64(0)
+	if since != "" {
+		t, err := time.Parse("2006-01-02", since)
+		if err != nil {
+			return nil, fmt.Errorf("parsing since date %q: %w", since, err)
+		}
+		period1 = t.Unix()
+	}
+	period2 := time.Now().UTC().AddDate(0, 0, 1).Unix()
+	url := fmt.Sprintf("https://query1.finance.yahoo.com/v8/finance/chart/%s?period1=%d&period2=%d&interval=1d",
+		neturl.QueryEscape(ticker), period1, period2)
+
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("building yahoo direct chart request: %w", err)
+	}
+	// See doc comment above - this endpoint is known to reject requests
+	// with no User-Agent at all.
+	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; PersonalPortfolioApp/1.0)")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("yahoo direct chart request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading yahoo direct chart response: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("yahoo direct chart returned status %d for %s: %s", resp.StatusCode, ticker, string(body))
+	}
+
+	return ParseYahooDirectChart(body, ticker)
+}
+
+// yahooDirectChartResponse mirrors query1.finance.yahoo.com's v8 chart
+// endpoint shape - see FetchYahooAdjCloseDirect's doc comment for the
+// confirmed structure and source.
+type yahooDirectChartResponse struct {
+	Chart struct {
+		Result []struct {
+			Timestamp  []int64 `json:"timestamp"`
+			Indicators struct {
+				AdjClose []struct {
+					AdjClose []*float64 `json:"adjclose"`
+				} `json:"adjclose"`
+			} `json:"indicators"`
+		} `json:"result"`
+		Error interface{} `json:"error"`
+	} `json:"chart"`
+}
+
+// ParseYahooDirectChart parses one ticker's points out of a raw
+// query1.finance.yahoo.com v8 chart response body - split out from
+// FetchYahooAdjCloseDirect the same way ParseYahooAdjClose is split
+// from FetchYahooAdjClose, so this is directly testable against a
+// captured real response shape. A null adjclose entry (a genuine
+// trading gap - holiday, not-yet-listed) is skipped, not treated as an
+// error.
+func ParseYahooDirectChart(body []byte, ticker string) ([]YahooPricePoint, error) {
+	var raw yahooDirectChartResponse
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return nil, fmt.Errorf("parsing yahoo direct chart response for %s: %w", ticker, err)
+	}
+	if len(raw.Chart.Result) == 0 {
+		return nil, fmt.Errorf("yahoo direct chart response for %s had no result data", ticker)
+	}
+	result := raw.Chart.Result[0]
+	if len(result.Indicators.AdjClose) == 0 {
+		return nil, fmt.Errorf("yahoo direct chart response for %s had no adjclose series", ticker)
+	}
+	prices := result.Indicators.AdjClose[0].AdjClose
+	points := make([]YahooPricePoint, 0, len(result.Timestamp))
+	for i, ts := range result.Timestamp {
+		if i >= len(prices) || prices[i] == nil {
+			continue // a genuine gap (holiday, not-yet-listed) - skip, not an error
+		}
+		date := time.Unix(ts, 0).UTC().Format("2006-01-02")
+		points = append(points, YahooPricePoint{Date: date, Price: *prices[i]})
+	}
+	sort.Slice(points, func(i, j int) bool { return points[i].Date < points[j].Date })
+	return points, nil
+}
+
+// FetchCurrencyApiFallbackRate fetches ONE day's INR rate for a
+// currency from the fawazahmed0/currency-api project (served via the
+// jsDelivr CDN - a static, versioned-by-date file set, not a live
+// service tied to Frankfurter/ECB at all, so it's a genuinely
+// independent second source) - used as FetchFrankfurterHistory's
+// fallback. Confirmed URL shape via a live third-party reference:
+// https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@{date}/v1/
+// currencies/{base}/{target}.json, {date} either "latest" or
+// "YYYY-MM-DD", returning e.g. {"date":"2024-03-06","inr":83.4}.
+// Unlike Frankfurter's own time-series endpoint, this project serves
+// one date per file rather than a bounded range in one call - see
+// FetchCurrencyApiFallbackHistory below for how the range case is
+// handled given that constraint.
+func FetchCurrencyApiFallbackRate(currency string, date string) (store.FXRate, error) {
+	base := stringsToLower(currency)
+	url := fmt.Sprintf("https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@%s/v1/currencies/%s/inr.json", date, base)
+	resp, err := http.Get(url)
+	if err != nil {
+		return store.FXRate{}, fmt.Errorf("currency-api fallback request failed: %w", err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return store.FXRate{}, fmt.Errorf("reading currency-api fallback response: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return store.FXRate{}, fmt.Errorf("currency-api fallback returned status %d for %s on %s: %s", resp.StatusCode, currency, date, string(body))
+	}
+	var parsed map[string]interface{}
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		return store.FXRate{}, fmt.Errorf("parsing currency-api fallback response for %s: %w", currency, err)
+	}
+	rawDate, _ := parsed["date"].(string)
+	inrRate, ok := parsed["inr"].(float64)
+	if !ok || inrRate == 0 {
+		return store.FXRate{}, fmt.Errorf("currency-api fallback response for %s missing/zero inr field", currency)
+	}
+	// Requesting currencies/{currency}/inr.json directly (rather than
+	// the reverse inr/{currency}.json) gets "how many INR for 1 unit of
+	// currency" straight from the source, matching this app's
+	// INRPerUnit convention (see FetchFrankfurterHistory's base=currency
+	// &symbols=INR call) with no inversion needed.
+	return store.FXRate{Currency: currency, Date: rawDate, INRPerUnit: inrRate}, nil
+}
+
+// FetchCurrencyApiFallbackHistory fills a date range with
+// FetchCurrencyApiFallbackRate, one request per calendar day - this
+// project has no single-call bounded-range endpoint the way Frankfurter
+// does, so a range fetch here is inherently one HTTP call per day.
+// Capped at maxFallbackDays (60) to keep a fallback fetch from turning
+// into hundreds of sequential requests if the primary source has been
+// down for a long stretch or this is a first-ever fetch with no prior
+// history - in that case the incremental gap genuinely is large and
+// this fallback deliberately only backfills the most recent stretch,
+// leaving the rest to be picked up once Frankfurter is reachable again,
+// rather than silently making an enormous number of calls to this free
+// CDN-backed service. A day this API doesn't have a rate for (as
+// determined by an error) is simply skipped, not treated as fatal for
+// the whole range.
+const maxFallbackDays = 60
+
+func FetchCurrencyApiFallbackHistory(currency string, since string) ([]store.FXRate, error) {
+	start := time.Now().UTC().AddDate(0, 0, -maxFallbackDays)
+	if since != "" {
+		if t, err := time.Parse("2006-01-02", since); err == nil && t.After(start) {
+			start = t
+		}
+	}
+	end := time.Now().UTC()
+	var rates []store.FXRate
+	for d := start; !d.After(end); d = d.AddDate(0, 0, 1) {
+		rate, err := FetchCurrencyApiFallbackRate(currency, d.Format("2006-01-02"))
+		if err != nil {
+			continue // a single day's gap (weekend/holiday/rate limit) shouldn't fail the whole backfill
+		}
+		rates = append(rates, rate)
+	}
+	if len(rates) == 0 {
+		return nil, fmt.Errorf("currency-api fallback returned no rates for %s in the requested window", currency)
+	}
+	return rates, nil
+}
+
+func stringsToLower(s string) string {
+	b := []byte(s)
+	for i, c := range b {
+		if c >= 'A' && c <= 'Z' {
+			b[i] = c + ('a' - 'A')
+		}
+	}
+	return string(b)
+}
+
 // FrankfurterTimeSeriesResponse mirrors Frankfurter's date-range (time
 // series) JSON shape. The single-date/latest shape -
 // {"amount":1,"base":"EUR","date":"...","rates":{"AUD":1.57,...}} - was
