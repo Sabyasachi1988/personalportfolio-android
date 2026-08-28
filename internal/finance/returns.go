@@ -149,6 +149,73 @@ func ComputeRollingReturnStats(series []store.PriceRecord, years int, label stri
 	}
 }
 
+// ComputeTrailingReturnForCustomYears is ComputeTrailingReturnForYears'
+// fractional-year sibling, for a person-typed tenure like "2.5 years"
+// (the Returns detail screen's custom-period entry - see
+// ComputeRollingReturnStatsForCustomYears for its rolling-distribution
+// counterpart). AddDate needs whole days, not fractional years, so the
+// window is converted via years*365.25 (the standard average-year-
+// length convention, same one implied by "N years" in ordinary usage -
+// close enough over any realistic multi-month-to-multi-year window that
+// the difference from a stricter calendar calculation is immaterial).
+// years must be positive, or this reports no data - a zero or negative
+// window isn't a real query.
+func ComputeTrailingReturnForCustomYears(series []store.PriceRecord, years float64, label string) TrailingReturn {
+	if len(series) == 0 || years <= 0 {
+		return TrailingReturn{Label: label, HasData: false}
+	}
+	latest := series[len(series)-1]
+	endDate, err := time.Parse(dateLayout, latest.Date)
+	if err != nil {
+		return TrailingReturn{Label: label, HasData: false}
+	}
+	days := int(years * 365.25)
+	startDateStr := endDate.AddDate(0, 0, -days).Format(dateLayout)
+	startPrice, ok := priceOnOrBefore(series, startDateStr)
+	if !ok || startPrice <= 0 || latest.Price <= 0 {
+		return TrailingReturn{Label: label, HasData: false}
+	}
+	percent := (math.Pow(latest.Price/startPrice, 1.0/years) - 1) * 100
+	return TrailingReturn{Label: label, Percent: round2(percent), HasData: true}
+}
+
+// ComputeRollingReturnStatsForCustomYears is ComputeRollingReturnStats'
+// fractional-year sibling - same median/min/max-across-every-window
+// distribution, just for a person-typed tenure instead of one of the
+// fixed 1/3/5/10-year tenures. Same day-count conversion and
+// positive-years requirement as ComputeTrailingReturnForCustomYears.
+func ComputeRollingReturnStatsForCustomYears(series []store.PriceRecord, years float64, label string) RollingReturnStats {
+	if len(series) == 0 || years <= 0 {
+		return RollingReturnStats{Label: label, HasData: false}
+	}
+	days := int(years * 365.25)
+	var cagrs []float64
+	for _, end := range series {
+		endDate, err := time.Parse(dateLayout, end.Date)
+		if err != nil {
+			continue
+		}
+		startDateStr := endDate.AddDate(0, 0, -days).Format(dateLayout)
+		startPrice, ok := priceOnOrBefore(series, startDateStr)
+		if !ok || startPrice <= 0 || end.Price <= 0 {
+			continue
+		}
+		cagr := (math.Pow(end.Price/startPrice, 1.0/years) - 1) * 100
+		cagrs = append(cagrs, cagr)
+	}
+	if len(cagrs) == 0 {
+		return RollingReturnStats{Label: label, HasData: false}
+	}
+	sort.Float64s(cagrs)
+	return RollingReturnStats{
+		Label:   label,
+		Median:  round2(median(cagrs)),
+		Min:     round2(cagrs[0]),
+		Max:     round2(cagrs[len(cagrs)-1]),
+		HasData: true,
+	}
+}
+
 // priceOnOrBefore finds the latest price at or before `date` within a
 // single already-sorted-ascending series (e.g. from
 // store.Portfolio.PriceSeries) - the same carry-forward binary search as
