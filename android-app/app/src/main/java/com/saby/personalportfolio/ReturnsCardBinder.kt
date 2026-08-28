@@ -48,6 +48,30 @@ object ReturnsCardBinder {
         bindTenureRow(TenureViews(cardRoot.findViewById(R.id.returnsRowThreeYear)), "3Y", row.threeYearTrailing, row.threeYearRolling)
         bindTenureRow(TenureViews(cardRoot.findViewById(R.id.returnsRowFiveYear)), "5Y", row.fiveYearTrailing, row.fiveYearRolling)
         bindTenureRow(TenureViews(cardRoot.findViewById(R.id.returnsRowTenYear)), "10Y", row.tenYearTrailing, row.tenYearRolling)
+
+        // Reset any previously-shown custom-period row from a different
+        // card - each card starts fresh until the person types a period
+        // and taps Show again for THIS fund.
+        cardRoot.findViewById<View>(R.id.returnsRowCustomPeriod).visibility = View.GONE
+        cardRoot.findViewById<android.widget.EditText>(R.id.returnsCustomPeriodYears).setText("")
+    }
+
+    /**
+     * Shows the custom-period tenure row with the given (already-
+     * computed by the caller, via Bridge.computeCustomPeriodReturn)
+     * trailing + rolling result - called from ReturnsActivity, which
+     * owns the portfolio JSON this bridge call needs and isn't
+     * something this stateless binder has access to.
+     */
+    fun bindCustomPeriod(cardRoot: View, years: Double, trailing: TrailingReturn, rolling: RollingReturnStats) {
+        val row = cardRoot.findViewById<View>(R.id.returnsRowCustomPeriod)
+        row.visibility = View.VISIBLE
+        val label = if (years == years.toLong().toDouble()) {
+            String.format(Locale.getDefault(), "%dY", years.toLong())
+        } else {
+            String.format(Locale.getDefault(), "%.1fY", years)
+        }
+        bindTenureRow(TenureViews(row), label, trailing, rolling)
     }
 
     private fun bindTrailingCell(cell: CellViews, label: String, r: TrailingReturn) {
@@ -59,7 +83,7 @@ object ReturnsCardBinder {
             cell.range.text = ""
             return
         }
-        cell.value.text = String.format(Locale.getDefault(), "%+.1f%%", r.percent)
+        cell.value.text = String.format(Locale.getDefault(), "%+.2f%%", r.percent)
         cell.value.setTextColor(
             ContextCompat.getColor(context, if (r.percent >= 0) R.color.colorGain else R.color.colorLoss)
         )
@@ -74,7 +98,7 @@ object ReturnsCardBinder {
             views.trailing.text = "—"
             views.trailing.setTextColor(ContextCompat.getColor(context, R.color.colorNeutral))
         } else {
-            views.trailing.text = String.format(Locale.getDefault(), "%+.1f%%", trailing.percent)
+            views.trailing.text = String.format(Locale.getDefault(), "%+.2f%%", trailing.percent)
             views.trailing.setTextColor(
                 ContextCompat.getColor(context, if (trailing.percent >= 0) R.color.colorGain else R.color.colorLoss)
             )
@@ -85,11 +109,11 @@ object ReturnsCardBinder {
             views.rollingMedian.setTextColor(ContextCompat.getColor(context, R.color.colorNeutral))
             views.rollingRange.text = "Not enough history"
         } else {
-            views.rollingMedian.text = String.format(Locale.getDefault(), "%+.1f%%", rolling.median)
+            views.rollingMedian.text = String.format(Locale.getDefault(), "%+.2f%%", rolling.median)
             views.rollingMedian.setTextColor(
                 ContextCompat.getColor(context, if (rolling.median >= 0) R.color.colorGain else R.color.colorLoss)
             )
-            views.rollingRange.text = String.format(Locale.getDefault(), "[%+.0f, %+.0f]", rolling.min, rolling.max)
+            views.rollingRange.text = String.format(Locale.getDefault(), "[%+.2f, %+.2f]", rolling.min, rolling.max)
         }
     }
 }
