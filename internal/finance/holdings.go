@@ -139,7 +139,7 @@ func ComputeHoldings(p *store.Portfolio) []Holding {
 		if !ok {
 			continue // no transactions for this asset yet
 		}
-		var alsoHeldBy []string
+		alsoHeldBy := []string{} // never nil - see Holding.AlsoHeldByMembers' own doc comment for why a nil slice here is a confirmed real Kotlin crash, not just untidy JSON
 		if asset.ISIN != "" {
 			thisMember := memberName[accountMember[asset.AccountID]]
 			for m := range membersByISIN[asset.ISIN] {
@@ -350,9 +350,10 @@ func GroupHoldingsByLabel(p *store.Portfolio, holdings []Holding) []GroupedHoldi
 	for _, key := range order {
 		b := buckets[key]
 		g := GroupedHolding{
-			IsGroup:    len(b.members) > 1,
-			MemberID:   b.members[0].MemberID,
-			MemberName: b.members[0].MemberName,
+			IsGroup:           len(b.members) > 1,
+			AlsoHeldByMembers: []string{}, // never nil, even for a grouped row that never touches it below - see Holding.AlsoHeldByMembers' own doc comment for why a nil slice here is a confirmed real Kotlin crash
+			MemberID:          b.members[0].MemberID,
+			MemberName:        b.members[0].MemberName,
 		}
 		if g.IsGroup {
 			g.DisplayName = b.label
