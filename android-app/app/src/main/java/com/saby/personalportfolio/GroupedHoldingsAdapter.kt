@@ -107,10 +107,19 @@ class GroupedHoldingsAdapter(
 
         val xirrPart = if (row.hasXirr) String.format(Locale.getDefault(), " · XIRR %.2f%%", row.xirr) else ""
         val investedPart = "Invested ${IndianCurrencyFormatter.format(row.netInvested, decimals = 0)}"
+        // "also held by" only makes sense for an UNGROUPED row - see
+        // GroupedHolding.AlsoHeldByMembers' own Go doc comment for why
+        // it's always empty on a grouped row anyway, but the isGroup
+        // check here is the actual display-time guard.
+        val alsoHeldByPart = if (!row.isGroup && row.alsoHeldByMembers.isNotEmpty()) {
+            " · also held by ${row.alsoHeldByMembers.joinToString(", ")}"
+        } else {
+            ""
+        }
         holder.secondaryLine.text = if (row.isGroup) {
             "${row.assetIds.size} funds · $investedPart$xirrPart · tap to see which"
         } else {
-            "$investedPart$xirrPart"
+            "$investedPart$xirrPart$alsoHeldByPart"
         }
 
         holder.itemView.setOnClickListener {
