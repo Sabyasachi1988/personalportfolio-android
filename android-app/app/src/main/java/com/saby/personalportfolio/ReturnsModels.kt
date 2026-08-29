@@ -60,17 +60,9 @@ data class ReturnsTableRow(
  * else. Gson ignores JSON fields with no matching property, so reading
  * the full portfolio JSON through this class is safe and simple.
  */
-/** Mirrors store.Portfolio's raw Assets - only the fields needed for the Additional Funds screen (tracked, not owned - see store.Asset.AccountID's Go doc comment). */
-data class TrackedFundAsset(
-    @SerializedName("ID") val id: String,
-    @SerializedName("AccountID") val accountId: String,
-    @SerializedName("Name") val name: String,
-    @SerializedName("ISIN") val isin: String
-)
-
-/** Partial deserialization of the raw portfolio JSON's Assets+Prices - same pattern as PortfolioBenchmarksSnapshot below, for the Additional Funds screen. */
-data class PortfolioAssetsSnapshot(
-    @SerializedName("Assets") val assets: List<TrackedFundAsset>?,
+/** Assets+Prices from the raw portfolio JSON, reusing AssetSummary (see CapCompositionModels.kt) - only what the Additional Funds screen needs. */
+data class AdditionalFundsSnapshot(
+    @SerializedName("Assets") val assets: List<AssetSummary>?,
     @SerializedName("Prices") val prices: List<PricePoint>?
 )
 
