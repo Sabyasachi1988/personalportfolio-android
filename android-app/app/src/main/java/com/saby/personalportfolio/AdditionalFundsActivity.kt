@@ -1,6 +1,8 @@
 package com.saby.personalportfolio
 
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.recyclerview.widget.LinearLayoutManager
@@ -21,10 +23,26 @@ import com.ledger.bridge.Bridge
 class AdditionalFundsActivity : AppCompatActivity() {
 
     private val gson = Gson()
+    private val mainHandler = Handler(Looper.getMainLooper())
     private lateinit var searchInput: android.widget.EditText
     private lateinit var searchResultsView: RecyclerView
     private lateinit var isinInput: android.widget.EditText
+    private lateinit var isinAddButton: android.widget.Button
     private lateinit var recyclerView: RecyclerView
+
+    // Debounce + staleness-guard state for the live name search - see
+    // this class's own note on runSearch for the CONFIRMED REAL BUG
+    // this fixes (a hang/ANR on the 3rd keystroke): the very first
+    // search of a session triggers mfapi.in's full ~38,000-scheme list
+    // download, which is multi-MB and multi-second - running that on
+    // the main thread (the original implementation) froze the entire
+    // app for however long that download took. pendingSearchRunnable
+    // lets a fresh keystroke cancel a not-yet-fired debounce timer;
+    // latestSearchQuery lets a slow, now-STALE background search's
+    // result be silently discarded if a newer query has since been
+    // typed, rather than flashing outdated results onto the screen.
+    private var pendingSearchRunnable: Runnable? = null
+    private var latestSearchQuery: String = ""
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -34,32 +52,36 @@ class AdditionalFundsActivity : AppCompatActivity() {
         searchResultsView = findViewById(R.id.additionalFundsSearchResults)
         searchResultsView.layoutManager = LinearLayoutManager(this)
         isinInput = findViewById(R.id.additionalFundsIsinInput)
+        isinAddButton = findViewById(R.id.additionalFundsIsinAddButton)
         recyclerView = findViewById(R.id.additionalFundsRecyclerView)
         recyclerView.layoutManager = LinearLayoutManager(this)
 
-        // Searches on every keystroke past the 3-character floor, same
-        // as SearchMfapiSchemes' own minimum (see its Go doc comment) -
-        // simple debounce-free live search since this codebase has no
-        // existing coroutine/threading pattern for bridge calls (see
-        // this class's own note on that below) and mfapi.in's scheme
-        // list is cached after the first fetch, so repeat searches are
-        // fast local filtering, not repeat downloads.
+        // Debounced (400ms after typing stops), not on every keystroke -
+        // see this class's own doc comment on pendingSearchRunnable for
+        // why a naive every-keystroke version was a confirmed real bug.
         searchInput.addTextChangedListener(object : android.text.TextWatcher {
             override fun afterTextChanged(s: android.text.Editable?) {
-                runSearch(s?.toString().orEmpty())
+                val query = s?.toString().orEmpty()
+                pendingSearchRunnable?.let { mainHandler.removeCallbacks(it) }
+                if (query.trim().length < 3) {
+                    searchResultsView.adapter = null
+                    return
+                }
+                val runnable = Runnable { runSearch(query.trim()) }
+                pendingSearchRunnable = runnable
+                mainHandler.postDelayed(runnable, 400L)
             }
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
         })
 
-        findViewById<android.view.View>(R.id.additionalFundsIsinAddButton).setOnClickListener {
+        isinAddButton.setOnClickListener {
             val isin = isinInput.text.toString().trim().uppercase()
             if (isin.isEmpty()) {
                 isinInput.error = "Enter an ISIN"
                 return@setOnClickListener
             }
-            addTrackedFund(isin, isin) // name defaults to the ISIN itself when added this way - refreshed to the real fund name isn't available from a bare ISIN, only from a search hit or an eventual NAV fetch
-            isinInput.text.clear()
+            addTrackedFundByISIN(isin)
         }
 
         reload()
@@ -76,34 +98,46 @@ class AdditionalFundsActivity : AppCompatActivity() {
 
     private fun isBridgeError(json: String): Boolean = json.trimStart().startsWith("{\"error\"")
 
-    // SearchMfapiSchemes is a synchronous, network-bound Go call (see
-    // its own doc comment) - called directly on the main thread here,
-    // matching every other network-bound bridge call in this codebase
-    // (e.g. BenchmarksActivity.refreshHistory), which has no existing
-    // coroutine/background-thread convention to plug into. The first
-    // search in a session may pause briefly while mfapi.in's full
-    // scheme list downloads; every search after that is fast (cached).
+    /**
+     * Looks up funds by name against mfapi.in's scheme list, run on a
+     * BACKGROUND thread - this is the fix for a confirmed real bug: the
+     * original implementation called this directly on the main thread,
+     * and since the first search of a session has to download mfapi.in's
+     * entire ~38,000-scheme list first (multi-MB, can take several
+     * seconds on a slow connection), that froze the whole app long
+     * enough to trigger Android's ANR ("app not responding") dialog on
+     * roughly the 3rd keystroke, once the earlier debounce-free version
+     * had already queued several blocking calls back to back. This
+     * codebase has no existing coroutine convention (see other Activity
+     * classes) - a plain background Thread + posting the result back to
+     * the main thread via mainHandler is the minimal fix, not a new
+     * framework-wide pattern.
+     */
     private fun runSearch(query: String) {
-        if (query.trim().length < 3) {
-            searchResultsView.adapter = null
-            return
-        }
-        val resultJson = Bridge.searchMfapiSchemes(query.trim())
-        if (isBridgeError(resultJson)) {
-            searchResultsView.adapter = null
-            return
-        }
-        val matchType = object : TypeToken<List<MfapiSchemeMatch>>() {}.type
-        val matches: List<MfapiSchemeMatch> = try {
-            gson.fromJson(resultJson, matchType) ?: emptyList()
-        } catch (e: Exception) {
-            emptyList()
-        }
-        searchResultsView.adapter = MfapiSearchResultsAdapter(matches) { match ->
-            addTrackedFund(match.name, match.isin)
-            searchInput.text.clear()
-            searchResultsView.adapter = null
-        }
+        latestSearchQuery = query
+        Thread {
+            val resultJson = Bridge.searchMfapiSchemes(query)
+            mainHandler.post {
+                // Discard a stale result - see latestSearchQuery's own
+                // doc comment above.
+                if (query != latestSearchQuery) return@post
+                if (isBridgeError(resultJson)) {
+                    searchResultsView.adapter = null
+                    return@post
+                }
+                val matchType = object : TypeToken<List<MfapiSchemeMatch>>() {}.type
+                val matches: List<MfapiSchemeMatch> = try {
+                    gson.fromJson(resultJson, matchType) ?: emptyList()
+                } catch (e: Exception) {
+                    emptyList()
+                }
+                searchResultsView.adapter = MfapiSearchResultsAdapter(matches) { match ->
+                    addTrackedFund(match.name, match.isin)
+                    searchInput.text.clear()
+                    searchResultsView.adapter = null
+                }
+            }
+        }.start()
     }
 
     private fun reload() {
@@ -126,6 +160,37 @@ class AdditionalFundsActivity : AppCompatActivity() {
             onRefresh = { fund, rowHolder -> refreshHistory(fund, rowHolder) },
             onDelete = { fund -> deleteTrackedFund(fund) }
         )
+    }
+
+    /**
+     * Adding by a bare ISIN first tries to resolve the fund's REAL name
+     * from mfapi.in (also on a background thread - same ANR reasoning
+     * as runSearch) before adding it - a confirmed real complaint with
+     * the old behavior, which stored the ISIN itself as the fund's
+     * "name", making it genuinely hard to recognize in any list. Falls
+     * back to the bare ISIN only if resolution itself fails (e.g. no
+     * network, or a genuinely unrecognized ISIN) - the fund is still
+     * added either way, never blocked on this lookup succeeding.
+     */
+    private fun addTrackedFundByISIN(isin: String) {
+        isinAddButton.isEnabled = false
+        Thread {
+            val resultJson = Bridge.resolveFundNameByISIN(isin)
+            val resolvedName = if (!isBridgeError(resultJson)) {
+                try {
+                    gson.fromJson(resultJson, IsinNameResolution::class.java)?.name
+                } catch (e: Exception) {
+                    null
+                }
+            } else {
+                null
+            }
+            mainHandler.post {
+                isinAddButton.isEnabled = true
+                addTrackedFund(resolvedName?.takeIf { it.isNotBlank() } ?: isin, isin)
+                isinInput.text.clear()
+            }
+        }.start()
     }
 
     private fun addTrackedFund(name: String, isin: String) {
