@@ -9,6 +9,52 @@ import (
 	"ledger/internal/store"
 )
 
+func TestWindowToTrailingYears_KeepsOnlyRecordsWithinWindowOfLatestDate(t *testing.T) {
+	series := []store.PriceRecord{
+		{Date: "2020-01-01", Price: 100},
+		{Date: "2022-01-01", Price: 110}, // more than 3 years before the latest date (cutoff is 2023-08-01) - should be excluded
+		{Date: "2023-09-15", Price: 120}, // within 3 years of 2026-08-01 - should be kept
+		{Date: "2026-08-01", Price: 150}, // the latest date - always kept
+	}
+	got := WindowToTrailingYears(series, 3)
+	var gotDates []string
+	for _, r := range got {
+		gotDates = append(gotDates, r.Date)
+	}
+	want := []string{"2023-09-15", "2026-08-01"}
+	if len(gotDates) != len(want) {
+		t.Fatalf("got dates %v, want %v", gotDates, want)
+	}
+	for i := range want {
+		if gotDates[i] != want[i] {
+			t.Errorf("got dates %v, want %v", gotDates, want)
+			break
+		}
+	}
+}
+
+func TestWindowToTrailingYears_AnchorsToSeriesOwnLatestDateNotToday(t *testing.T) {
+	// The series' latest date is in the past (e.g. NAV history hasn't
+	// been refreshed recently) - the window must anchor to THAT date,
+	// not to whatever today's real-world date happens to be, or a
+	// stale-but-otherwise-valid series would window down to nothing.
+	series := []store.PriceRecord{
+		{Date: "2018-01-01", Price: 100},
+		{Date: "2019-06-01", Price: 110},
+	}
+	got := WindowToTrailingYears(series, 3)
+	if len(got) != 2 {
+		t.Errorf("expected both records kept (both within 3 years of the series' own latest date, 2019-06-01), got %d: %+v", len(got), got)
+	}
+}
+
+func TestWindowToTrailingYears_EmptySeriesReturnsEmpty(t *testing.T) {
+	got := WindowToTrailingYears(nil, 3)
+	if len(got) != 0 {
+		t.Errorf("expected empty result for empty input, got %+v", got)
+	}
+}
+
 func TestComputeMaxDrawdown_TracksWorstPeakToTrough(t *testing.T) {
 	series := []store.PriceRecord{
 		{Date: "2024-01-01", Price: 100},
