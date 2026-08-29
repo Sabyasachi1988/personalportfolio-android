@@ -33,6 +33,52 @@ func TestTigzigNavResponse_ParsesRealFixture(t *testing.T) {
 	}
 }
 
+// realMfapiFixture mirrors mfapi.in's documented /mf/{code} response
+// shape (confirmed live against mfapi.in's own docs page, cross-checked
+// against an independent third-party captured example - see
+// history.go's MfapiScheme doc comment) - DD-MM-YYYY dates, NAV as a
+// JSON string, newest-first ordering as mfapi.in actually returns it.
+const realMfapiFixture = `{"meta":{"fund_house":"HDFC Mutual Fund","scheme_type":"Open Ended Schemes","scheme_category":"Equity Scheme - Flexi Cap Fund","scheme_code":118955,"scheme_name":"HDFC Flexi Cap Fund - Direct Plan - Growth","isin_growth":"INF179K01BB2","isin_div_reinvestment":null},"data":[{"date":"27-08-2026","nav":"2297.09000"},{"date":"26-08-2026","nav":"2289.44000"},{"date":"01-01-2013","nav":"94.71200"}],"status":"SUCCESS"}`
+
+func TestParseMfapiNavHistory_ParsesRealFixtureAndSortsAscending(t *testing.T) {
+	points, err := ParseMfapiNavHistory([]byte(realMfapiFixture), "")
+	if err != nil {
+		t.Fatalf("failed to parse real mfapi.in fixture: %v", err)
+	}
+	if len(points) != 3 {
+		t.Fatalf("expected 3 points, got %d", len(points))
+	}
+	// Source is newest-first; parser must sort ascending like every
+	// other price series in this codebase.
+	if points[0].Date != "2013-01-01" || points[0].Nav != 94.712 {
+		t.Errorf("first point = %+v, want {2013-01-01 94.712}", points[0])
+	}
+	if points[2].Date != "2026-08-27" || points[2].Nav != 2297.09 {
+		t.Errorf("last point = %+v, want {2026-08-27 2297.09}", points[2])
+	}
+}
+
+func TestParseMfapiNavHistory_SinceFiltersOlderRows(t *testing.T) {
+	points, err := ParseMfapiNavHistory([]byte(realMfapiFixture), "2026-08-01")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(points) != 2 {
+		t.Fatalf("expected 2 points after since filter, got %d: %+v", len(points), points)
+	}
+}
+
+func TestParseMfapiNavHistory_MalformedRowSkippedNotFatal(t *testing.T) {
+	fixture := `{"data":[{"date":"27-08-2026","nav":"2297.09000"},{"date":"not-a-date","nav":"1.0"},{"date":"26-08-2026","nav":"N.A."}]}`
+	points, err := ParseMfapiNavHistory([]byte(fixture), "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(points) != 1 {
+		t.Fatalf("expected only the 1 well-formed row to survive, got %d: %+v", len(points), points)
+	}
+}
+
 // frankfurterTimeSeriesFixture follows the documented time-series shape
 // (start_date/end_date, rates keyed by date then currency) consistent
 // across every Frankfurter client library checked - not independently
