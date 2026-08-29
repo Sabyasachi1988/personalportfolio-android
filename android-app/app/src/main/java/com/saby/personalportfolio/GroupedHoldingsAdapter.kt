@@ -23,10 +23,20 @@ import java.util.Locale
  * independent slices, matching the row list below it exactly. The donut
  * used to disappear entirely in grouped mode (this adapter had no
  * header view type at all) - that's fixed by giving it one here.
+ *
+ * EVERY row is tappable, not just grouped ones - onRowTapped decides
+ * what a tap actually does (drill-down summary, or open a fund's own
+ * chart) based on the row's own IsGroup/IsFamilyPool flags. This used
+ * to be gated to grouped rows only here in the adapter itself (nothing
+ * useful to do on tap for an ungrouped row, before family-pooled
+ * ungrouped rows needed their own tap-through to a chart) - that gate
+ * was a confirmed real regression once ungrouped rows DID have
+ * somewhere to go: it silently swallowed the tap instead of calling
+ * back at all, for every ungrouped row, plain fund-label mode included.
  */
 class GroupedHoldingsAdapter(
     private val rows: List<GroupedHolding>,
-    private val onDrillDown: (GroupedHolding) -> Unit
+    private val onRowTapped: (GroupedHolding) -> Unit
 ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
     companion object {
@@ -122,9 +132,7 @@ class GroupedHoldingsAdapter(
             "$investedPart$xirrPart$alsoHeldByPart"
         }
 
-        holder.itemView.setOnClickListener {
-            if (row.isGroup) onDrillDown(row)
-        }
+        holder.itemView.setOnClickListener { onRowTapped(row) }
     }
 
     override fun getItemCount(): Int = rows.size + if (hasHeader) 1 else 0
