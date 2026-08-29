@@ -47,6 +47,8 @@ class PriceHistoryChartView @JvmOverloads constructor(
 
     companion object {
         private const val MIN_WINDOW_POINTS = 5
+        private const val MARKER_RADIUS_PX = 9f
+        private const val MARKER_TAP_RADIUS_PX = 32f // touch tolerance is deliberately larger than the drawn dot - a 9px dot is a small target to hit precisely with a finger
     }
 
     var onPointScrubbed: ((windowStartPoint: PricePoint, currentPoint: PricePoint) -> Unit)? = null
@@ -54,10 +56,24 @@ class PriceHistoryChartView @JvmOverloads constructor(
     /** Invoked whenever the visible window (zoom/pan/reset/set-range) changes - lets a hosting Activity keep an independent ChartRangeScrubberView in sync. Fires with (totalPointCount, windowStart, windowEnd). */
     var onWindowChanged: ((total: Int, start: Int, end: Int) -> Unit)? = null
 
+    /** Invoked when a person taps directly on a transaction marker dot - see setMarkers/MARKER_TAP_RADIUS_PX. */
+    var onMarkerTapped: ((TransactionMarker) -> Unit)? = null
+
     private var points: List<PricePoint> = emptyList()
     private var windowStart = 0
     private var windowEnd = 0 // inclusive
     private var scrubbedIndex = -1
+
+    // Each marker paired with the index (into `points`) of its closest
+    // matching date - resolved once in setMarkers, not on every frame,
+    // since points/markers only change together (a fresh setPoints call
+    // always precedes setMarkers for the same fund). Drawn/hit-tested at
+    // that point's actual (x, y) on the line - not at a position derived
+    // from the marker's OWN statement price - so a marker dot always
+    // sits exactly on the line even on the rare day the statement price
+    // and the later-fetched NAV differ by a paisa or two (see
+    // TransactionMarker's Go doc comment on why those can differ).
+    private var resolvedMarkers: List<Pair<Int, TransactionMarker>> = emptyList()
 
     private val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
@@ -74,6 +90,25 @@ class PriceHistoryChartView @JvmOverloads constructor(
     private val dotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL
         color = ContextCompat.getColor(context, R.color.colorPrimary)
+    }
+    // Buy/sell transaction markers - deliberately colorGain/colorLoss
+    // (this app's existing gain/loss convention), not a fresh color
+    // pair, so a buy dot reads the same visual language as everywhere
+    // else profit/loss is shown. A thin white-ish ring (markerRingPaint)
+    // sits under each dot so it stays visible against the line's own
+    // colorPrimary stroke passing directly behind/through it.
+    private val buyMarkerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+        color = ContextCompat.getColor(context, R.color.colorGain)
+    }
+    private val sellMarkerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+        color = ContextCompat.getColor(context, R.color.colorLoss)
+    }
+    private val markerRingPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 3f
+        color = ContextCompat.getColor(context, R.color.colorSurface)
     }
     private val gridlinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
@@ -123,14 +158,67 @@ class PriceHistoryChartView @JvmOverloads constructor(
     // beyond chartPaddingLeftMin. Starts at the floor before any draw.
     private var lastDrawnChartLeft = chartPaddingLeftMin
 
+    // Full drawn-chart geometry from the most recent onDraw, cached so
+    // marker hit-testing (findMarkerNear, called from a tap gesture
+    // OUTSIDE onDraw) can compute the exact same on-screen (x, y) for a
+    // given point index that onDraw itself just used - without
+    // duplicating a second copy of onDraw's xFor/yFor closures that
+    // could silently drift out of sync with the actual drawing math.
+    private var lastDrawnChartRight = 0f
+    private var lastDrawnChartTop = 0f
+    private var lastDrawnChartBottom = 0f
+    private var lastDrawnMinPrice = 0.0
+    private var lastDrawnPriceRange = 1.0
+    private var lastDrawnWindowStart = 0
+    private var lastDrawnWindowEnd = 0
+
     fun setPoints(newPoints: List<PricePoint>) {
         points = newPoints.sortedBy { it.date }
         windowStart = 0
         windowEnd = (points.size - 1).coerceAtLeast(0)
         scrubbedIndex = if (points.isNotEmpty()) points.size - 1 else -1
+        resolvedMarkers = emptyList() // markers are resolved against THIS series' points - stale from a previous fund otherwise
         invalidate()
         fireScrubCallback()
         fireWindowChangedCallback()
+    }
+
+    /**
+     * Overlays buy/sell transaction dots on the chart - see
+     * TransactionMarker's Go doc comment for what's excluded (cash-only
+     * events with no unit change). Each marker is resolved to the
+     * closest date already present in the currently loaded price
+     * series (setPoints must be called first) so it draws exactly on
+     * the line rather than at a position independently derived from
+     * the marker's own statement price. A marker whose date has no
+     * NAV history at all yet (a genuine data gap) is silently dropped
+     * rather than drawn somewhere misleading.
+     */
+    fun setMarkers(newMarkers: List<TransactionMarker>) {
+        if (points.isEmpty()) {
+            resolvedMarkers = emptyList()
+            return
+        }
+        resolvedMarkers = newMarkers.mapNotNull { marker ->
+            closestPointIndexForDate(marker.date)?.let { idx -> idx to marker }
+        }
+        invalidate()
+    }
+
+    // points is sorted ascending by "yyyy-MM-dd" date, which sorts
+    // correctly as a plain string - binary search finds the first
+    // index whose date is >= the marker's date (i.e. the closest
+    // available NAV on or after the transaction date, the normal case
+    // being an exact match since both come from the same fund).
+    private fun closestPointIndexForDate(date: String): Int? {
+        if (points.isEmpty()) return null
+        var lo = 0
+        var hi = points.size - 1
+        while (lo < hi) {
+            val mid = (lo + hi) / 2
+            if (points[mid].date < date) lo = mid + 1 else hi = mid
+        }
+        return lo
     }
 
     /**
@@ -223,6 +311,18 @@ class PriceHistoryChartView @JvmOverloads constructor(
         val chartWidth = (chartRight - chartLeft).coerceAtLeast(1f)
         val chartHeight = (chartBottom - chartTop).coerceAtLeast(1f)
 
+        // Cache the geometry this frame actually drew with, so
+        // findMarkerNear (called later from a tap, outside onDraw) can
+        // reproduce the exact same (x, y) for a given point index - see
+        // the field's own doc comment above.
+        lastDrawnChartRight = chartRight
+        lastDrawnChartTop = chartTop
+        lastDrawnChartBottom = chartBottom
+        lastDrawnMinPrice = minPrice
+        lastDrawnPriceRange = priceRange
+        lastDrawnWindowStart = windowStart
+        lastDrawnWindowEnd = windowEnd
+
         fun xFor(localIndex: Int): Float = chartLeft + chartWidth * localIndex / (visible.size - 1).toFloat().coerceAtLeast(1f)
         fun yFor(price: Double): Float = chartTop + chartHeight * (1f - ((price - minPrice) / priceRange).toFloat())
 
@@ -265,6 +365,21 @@ class PriceHistoryChartView @JvmOverloads constructor(
             val y = yFor(visible[localScrub].price)
             canvas.drawLine(x, chartTop, x, chartBottom, crosshairPaint)
             canvas.drawCircle(x, y, 8f, dotPaint)
+        }
+
+        // Buy/sell transaction markers - only those whose resolved
+        // point index falls within the CURRENTLY VISIBLE window are
+        // drawn, same "visible window" scoping as the crosshair/line
+        // above, so zooming/panning naturally shows/hides markers along
+        // with the rest of the chart.
+        resolvedMarkers.forEach { (index, marker) ->
+            val localIndex = index - windowStart
+            if (localIndex !in visible.indices) return@forEach
+            val x = xFor(localIndex)
+            val y = yFor(visible[localIndex].price)
+            val paint = if (marker.isBuy) buyMarkerPaint else sellMarkerPaint
+            canvas.drawCircle(x, y, MARKER_RADIUS_PX, paint)
+            canvas.drawCircle(x, y, MARKER_RADIUS_PX, markerRingPaint)
         }
     }
 
@@ -405,5 +520,50 @@ class PriceHistoryChartView @JvmOverloads constructor(
             fireWindowChangedCallback()
             return true
         }
+
+        // A confirmed single tap (not the first tap of a double-tap
+        // sequence) checks for a nearby marker dot - deliberately here
+        // rather than in onTouchEvent's ACTION_UP handling, since that
+        // already fires on every tap/drag-release for scrub purposes
+        // and doesn't distinguish a genuine tap from a drag the way
+        // GestureDetector's own tap-confirmation timing does.
+        override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
+            val marker = findMarkerNear(e.x, e.y) ?: return false
+            onMarkerTapped?.invoke(marker)
+            return true
+        }
+    }
+
+    /**
+     * Finds the closest resolved marker within MARKER_TAP_RADIUS_PX of
+     * a tap, using the SAME geometry the most recent onDraw actually
+     * used (see the lastDrawn* fields' doc comment) - not a
+     * re-derivation that could drift out of sync with where the dots
+     * were actually drawn.
+     */
+    private fun findMarkerNear(touchX: Float, touchY: Float): TransactionMarker? {
+        if (resolvedMarkers.isEmpty()) return null
+        val windowSize = lastDrawnWindowEnd - lastDrawnWindowStart + 1
+        if (windowSize <= 0) return null
+        val chartWidth = (lastDrawnChartRight - lastDrawnChartLeft).coerceAtLeast(1f)
+        val chartHeight = (lastDrawnChartBottom - lastDrawnChartTop).coerceAtLeast(1f)
+        var closest: TransactionMarker? = null
+        var closestDistSq = Float.MAX_VALUE
+        val tapRadiusSq = MARKER_TAP_RADIUS_PX * MARKER_TAP_RADIUS_PX
+        resolvedMarkers.forEach { (index, marker) ->
+            val localIndex = index - lastDrawnWindowStart
+            if (localIndex !in 0 until windowSize) return@forEach
+            val point = points.getOrNull(index) ?: return@forEach
+            val x = lastDrawnChartLeft + chartWidth * localIndex / (windowSize - 1).coerceAtLeast(1).toFloat()
+            val y = lastDrawnChartTop + chartHeight * (1f - ((point.price - lastDrawnMinPrice) / lastDrawnPriceRange).toFloat())
+            val dx = touchX - x
+            val dy = touchY - y
+            val distSq = dx * dx + dy * dy
+            if (distSq <= tapRadiusSq && distSq < closestDistSq) {
+                closestDistSq = distSq
+                closest = marker
+            }
+        }
+        return closest
     }
 }
