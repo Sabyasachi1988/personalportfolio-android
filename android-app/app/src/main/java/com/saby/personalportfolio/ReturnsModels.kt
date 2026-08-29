@@ -79,6 +79,10 @@ data class FundMetricsResult(
     @SerializedName("SharpeHasData") val sharpeHasData: Boolean = false,
     @SerializedName("SortinoRatio") val sortinoRatio: Double = 0.0,
     @SerializedName("SortinoHasData") val sortinoHasData: Boolean = false,
+    @SerializedName("StandardDeviation") val standardDeviation: Double = 0.0,
+    @SerializedName("StdDevHasData") val stdDevHasData: Boolean = false,
+    @SerializedName("Alpha") val alpha: Double = 0.0,
+    @SerializedName("AlphaHasData") val alphaHasData: Boolean = false,
     @SerializedName("BenchmarkID") val benchmarkId: String?,
     @SerializedName("BenchmarkName") val benchmarkName: String?,
     @SerializedName("AutoSelected") val autoSelected: Boolean
