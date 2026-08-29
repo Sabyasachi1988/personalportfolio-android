@@ -30,10 +30,15 @@ class BenchmarksAdapter(
     override fun onBindViewHolder(holder: RowHolder, position: Int) {
         val benchmark = benchmarks[position]
         holder.name.text = NicknameResolver.resolve(benchmark.name, benchmark.nickname)
+        // TRI benchmarks (see store.Benchmark.NiftyTRIIndexName's Go
+        // doc comment) have no yahooTicker at all - show the NSE
+        // Indices name instead so the row never displays a blank
+        // second line.
+        val sourceLabel = benchmark.niftyTRIIndexName.ifEmpty { benchmark.yahooTicker }
         holder.status.text = if (hasHistory(benchmark.id)) {
-            benchmark.yahooTicker
+            sourceLabel
         } else {
-            "${benchmark.yahooTicker} - no history fetched yet, tap Refresh"
+            "$sourceLabel - no history fetched yet, tap Refresh"
         }
         holder.refreshButton.setOnClickListener { onRefresh(benchmark, holder) }
         holder.deleteButton.setOnClickListener { onDelete(benchmark) }
