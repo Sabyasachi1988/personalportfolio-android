@@ -9,10 +9,10 @@ import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
 
 class AdditionalFundsAdapter(
-    private val funds: List<TrackedFundAsset>,
+    private val funds: List<AssetSummary>,
     private val hasHistory: (assetId: String) -> Boolean,
-    private val onRefresh: (fund: TrackedFundAsset, rowHolder: RowHolder) -> Unit,
-    private val onDelete: (fund: TrackedFundAsset) -> Unit
+    private val onRefresh: (fund: AssetSummary, rowHolder: RowHolder) -> Unit,
+    private val onDelete: (fund: AssetSummary) -> Unit
 ) : RecyclerView.Adapter<AdditionalFundsAdapter.RowHolder>() {
 
     class RowHolder(view: View) : RecyclerView.ViewHolder(view) {
