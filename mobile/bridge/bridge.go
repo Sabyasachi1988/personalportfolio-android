@@ -1636,6 +1636,34 @@ func AddBenchmark(portfolioJSON string, name string, yahooTicker string) string 
 	return string(out)
 }
 
+// AddTRIBenchmark is AddBenchmark's Total-Return counterpart - see
+// store.Benchmark.NiftyTRIIndexName's doc comment for what makes this
+// a genuinely different data source, not just a labeling difference.
+// niftyTRIIndexName must be one of NSE Indices' own canonical
+// spellings (see priceapi.FetchNiftyIndicesTRI's doc comment) - an
+// unrecognized spelling won't error here (this call doesn't fetch
+// anything), only later when history is actually requested.
+func AddTRIBenchmark(portfolioJSON string, name string, niftyTRIIndexName string) string {
+	var p store.Portfolio
+	if portfolioJSON != "" {
+		if err := json.Unmarshal([]byte(portfolioJSON), &p); err != nil {
+			return fmt.Sprintf(`{"error":%q}`, "invalid portfolio JSON: "+err.Error())
+		}
+	}
+	if name == "" {
+		return `{"error":"name cannot be empty"}`
+	}
+	if niftyTRIIndexName == "" {
+		return `{"error":"niftyTRIIndexName cannot be empty"}`
+	}
+	p.AddTRIBenchmark(name, niftyTRIIndexName)
+	out, err := json.Marshal(p)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+	return string(out)
+}
+
 // RemoveBenchmark removes a tracked index by ID - see
 // store.Portfolio.RemoveBenchmark. Returns the updated portfolio JSON.
 func RemoveBenchmark(portfolioJSON string, benchmarkID string) string {
@@ -1689,17 +1717,41 @@ func UpdateBenchmarkHistory(portfolioJSON string, benchmarkID string, since stri
 	if incremental := dayAfterLatest(p.PriceSeries(benchmarkID)); incremental != "" {
 		since = incremental
 	}
-	points, err := priceapi.FetchYahooAdjClose(benchmark.YahooTicker, since)
-	if err != nil {
-		return fmt.Sprintf(`{"error":%q}`, err.Error())
+
+	// A TRI benchmark fetches via NSE Indices' own TRI endpoint instead
+	// of Yahoo - see Benchmark.NiftyTRIIndexName's doc comment for why
+	// these are two entirely separate fetch paths rather than one
+	// trying to serve both series.
+	var points []priceapi.YahooPricePoint
+	var source string
+	if benchmark.NiftyTRIIndexName != "" {
+		triPoints, err := priceapi.FetchNiftyIndicesTRI(benchmark.NiftyTRIIndexName, since)
+		if err != nil {
+			return fmt.Sprintf(`{"error":%q}`, err.Error())
+		}
+		for _, pt := range triPoints {
+			points = append(points, priceapi.YahooPricePoint{Date: pt.Date, Price: pt.Nav})
+		}
+		source = "NIFTY_TRI_HISTORY"
+	} else {
+		var err error
+		points, err = priceapi.FetchYahooAdjClose(benchmark.YahooTicker, since)
+		if err != nil {
+			return fmt.Sprintf(`{"error":%q}`, err.Error())
+		}
+		source = "YAHOO_HISTORY"
 	}
 	if len(points) == 0 && !hasExistingHistory {
-		return fmt.Sprintf(`{"error":%q}`, "no price history found for "+benchmark.YahooTicker)
+		label := benchmark.YahooTicker
+		if benchmark.NiftyTRIIndexName != "" {
+			label = benchmark.NiftyTRIIndexName
+		}
+		return fmt.Sprintf(`{"error":%q}`, "no price history found for "+label)
 	}
 	records := make([]store.PriceRecord, 0, len(points))
 	for _, pt := range points {
 		records = append(records, store.PriceRecord{
-			AssetID: benchmarkID, Date: pt.Date, Price: pt.Price, Source: "YAHOO_HISTORY",
+			AssetID: benchmarkID, Date: pt.Date, Price: pt.Price, Source: source,
 		})
 	}
 	p.UpsertPrices(records)
@@ -1925,6 +1977,28 @@ func UpdateAllHistory(portfolioJSON string) string {
 				since = incremental
 			}
 			o := historyOutcome{kind: "benchmark", label: b.DisplayName()}
+
+			// A TRI benchmark fetches via NSE Indices' own TRI endpoint
+			// instead of Yahoo, with NO Yahoo-direct fallback attempted
+			// on error - see Benchmark.NiftyTRIIndexName's doc comment:
+			// there is no equivalent "independent second source" for
+			// genuine TRI data the way there is for a plain price
+			// index, so a TRI fetch failure is just reported as a
+			// failure, not silently retried against a different series
+			// that wouldn't actually be TRI data.
+			if b.NiftyTRIIndexName != "" {
+				triPoints, err := priceapi.FetchNiftyIndicesTRI(b.NiftyTRIIndexName, since)
+				if err != nil {
+					o.err = err
+				} else {
+					for _, pt := range triPoints {
+						o.priceRecs = append(o.priceRecs, store.PriceRecord{AssetID: b.ID, Date: pt.Date, Price: pt.Nav, Source: "NIFTY_TRI_HISTORY"})
+					}
+				}
+				record(o)
+				return
+			}
+
 			points, err := priceapi.FetchYahooAdjClose(b.YahooTicker, since)
 			if err != nil {
 				// Same independent fallback as the ETF/stock price loop
@@ -2368,13 +2442,32 @@ func ComputeFundMetrics(portfolioJSON string, seriesID string, benchmarkID strin
 
 	autoSelected := false
 	if benchmarkID == "" {
-		wantTicker := finance.DefaultBenchmarkTicker(fundName)
-		if wantTicker != "" {
+		// TRI is tried FIRST - a fund's real factsheet always
+		// benchmarks against the TRI variant (see
+		// store.Benchmark.NiftyTRIIndexName's doc comment), so if the
+		// person has added that TRI benchmark, prefer it over the
+		// plain price-index version. Falls back to the price-index
+		// match only when no TRI benchmark for this segment has been
+		// added yet.
+		wantTRIName := finance.DefaultBenchmarkTRIName(fundName)
+		if wantTRIName != "" {
 			for _, b := range p.Benchmarks {
-				if b.YahooTicker == wantTicker {
+				if b.NiftyTRIIndexName == wantTRIName {
 					benchmarkID = b.ID
 					autoSelected = true
 					break
+				}
+			}
+		}
+		if benchmarkID == "" {
+			wantTicker := finance.DefaultBenchmarkTicker(fundName)
+			if wantTicker != "" {
+				for _, b := range p.Benchmarks {
+					if b.YahooTicker == wantTicker {
+						benchmarkID = b.ID
+						autoSelected = true
+						break
+					}
 				}
 			}
 		}
