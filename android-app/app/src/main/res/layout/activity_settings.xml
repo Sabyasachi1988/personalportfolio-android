@@ -391,6 +391,75 @@
         android:layout_height="wrap_content"
         android:textSize="16sp"
         android:textStyle="bold"
+        android:text="Risk-Free Rate" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:textSize="13sp"
+        android:textColor="@color/colorNeutral"
+        android:text="Used for Sharpe, Sortino, and Alpha on a fund's chart. Fetched directly from real AMC factsheets (PPFAS primary, Nippon India as a backup) whenever you refresh NAV history - the same FBIL Overnight MIBOR figure those factsheets themselves publish." />
+
+    <TextView
+        android:id="@+id/riskFreeRateStatus"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
+        android:textSize="14sp"
+        android:textStyle="bold" />
+
+    <TextView
+        android:id="@+id/riskFreeRateRefreshButton"
+        style="@style/ActionChip"
+        android:layout_width="wrap_content"
+        android:layout_marginTop="8dp"
+        android:text="Refresh now" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+
+        <EditText
+            android:id="@+id/riskFreeRateManualInput"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="wrap_content"
+            android:hint="Set manually, %, e.g. 5.5"
+            android:inputType="numberDecimal" />
+
+        <TextView
+            android:id="@+id/riskFreeRateManualSaveButton"
+            style="@style/ActionChip"
+            android:layout_width="wrap_content"
+            android:layout_marginStart="8dp"
+            android:text="Save" />
+
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/riskFreeRateClearManualButton"
+        style="@style/ActionChip"
+        android:layout_width="wrap_content"
+        android:layout_marginTop="8dp"
+        android:text="Clear manual override, use fetched value"
+        android:visibility="gone" />
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="#22000000"
+        android:layout_marginTop="32dp"
+        android:layout_marginBottom="32dp" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textSize="16sp"
+        android:textStyle="bold"
         android:textColor="#C62828"
         android:text="Danger Zone" />
 
