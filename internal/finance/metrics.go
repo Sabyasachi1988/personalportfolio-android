@@ -32,6 +32,10 @@ type FundMetrics struct {
 	SharpeHasData      bool
 	SortinoRatio       float64
 	SortinoHasData     bool
+	StandardDeviation  float64
+	StdDevHasData      bool
+	Alpha              float64
+	AlphaHasData       bool
 }
 
 // assumedAnnualRiskFreeRate is used by ComputeSharpeRatio and
@@ -441,6 +445,72 @@ func ComputeSortinoRatio(series []store.PriceRecord) (float64, bool) {
 		return 0, false
 	}
 	return round2(meanExcess / downsideDeviation * math.Sqrt(12)), true
+}
+
+// ComputeStandardDeviation is the annualized volatility of the fund's
+// own monthly returns - monthly standard deviation * sqrt(12), the
+// same "monthly return, sqrt(12)-annualization" convention already
+// used throughout this file for Sharpe/Sortino/Information Ratio (see
+// ComputeSharpeRatio's doc comment for the primary-source confirmation
+// of that convention). Expressed as a percentage. Requires at least 12
+// months of returns, the same bar as every other metric in this file
+// that needs a real sample to be meaningful rather than noise.
+func ComputeStandardDeviation(series []store.PriceRecord) (float64, bool) {
+	returns := monthlyReturnsOf(series)
+	if len(returns) < 12 {
+		return 0, false
+	}
+	sd := stddev(returns, mean(returns))
+	if sd == 0 {
+		return 0, false
+	}
+	return round2(sd * math.Sqrt(12) * 100), true
+}
+
+// annualizedReturnFromMonthly geometrically compounds a series of
+// monthly returns up to an annualized figure: (prod(1+r_i))^(12/n) - 1.
+// Geometric, not arithmetic-mean*12, because this is meant to represent
+// an actual achievable compounded growth rate (the same CAGR concept
+// used everywhere else returns are annualized in this app), which
+// arithmetic averaging of monthly returns does NOT correctly represent
+// once compounding effects matter over multiple periods.
+func annualizedReturnFromMonthly(returns []float64) float64 {
+	cum := 1.0
+	for _, r := range returns {
+		cum *= 1 + r
+	}
+	n := float64(len(returns))
+	if n == 0 || cum <= 0 {
+		return 0
+	}
+	return math.Pow(cum, 12/n) - 1
+}
+
+// ComputeAlpha is Jensen's Alpha - the fund's annualized return minus
+// what CAPM predicts given its own Beta: alpha = Rp - [Rf + Beta*(Rm -
+// Rf)]. Formula confirmed against Jensen's original 1968 formulation
+// (Wikipedia's own math rendering matches several independent CFA-
+// oriented calculator sites checked live). Expressed as a percentage.
+// Reuses ComputeBeta itself (not a separate covariance calculation) so
+// the Beta a person sees on the Beta card and the Beta implicitly
+// behind their Alpha card are guaranteed to be the exact same number,
+// never two independently-computed values that could drift apart.
+// Same >=12-overlapping-month requirement as ComputeBeta, since Alpha
+// is meaningless without a real Beta estimate behind it.
+func ComputeAlpha(fundSeries, benchSeries []store.PriceRecord) (float64, bool) {
+	beta, betaOK := ComputeBeta(fundSeries, benchSeries)
+	if !betaOK {
+		return 0, false
+	}
+	fundReturns, benchReturns := alignedMonthlyReturns(fundSeries, benchSeries)
+	if len(fundReturns) < 12 {
+		return 0, false
+	}
+	fundAnnual := annualizedReturnFromMonthly(fundReturns)
+	benchAnnual := annualizedReturnFromMonthly(benchReturns)
+	expected := assumedAnnualRiskFreeRate + beta*(benchAnnual-assumedAnnualRiskFreeRate)
+	alpha := fundAnnual - expected
+	return round2(alpha * 100), true
 }
 
 func mean(xs []float64) float64 {
