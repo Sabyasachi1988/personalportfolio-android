@@ -34,6 +34,15 @@
             android:text="Names" />
 
         <ImageButton
+            android:id="@+id/returnsManageAdditionalFundsButton"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:padding="8dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:src="@drawable/ic_tab_layers"
+            android:contentDescription="Manage Additional Funds" />
+
+        <ImageButton
             android:id="@+id/returnsManageBenchmarksButton"
             android:layout_width="40dp"
             android:layout_height="40dp"
