@@ -1,6 +1,7 @@
 package priceapi
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -660,7 +661,146 @@ func FetchMfapiNavHistory(isin string, since string) ([]TigzigNavPoint, error) {
 	return points, nil
 }
 
-// ParseMfapiNavHistory is split out from FetchMfapiNavHistory so the
+// niftyTRIRow mirrors one row of niftyindices.com's own internal TRI
+// API response - see FetchNiftyIndicesTRI's doc comment for the full
+// confirmed wire format and its provenance.
+type niftyTRIRow struct {
+	Date              string `json:"Date"`
+	TotalReturnsIndex string `json:"TotalReturnsIndex"`
+}
+
+// niftyTRIEnvelope mirrors the outer response shape - "d" is itself a
+// JSON-ENCODED STRING (ASP.NET ScriptService convention), not a nested
+// object, so it needs a second json.Unmarshal pass - see
+// FetchNiftyIndicesTRI's doc comment.
+type niftyTRIEnvelope struct {
+	D string `json:"d"`
+}
+
+// niftyTRIRequest mirrors the request body - cinfo is itself a
+// single-quoted, Python-dict-style STRING (not a nested JSON object;
+// the server's deserializer rejects a real nested object with an empty
+// result, no error) - see FetchNiftyIndicesTRI's doc comment.
+type niftyTRIRequest struct {
+	Cinfo string `json:"cinfo"`
+}
+
+// FetchNiftyIndicesTRI fetches an NSE index's TOTAL RETURN (dividends
+// reinvested) history directly from NSE Indices' own site
+// (niftyindices.com) - the genuinely correct benchmark for a mutual
+// fund comparison, since every real fund factsheet benchmarks against
+// the TRI variant of its index, not the plain price index this
+// project's Yahoo-ticker benchmarks track (see Benchmark.NiftyTRIIndexName's
+// doc comment for why both are kept as separate benchmark entries
+// rather than one trying to hold both series).
+//
+// IMPORTANT CAVEAT, stated plainly rather than dressed up as more
+// stable than it is: this is NOT a published/documented public API.
+// It is the exact internal endpoint niftyindices.com's own web UI
+// calls (POST Backpage.aspx/getTotalReturnIndexString), reverse-
+// engineered via live browser inspection and confirmed working as of
+// 2026-05-22 against a real response for NIFTY 50/500/MIDCAP 150/
+// SMALLCAP 250 (thousands of rows each, inception to date) - but NSE
+// never committed to this as a stable public contract, so it could
+// change or disappear without notice. index must be one of NSE's own
+// canonical spellings (confirmed working: "NIFTY 50", "NIFTY 500",
+// "NIFTY MIDCAP 150", "NIFTY SMALLCAP 250" - broad-market names are
+// spaced/uppercase; an unrecognized name returns 200 OK with an empty
+// array, not an error, so a typo silently yields "no data" rather than
+// a loud failure).
+//
+// Sets a browser-like User-Agent for the same reason as
+// FetchYahooAdjCloseDirect - a non-browser User-Agent on this specific
+// endpoint doesn't get rejected, it silently NEVER responds (the
+// request hangs until the client's own timeout fires), which is a much
+// worse failure mode than a clean 403 would be.
+func FetchNiftyIndicesTRI(index string, since string) ([]TigzigNavPoint, error) {
+	if index == "" {
+		return nil, fmt.Errorf("index name cannot be empty")
+	}
+	startDate := "01-Jan-1999" // earliest any of these indices' TRI history goes - an unbounded start is safe, the server just returns everything it has
+	if since != "" {
+		t, err := time.Parse("2006-01-02", since)
+		if err != nil {
+			return nil, fmt.Errorf("parsing since date %q: %w", since, err)
+		}
+		startDate = t.Format("02-Jan-2006")
+	}
+	endDate := time.Now().UTC().Format("02-Jan-2006")
+
+	cinfo := fmt.Sprintf("{'name':'%s','startDate':'%s','endDate':'%s','indexName':'%s'}", index, startDate, endDate, index)
+	bodyBytes, err := json.Marshal(niftyTRIRequest{Cinfo: cinfo})
+	if err != nil {
+		return nil, fmt.Errorf("building niftyindices TRI request: %w", err)
+	}
+
+	req, err := http.NewRequest(http.MethodPost, "https://www.niftyindices.com/Backpage.aspx/getTotalReturnIndexString", bytes.NewReader(bodyBytes))
+	if err != nil {
+		return nil, fmt.Errorf("building niftyindices TRI request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json; charset=UTF-8")
+	req.Header.Set("X-Requested-With", "XMLHttpRequest")
+	req.Header.Set("Referer", "https://www.niftyindices.com/reports/historical-data")
+	// See doc comment above - this is load-bearing, not cosmetic.
+	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; PersonalPortfolioApp/1.0)")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("niftyindices TRI request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading niftyindices TRI response: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("niftyindices TRI returned status %d for %q: %s", resp.StatusCode, index, string(respBody))
+	}
+
+	points, err := ParseNiftyIndicesTRI(respBody, since)
+	if err != nil {
+		return nil, fmt.Errorf("parsing niftyindices TRI response for %q: %w", index, err)
+	}
+	if since == "" && len(points) == 0 {
+		return nil, fmt.Errorf("no TRI history found for index %q - check the canonical name spelling", index)
+	}
+	return points, nil
+}
+
+// ParseNiftyIndicesTRI is split out from FetchNiftyIndicesTRI so the
+// double-JSON-decode/date-conversion/filtering logic has a real test
+// against a captured fixture, independent of the live network call
+// this sandbox can't make to niftyindices.com - same reasoning as
+// every other Parse* function in this file.
+func ParseNiftyIndicesTRI(body []byte, since string) ([]TigzigNavPoint, error) {
+	var envelope niftyTRIEnvelope
+	if err := json.Unmarshal(body, &envelope); err != nil {
+		return nil, fmt.Errorf("outer envelope: %w", err)
+	}
+	var rows []niftyTRIRow
+	if err := json.Unmarshal([]byte(envelope.D), &rows); err != nil {
+		return nil, fmt.Errorf("inner \"d\" payload: %w", err)
+	}
+	points := make([]TigzigNavPoint, 0, len(rows))
+	for _, row := range rows {
+		t, err := time.Parse("2 Jan 2006", row.Date)
+		if err != nil {
+			continue // a genuinely malformed row - skip rather than fail the whole fetch
+		}
+		date := t.Format("2006-01-02")
+		if since != "" && date < since {
+			continue
+		}
+		value, err := strconv.ParseFloat(row.TotalReturnsIndex, 64)
+		if err != nil {
+			continue
+		}
+		points = append(points, TigzigNavPoint{Date: date, Nav: value})
+	}
+	sort.Slice(points, func(i, j int) bool { return points[i].Date < points[j].Date })
+	return points, nil
+}
 // parsing/date-conversion/filtering logic has a real test against a
 // fixture, independent of the live network call this sandbox can't
 // make to api.mfapi.in - same reasoning as ParseYahooDirectChart and
