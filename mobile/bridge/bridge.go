@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"math"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -1719,6 +1720,7 @@ type UpdateAllHistoryResult struct {
 	NavSucceeded          int
 	NavTotal              int
 	NavFailures           []string
+	NavUsedFallback       []string // labels of funds whose NAV history came from the fallback source (mfapi.in), not TigZig
 	PriceSucceeded        int
 	PriceTotal            int
 	PriceFailures         []string
@@ -1807,11 +1809,28 @@ func UpdateAllHistory(portfolioJSON string) string {
 			since := dayAfterLatest(p.PriceSeries(a.ID))
 			history, err := priceapi.FetchTigzigNavHistory(a.ISIN, since)
 			o := historyOutcome{kind: "nav", label: a.DisplayName()}
+			var navPoints []priceapi.TigzigNavPoint
+			if err != nil {
+				// Primary (TigZig) failed - retry via mfapi.in, a
+				// genuinely independent second source with no TigZig
+				// involvement. See priceapi.FetchMfapiNavHistory's doc
+				// comment for how this was confirmed.
+				navPoints, err = priceapi.FetchMfapiNavHistory(a.ISIN, since)
+				if err == nil {
+					o.usedFallback = true
+				}
+			} else {
+				navPoints = history.Data
+			}
 			if err != nil {
 				o.err = err
 			} else {
-				for _, pt := range history.Data {
-					o.priceRecs = append(o.priceRecs, store.PriceRecord{AssetID: a.ID, Date: pt.Date, Price: pt.Nav, Source: "TIGZIG_HISTORY"})
+				source := "TIGZIG_HISTORY"
+				if o.usedFallback {
+					source = "MFAPI_FALLBACK"
+				}
+				for _, pt := range navPoints {
+					o.priceRecs = append(o.priceRecs, store.PriceRecord{AssetID: a.ID, Date: pt.Date, Price: pt.Nav, Source: source})
 				}
 			}
 			record(o)
@@ -1945,6 +1964,9 @@ func UpdateAllHistory(portfolioJSON string) string {
 			} else {
 				p.UpsertPrices(o.priceRecs)
 				result.NavSucceeded++
+				if o.usedFallback {
+					result.NavUsedFallback = append(result.NavUsedFallback, o.label)
+				}
 			}
 		case "price":
 			result.PriceTotal++
@@ -2126,6 +2148,85 @@ func ComputeCustomPeriodReturn(portfolioJSON string, seriesID string, years floa
 // array of {Date, Price} objects - for the Returns screen's tap-to-graph
 // drill-down. Returns an empty array (not an error) if the series has no
 // data yet.
+// TransactionMarker is one buy/sell point overlaid on a fund's price
+// history chart - the bridge-side source for the transaction-markers
+// feature (dots on the NAV graph showing when/how much was invested,
+// tap to see date/NAV/units/amount, similar to a broker app's holding
+// chart). IsBuy distinguishes a positive-unit event (PURCHASE,
+// PURCHASE_SIP, SWITCH_IN, SWITCH_IN_MERGER, DIVIDEND_REINVEST) from a
+// negative-unit one (REDEMPTION, SWITCH_OUT, SWITCH_OUT_MERGER) so the
+// Kotlin side can color them differently without re-deriving the
+// classification from the raw TransactionType string itself. A
+// transaction with no unit change at all (e.g. a cash DIVIDEND_PAYOUT,
+// or a tax/fee line) has nothing meaningful to plot on a NAV-vs-time
+// chart and is excluded entirely - see buildTransactionMarkers below.
+type TransactionMarker struct {
+	Date        string
+	IsBuy       bool
+	Units       float64
+	Price       float64 // NAV/price at the time of this transaction, as recorded on the statement - NOT re-derived from the price history series, since the two can legitimately differ slightly (statement price vs a later-fetched close)
+	Amount      float64 // absolute value - sign is already conveyed by IsBuy, no need to double-encode it
+	Description string
+}
+
+// ComputeAssetTransactionMarkers returns every plottable transaction
+// for one asset, sorted ascending by date - see TransactionMarker's
+// doc comment for what "plottable" excludes. seriesID matches an
+// Asset.ID (this is fund/ETF-only; Benchmarks have no transactions to
+// plot, so an unrecognised or benchmark ID simply yields an empty
+// array, not an error - consistent with ComputePriceHistory's own
+// unknown-ID handling).
+func ComputeAssetTransactionMarkers(portfolioJSON string, seriesID string) string {
+	var p store.Portfolio
+	if portfolioJSON != "" {
+		if err := json.Unmarshal([]byte(portfolioJSON), &p); err != nil {
+			return fmt.Sprintf(`{"error":%q}`, "invalid portfolio JSON: "+err.Error())
+		}
+	}
+	markers := buildTransactionMarkers(p.Transactions, seriesID)
+	out, err := json.Marshal(markers)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+	return string(out)
+}
+
+// buildTransactionMarkers is split out from ComputeAssetTransactionMarkers
+// so the filtering/classification logic is directly unit-testable
+// without going through JSON marshaling.
+func buildTransactionMarkers(transactions []store.StoredTransaction, seriesID string) []TransactionMarker {
+	markers := make([]TransactionMarker, 0)
+	for _, t := range transactions {
+		if t.AssetID != seriesID {
+			continue
+		}
+		if t.Units == nil || *t.Units == 0 {
+			continue // nothing to plot - see TransactionMarker's doc comment
+		}
+		price := 0.0
+		if t.Price != nil {
+			price = *t.Price
+		}
+		markers = append(markers, TransactionMarker{
+			Date:        t.Date,
+			IsBuy:       *t.Units > 0,
+			Units:       absFloat64(*t.Units),
+			Price:       price,
+			Amount:      absFloat64(t.Amount),
+			Description: t.Description,
+		})
+	}
+	sort.Slice(markers, func(i, j int) bool { return markers[i].Date < markers[j].Date })
+	return markers
+}
+
+func absFloat64(v float64) float64 {
+	if v < 0 {
+		return -v
+	}
+	return v
+}
+
 func ComputePriceHistory(portfolioJSON string, seriesID string) string {
 	var p store.Portfolio
 	if portfolioJSON != "" {
