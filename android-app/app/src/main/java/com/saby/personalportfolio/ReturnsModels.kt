@@ -129,5 +129,6 @@ data class TransactionMarker(
     @SerializedName("Units") val units: Double,
     @SerializedName("Price") val price: Double,
     @SerializedName("Amount") val amount: Double,
-    @SerializedName("Description") val description: String = ""
+    @SerializedName("Description") val description: String = "",
+    @SerializedName("Member") val member: String = ""
 )
