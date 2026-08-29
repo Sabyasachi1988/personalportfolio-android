@@ -109,11 +109,11 @@ class AdditionalFundsActivity : AppCompatActivity() {
     private fun reload() {
         val portfolioPath = PortfolioStorage.filePath(this)
         val portfolioJson = PortfolioLoadCache.load(portfolioPath)
-        val snapshot: PortfolioAssetsSnapshot = try {
-            gson.fromJson(portfolioJson, PortfolioAssetsSnapshot::class.java)
+        val snapshot: AdditionalFundsSnapshot = try {
+            gson.fromJson(portfolioJson, AdditionalFundsSnapshot::class.java)
         } catch (e: Exception) {
             Toast.makeText(this, "Could not read portfolio: ${e.message}", Toast.LENGTH_LONG).show()
-            PortfolioAssetsSnapshot(emptyList(), emptyList())
+            AdditionalFundsSnapshot(emptyList(), emptyList())
         }
         // Tracked (not owned) is exactly AccountID == "" - see
         // store.Asset.AccountID's own Go doc comment.
@@ -145,7 +145,7 @@ class AdditionalFundsActivity : AppCompatActivity() {
         reload()
     }
 
-    private fun deleteTrackedFund(fund: TrackedFundAsset) {
+    private fun deleteTrackedFund(fund: AssetSummary) {
         val portfolioPath = PortfolioStorage.filePath(this)
         val portfolioJson = PortfolioLoadCache.load(portfolioPath)
         val afterRemove = Bridge.removeTrackedFund(portfolioJson, fund.id)
@@ -161,7 +161,7 @@ class AdditionalFundsActivity : AppCompatActivity() {
         reload()
     }
 
-    private fun refreshHistory(fund: TrackedFundAsset, rowHolder: AdditionalFundsAdapter.RowHolder) {
+    private fun refreshHistory(fund: AssetSummary, rowHolder: AdditionalFundsAdapter.RowHolder) {
         rowHolder.refreshButton.isEnabled = false
         rowHolder.status.text = "Fetching…"
         val portfolioPath = PortfolioStorage.filePath(this)
