@@ -45,6 +45,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var refreshButton: ImageButton
     private lateinit var incognitoButton: ImageButton
     private var donutToast: android.widget.Toast? = null
+    private lateinit var periodGainPopup: AutoDismissPopupView
 
     // Index 0 is always "All (family)" (empty memberID); indices 1.. map
     // 1:1 with memberIds - same convention as HoldingsActivity's spinner.
@@ -54,6 +55,7 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
+        periodGainPopup = findViewById(R.id.dashboardPeriodGainPopup)
         totalValue = findViewById(R.id.statsCardValue)
         gainLine = findViewById(R.id.statsCardGain)
         xirrLine = findViewById(R.id.statsCardXirr)
@@ -297,14 +299,15 @@ class MainActivity : AppCompatActivity() {
             chip.amount.text = IndianCurrencyFormatter.formatSigned(g.gain, decimals = 0)
             chip.percent.text = String.format(Locale.getDefault(), "%+.2f%%", g.percent)
             chip.container.setOnClickListener {
-                // A dialog, not a Toast - the earlier Toast-based version
-                // of this message was a confirmed real bug: modern
-                // Android compresses a long Toast into a single
-                // truncated line ("...thi..."), and the newly-added date
-                // range sat at the END of that string, past the
-                // truncation cutoff, so it never actually became visible
-                // - the exact information this was built to surface.
-                // AlertDialog always shows the full text, no truncation.
+                // A self-dismissing popup, not an AlertDialog needing a
+                // manual "OK" tap, and not a plain Toast either - see
+                // AutoDismissPopupView's own doc comment: Toast was the
+                // ORIGINAL implementation here and had a confirmed real
+                // bug (silently truncates long text on modern Android,
+                // which ate the date-range text this was specifically
+                // built to surface). AutoDismissPopupView shows the
+                // full text with no truncation, while still going away
+                // on its own instead of needing a tap to dismiss.
                 //
                 // Shows the ACTUAL dates being compared, not just what
                 // the figure means - added after two separate real bugs
@@ -323,11 +326,10 @@ class MainActivity : AppCompatActivity() {
                 } else {
                     ""
                 }
-                android.app.AlertDialog.Builder(this)
-                    .setTitle(g.label)
-                    .setMessage("Market movement only - excludes any money added or withdrawn during this period.\n\n$rangeText")
-                    .setPositiveButton("OK", null)
-                    .show()
+                periodGainPopup.show(
+                    g.label,
+                    "Market movement only - excludes any money added or withdrawn during this period.\n\n$rangeText"
+                )
             }
         }
         val bgColor = androidx.core.content.ContextCompat.getColor(this, bgColorRes)
