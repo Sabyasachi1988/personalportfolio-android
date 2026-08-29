@@ -131,6 +131,47 @@ func TestParseNiftyIndicesTRI_EmptyArrayIsNotAnError(t *testing.T) {
 	}
 }
 
+func TestFilterMfapiSchemes_MatchesCaseInsensitiveSubstringAndBothISINVariants(t *testing.T) {
+	schemes := []MfapiScheme{
+		{SchemeCode: 1, SchemeName: "HDFC Flexi Cap Fund - Direct Plan - Growth", ISINGrowth: "INF179K01BB2"},
+		{SchemeCode: 2, SchemeName: "HDFC Flexi Cap Fund - Direct Plan - IDCW", ISINDivReinvestment: "INF179K01BC0"},
+		{SchemeCode: 3, SchemeName: "Parag Parikh Flexi Cap Fund - Direct - Growth", ISINGrowth: "INF879O01027"},
+		{SchemeCode: 4, SchemeName: "Some Debt Fund - Direct - Growth", ISINGrowth: "INF000X00000"},
+	}
+	matches := FilterMfapiSchemes(schemes, "flexi cap", 25)
+	if len(matches) != 3 {
+		t.Fatalf("expected 3 matches (2 HDFC variants + 1 Parag Parikh), got %d: %+v", len(matches), matches)
+	}
+	for _, m := range matches {
+		if m.ISIN == "" {
+			t.Errorf("match %+v has an empty ISIN - only non-empty ISIN variants should be included", m)
+		}
+	}
+}
+
+func TestFilterMfapiSchemes_RespectsLimit(t *testing.T) {
+	schemes := []MfapiScheme{
+		{SchemeCode: 1, SchemeName: "Fund A", ISINGrowth: "ISIN_A"},
+		{SchemeCode: 2, SchemeName: "Fund B", ISINGrowth: "ISIN_B"},
+		{SchemeCode: 3, SchemeName: "Fund C", ISINGrowth: "ISIN_C"},
+	}
+	matches := FilterMfapiSchemes(schemes, "fund", 2)
+	if len(matches) != 2 {
+		t.Fatalf("expected exactly 2 matches (limit), got %d: %+v", len(matches), matches)
+	}
+}
+
+func TestFilterMfapiSchemes_NoMatchReturnsEmptyNotNil(t *testing.T) {
+	schemes := []MfapiScheme{{SchemeCode: 1, SchemeName: "HDFC Flexi Cap Fund", ISINGrowth: "INF179K01BB2"}}
+	matches := FilterMfapiSchemes(schemes, "totally unrelated query", 25)
+	if matches == nil {
+		t.Error("expected an empty (non-nil) slice, got nil")
+	}
+	if len(matches) != 0 {
+		t.Errorf("expected 0 matches, got %d", len(matches))
+	}
+}
+
 // frankfurterTimeSeriesFixture follows the documented time-series shape
 // (start_date/end_date, rates keyed by date then currency) consistent
 // across every Frankfurter client library checked - not independently
