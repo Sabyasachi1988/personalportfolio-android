@@ -606,6 +606,30 @@ func ResolveMfapiSchemeCode(isin string) (int, error) {
 	return 0, fmt.Errorf("no mfapi.in scheme found for ISIN %s", isin)
 }
 
+// ResolveMfapiSchemeName is ResolveMfapiSchemeCode's counterpart for
+// getting a fund's actual NAME back from its ISIN (not just its
+// mfapi.in scheme code) - used when a person adds an Additional Fund
+// by pasting a bare ISIN rather than picking it from a name search
+// (see SearchMfapiSchemes), so the fund shows up labeled by its real
+// name everywhere in the app instead of by the ISIN itself, which is
+// a genuinely hard-to-recognize string for a person scanning a list -
+// a confirmed real complaint.
+func ResolveMfapiSchemeName(isin string) (string, error) {
+	if isin == "" {
+		return "", fmt.Errorf("isin cannot be empty")
+	}
+	schemes, err := fetchMfapiSchemeList()
+	if err != nil {
+		return "", err
+	}
+	for _, s := range schemes {
+		if s.ISINGrowth == isin || s.ISINDivReinvestment == isin {
+			return s.SchemeName, nil
+		}
+	}
+	return "", fmt.Errorf("no mfapi.in scheme found for ISIN %s", isin)
+}
+
 // MfapiSchemeMatch is one search hit from SearchMfapiSchemes - the
 // (name, ISIN) pair actually needed to let a person pick a fund and
 // add it as an Additional Fund, without exposing mfapi.in's own
