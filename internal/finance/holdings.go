@@ -273,7 +273,19 @@ func PortfolioTotals(holdings []Holding) (invested, value float64, anyPriced boo
 type GroupedHolding struct {
 	DisplayName string // GroupLabel if grouped, else the single constituent's CanonicalName (harmonized across same-ISIN assets - see Holding.CanonicalName's own doc comment)
 	IsGroup     bool
-	AssetIDs    []string
+	// IsFamilyPool distinguishes a PoolHoldingsByISIN-produced row (a
+	// GroupLabel row, per GroupHoldingsByLabel's own doc comment, never
+	// combines across members - this DOES, deliberately, since it pools
+	// the SAME fund's SAME ISIN across different holders, not different
+	// funds under a manual label). The Kotlin side uses this to route a
+	// tap differently: a family-pooled row opens the SAME chart screen
+	// used for any single fund (with everyone's transaction markers
+	// overlaid - see bridge.ComputeFamilyTransactionMarkers), not a
+	// tap-through "which funds is this made of" summary dialog the way
+	// a GroupLabel row does. Always false for a GroupLabel-produced row
+	// and for any ungrouped row.
+	IsFamilyPool bool
+	AssetIDs     []string
 	// AlsoHeldByMembers is only meaningful (non-empty) for an UNGROUPED
 	// row (IsGroup false) - see Holding.AlsoHeldByMembers' own doc
 	// comment. A grouped row already consolidates several of the
@@ -478,6 +490,7 @@ func PoolHoldingsByISIN(p *store.Portfolio, holdings []Holding) []GroupedHolding
 		b := buckets[key]
 		g := GroupedHolding{
 			IsGroup:           len(b.members) > 1,
+			IsFamilyPool:      true, // see GroupedHolding.IsFamilyPool's own doc comment - always true for a PoolHoldingsByISIN row, grouped or not
 			AlsoHeldByMembers: []string{},
 		}
 		g.DisplayName = b.members[0].CanonicalName
