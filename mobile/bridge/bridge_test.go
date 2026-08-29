@@ -1670,3 +1670,34 @@ func TestComputePriceHistory_ReturnsSeriesForKnownKeyEmptyForUnknown(t *testing.
 		t.Errorf("expected empty series for unknown key, got %d", len(emptySeries))
 	}
 }
+
+func TestBuildTransactionMarkers_ClassifiesBuySellAndSkipsUnplottable(t *testing.T) {
+	transactions := []store.StoredTransaction{
+		{AssetID: "fund1", Date: "2026-01-08", Type: store.Purchase, Amount: 12499.37, Units: floatPtr(131.972), Price: floatPtr(94.712), Description: "Purchase"},
+		{AssetID: "fund1", Date: "2026-03-15", Type: store.Redemption, Amount: -5000, Units: floatPtr(-40.5), Price: floatPtr(123.45), Description: "Redemption"},
+		{AssetID: "fund1", Date: "2026-02-01", Type: store.DividendPayout, Amount: 200, Units: nil, Description: "Dividend payout (cash, no units)"},
+		{AssetID: "fund2", Date: "2026-01-09", Type: store.Purchase, Amount: 1000, Units: floatPtr(10), Price: floatPtr(100), Description: "different fund"},
+	}
+
+	markers := buildTransactionMarkers(transactions, "fund1")
+	if len(markers) != 2 {
+		t.Fatalf("expected 2 plottable markers for fund1, got %d: %+v", len(markers), markers)
+	}
+	// sorted ascending by date
+	if markers[0].Date != "2026-01-08" || !markers[0].IsBuy || markers[0].Units != 131.972 || markers[0].Amount != 12499.37 || markers[0].Price != 94.712 {
+		t.Errorf("first marker = %+v, want the buy on 2026-01-08 with positive units/amount", markers[0])
+	}
+	if markers[1].Date != "2026-03-15" || markers[1].IsBuy || markers[1].Units != 40.5 || markers[1].Amount != 5000 {
+		t.Errorf("second marker = %+v, want the sell on 2026-03-15 with absolute (positive) units/amount and IsBuy=false", markers[1])
+	}
+}
+
+func TestBuildTransactionMarkers_UnknownSeriesIDReturnsEmpty(t *testing.T) {
+	transactions := []store.StoredTransaction{
+		{AssetID: "fund1", Date: "2026-01-08", Type: store.Purchase, Amount: 1000, Units: floatPtr(10), Price: floatPtr(100)},
+	}
+	markers := buildTransactionMarkers(transactions, "nonexistent")
+	if len(markers) != 0 {
+		t.Errorf("expected 0 markers for unknown series ID, got %d", len(markers))
+	}
+}
