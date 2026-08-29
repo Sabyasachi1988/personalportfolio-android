@@ -66,15 +66,22 @@ class ChartRangeScrubberView @JvmOverloads constructor(
      * Sets the full data-point count and the currently visible window
      * (inclusive indices), same convention as PriceHistoryChartView's
      * own windowStart/windowEnd. Call on every zoom/pan/setPoints, same
-     * as invalidate() would be called on the chart itself. Automatically
-     * hides this view when the window covers the whole series - see
-     * class doc comment.
+     * as invalidate() would be called on the chart itself.
+     *
+     * Uses INVISIBLE, not GONE, when the window covers the whole series
+     * - GONE was a confirmed real bug: removing the view from layout
+     * entirely made everything below it (the range-preset chips, "Set
+     * date range") visibly jump up and down every time the person
+     * tapped "Max" versus any other preset. INVISIBLE reserves the same
+     * layout space either way, so nothing else on screen moves - it
+     * just isn't drawn or touchable when there's nothing to scroll
+     * independently of (see class doc comment).
      */
     fun setRange(total: Int, startIndex: Int, endIndex: Int) {
         totalCount = total
         windowStart = startIndex
         windowEnd = endIndex
-        visibility = if (total > 0 && (endIndex - startIndex + 1) < total) VISIBLE else GONE
+        visibility = if (total > 0 && (endIndex - startIndex + 1) < total) VISIBLE else INVISIBLE
         invalidate()
     }
 
