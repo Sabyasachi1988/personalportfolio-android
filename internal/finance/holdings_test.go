@@ -26,6 +26,35 @@ func TestGroupHoldingsByLabel_UngroupedHoldingsStayIndividual(t *testing.T) {
 	}
 }
 
+func TestGroupHoldingsByLabel_UngroupedRowUsesCanonicalNameAndCarriesAlsoHeldBy(t *testing.T) {
+	holdings := []Holding{
+		{AssetID: "a1", AssetName: "Nippon India Nifty 50 Index Fund", CanonicalName: "Nippon India Nifty 50", AlsoHeldByMembers: []string{"Mom"}, NetInvested: 100, CurrentValue: 110, HasPrice: true},
+	}
+	p := &store.Portfolio{}
+	groups := GroupHoldingsByLabel(p, holdings)
+	if len(groups) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(groups))
+	}
+	g := groups[0]
+	if g.DisplayName != "Nippon India Nifty 50" {
+		t.Errorf("DisplayName = %q, want the harmonized CanonicalName %q, not the raw AssetName", g.DisplayName, "Nippon India Nifty 50")
+	}
+	if len(g.AlsoHeldByMembers) != 1 || g.AlsoHeldByMembers[0] != "Mom" {
+		t.Errorf("AlsoHeldByMembers = %v, want [Mom]", g.AlsoHeldByMembers)
+	}
+}
+
+func TestGroupHoldingsByLabel_UngroupedRowFallsBackToAssetNameWhenNoCanonicalNameSet(t *testing.T) {
+	holdings := []Holding{
+		{AssetID: "a1", AssetName: "Fund With No CanonicalName Set", NetInvested: 100, CurrentValue: 110, HasPrice: true},
+	}
+	p := &store.Portfolio{}
+	groups := GroupHoldingsByLabel(p, holdings)
+	if groups[0].DisplayName != "Fund With No CanonicalName Set" {
+		t.Errorf("DisplayName = %q, want the AssetName fallback", groups[0].DisplayName)
+	}
+}
+
 func TestGroupHoldingsByLabel_SameLabelConsolidatesValueAndInvested(t *testing.T) {
 	holdings := []Holding{
 		{AssetID: "a1", AssetName: "Nippon India Nifty 50", GroupLabel: "Nifty 50", NetInvested: 1000, CurrentValue: 1200, HasPrice: true},
@@ -132,6 +161,71 @@ func TestGroupHoldingsByLabel_PartiallyPricedGroupOnlySumsPricedConstituents(t *
 	}
 	if g.CurrentValue != 1100 {
 		t.Errorf("CurrentValue = %v, want 1100 (only the priced constituent)", g.CurrentValue)
+	}
+}
+
+func TestComputeHoldings_CanonicalNameHarmonizedAcrossSameISIN(t *testing.T) {
+	units := 10.0
+	p := &store.Portfolio{
+		Members:  []store.Member{{ID: "m1", Name: "Me"}, {ID: "m2", Name: "Mom"}},
+		Accounts: []store.Account{{ID: "acc1", MemberID: "m1"}, {ID: "acc2", MemberID: "m2"}},
+		Assets: []store.Asset{
+			// Added FIRST - its name should win as canonical for both.
+			{ID: "a1", AccountID: "acc1", Name: "Nippon India Nifty 50", ISIN: "INF_SHARED_0001"},
+			{ID: "a2", AccountID: "acc2", Name: "Nippon India Nifty 50 Index Fund", ISIN: "INF_SHARED_0001"},
+		},
+		Transactions: []store.StoredTransaction{
+			{ID: "t1", AccountID: "acc1", AssetID: "a1", Date: "2024-01-01", Amount: 1000, Units: &units},
+			{ID: "t2", AccountID: "acc2", AssetID: "a2", Date: "2024-01-01", Amount: 1000, Units: &units},
+		},
+	}
+	holdings := ComputeHoldings(p)
+	if len(holdings) != 2 {
+		t.Fatalf("expected 2 holdings, got %d", len(holdings))
+	}
+	for _, h := range holdings {
+		if h.CanonicalName != "Nippon India Nifty 50" {
+			t.Errorf("holding %s: CanonicalName = %q, want %q (the FIRST-added same-ISIN asset's name)", h.AssetID, h.CanonicalName, "Nippon India Nifty 50")
+		}
+		// AssetName itself must stay UNTOUCHED - CanonicalName is an
+		// additional field, not a replacement, per the doc comment's
+		// own point about not merging the underlying data.
+	}
+	if holdings[0].AssetName == holdings[1].AssetName {
+		t.Errorf("AssetName should NOT be harmonized (only CanonicalName) - got both = %q", holdings[0].AssetName)
+	}
+}
+
+func TestComputeHoldings_AlsoHeldByMembersCrossReferencesOtherMembers(t *testing.T) {
+	units := 10.0
+	p := &store.Portfolio{
+		Members:  []store.Member{{ID: "m1", Name: "Me"}, {ID: "m2", Name: "Mom"}},
+		Accounts: []store.Account{{ID: "acc1", MemberID: "m1"}, {ID: "acc2", MemberID: "m2"}},
+		Assets: []store.Asset{
+			{ID: "a1", AccountID: "acc1", Name: "Nippon India Nifty 50", ISIN: "INF_SHARED_0001"},
+			{ID: "a2", AccountID: "acc2", Name: "Nippon India Nifty 50 Index Fund", ISIN: "INF_SHARED_0001"},
+			{ID: "a3", AccountID: "acc1", Name: "A Fund Only I Hold", ISIN: "INF_UNIQUE_0002"},
+		},
+		Transactions: []store.StoredTransaction{
+			{ID: "t1", AccountID: "acc1", AssetID: "a1", Date: "2024-01-01", Amount: 1000, Units: &units},
+			{ID: "t2", AccountID: "acc2", AssetID: "a2", Date: "2024-01-01", Amount: 1000, Units: &units},
+			{ID: "t3", AccountID: "acc1", AssetID: "a3", Date: "2024-01-01", Amount: 500, Units: &units},
+		},
+	}
+	holdings := ComputeHoldings(p)
+	byAssetID := make(map[string]Holding)
+	for _, h := range holdings {
+		byAssetID[h.AssetID] = h
+	}
+
+	if got := byAssetID["a1"].AlsoHeldByMembers; len(got) != 1 || got[0] != "Mom" {
+		t.Errorf("a1.AlsoHeldByMembers = %v, want [Mom]", got)
+	}
+	if got := byAssetID["a2"].AlsoHeldByMembers; len(got) != 1 || got[0] != "Me" {
+		t.Errorf("a2.AlsoHeldByMembers = %v, want [Me]", got)
+	}
+	if got := byAssetID["a3"].AlsoHeldByMembers; len(got) != 0 {
+		t.Errorf("a3.AlsoHeldByMembers = %v, want empty (unique ISIN, nobody else holds it)", got)
 	}
 }
 
