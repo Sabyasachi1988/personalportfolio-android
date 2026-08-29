@@ -925,6 +925,62 @@ func TestCommitStagedRows_TwoDifferentMembersSameISINGetSeparateAssets(t *testin
 	}
 }
 
+func TestCommitStagedRows_PromotesATrackedFundInsteadOfDuplicating(t *testing.T) {
+	units := 1.0
+	rows := []casimport.StagedRow{{
+		Txn: store.Transaction{
+			Date: "2025-01-01", Amount: 100, Units: &units, Type: store.Purchase,
+			Scheme: "SOME FUND", ISIN: "INF_TRACKED_0001",
+		},
+		Status: "NEW",
+	}}
+	rowsJSON, _ := json.Marshal(rows)
+
+	seed, ids := seededPortfolio(t, "Me")
+	var p store.Portfolio
+	if err := json.Unmarshal([]byte(seed), &p); err != nil {
+		t.Fatalf("invalid seed JSON: %v", err)
+	}
+	// This fund was being TRACKED (an Additional Fund, not yet owned)
+	// before the person actually bought it - see
+	// store.Portfolio.AddTrackedFund's own doc comment.
+	tracked := p.AddTrackedFund("Some Fund (tracked)", "INF_TRACKED_0001")
+	// Give it some already-fetched price history - the entire point of
+	// promotion is that THIS carries over untouched rather than needing
+	// to be re-fetched.
+	p.UpsertPrices([]store.PriceRecord{
+		{AssetID: tracked.ID, Date: "2024-06-01", Price: 50.0, Source: "TIGZIG_HISTORY"},
+	})
+	seeded, err := json.Marshal(p)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	afterCommit := CommitStagedRows(string(seeded), string(rowsJSON), ids["Me"])
+	var after store.Portfolio
+	if err := json.Unmarshal([]byte(extractPortfolio(t, afterCommit)), &after); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+
+	if len(after.Assets) != 1 {
+		t.Fatalf("expected the tracked fund to be PROMOTED (still 1 Asset), got %d: %+v", len(after.Assets), after.Assets)
+	}
+	promoted := after.Assets[0]
+	if promoted.ID != tracked.ID {
+		t.Errorf("promoted.ID = %q, want the SAME ID as the original tracked entry (%q) - a new ID means price history did NOT carry over", promoted.ID, tracked.ID)
+	}
+	if !promoted.IsOwned() {
+		t.Errorf("promoted asset is still not owned (AccountID = %q)", promoted.AccountID)
+	}
+	series := after.PriceSeries(tracked.ID)
+	if len(series) != 1 || series[0].Price != 50.0 {
+		t.Errorf("expected the tracked fund's pre-existing price history to carry over untouched, got %+v", series)
+	}
+	if len(after.Transactions) != 1 || after.Transactions[0].AssetID != tracked.ID {
+		t.Errorf("expected the new transaction to be linked to the promoted (same) Asset ID, got %+v", after.Transactions)
+	}
+}
+
 func TestCommitStagedRows_UnknownMemberIDIsAnErrorNotAutoCreate(t *testing.T) {
 	// The core fix this session: a mistyped/unrecognized member ID must
 	// fail loudly, not silently spawn a phantom new member. Confirmed
