@@ -2404,14 +2404,21 @@ func ComputeFundMetrics(portfolioJSON string, seriesID string, benchmarkID strin
 					result.DownCapture = down
 					result.DownCaptureHasData = true
 				}
+				if alpha, ok := finance.ComputeAlpha(fundSeries, benchSeries); ok {
+					result.Alpha = alpha
+					result.AlphaHasData = true
+				}
 				break
 			}
 		}
 	}
 
-	// Sharpe/Sortino need only the fund's own series, no benchmark - see
-	// finance.ComputeSharpeRatio's doc comment - so these are computed
-	// unconditionally, unlike the benchmark-relative block above.
+	// Sharpe/Sortino/Standard Deviation need only the fund's own
+	// series, no benchmark - see finance.ComputeSharpeRatio's doc
+	// comment - so these are computed unconditionally, unlike the
+	// benchmark-relative block above (which also now includes Alpha,
+	// since Jensen's Alpha genuinely needs a Beta/benchmark, unlike
+	// these three).
 	if sharpe, ok := finance.ComputeSharpeRatio(fundSeries); ok {
 		result.SharpeRatio = sharpe
 		result.SharpeHasData = true
@@ -2419,6 +2426,10 @@ func ComputeFundMetrics(portfolioJSON string, seriesID string, benchmarkID strin
 	if sortino, ok := finance.ComputeSortinoRatio(fundSeries); ok {
 		result.SortinoRatio = sortino
 		result.SortinoHasData = true
+	}
+	if sd, ok := finance.ComputeStandardDeviation(fundSeries); ok {
+		result.StandardDeviation = sd
+		result.StdDevHasData = true
 	}
 
 	out, err := json.Marshal(result)
