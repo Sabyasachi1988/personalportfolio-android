@@ -29,7 +29,23 @@ type Account struct {
 // Asset is one holding definition: a specific mutual fund scheme, stock,
 // or ETF, tracked within an Account.
 type Asset struct {
-	ID         string
+	ID string
+	// AccountID is normally always set - see Account's own doc comment
+	// for what an Account represents. Empty is a distinct, deliberate
+	// state: an "Additional Fund" - a fund the person is tracking for
+	// comparison/research (its own NAV history, full Returns-tab
+	// treatment) but does NOT actually own, so it has no Account, no
+	// Member, and (by construction, since Holdings/Allocation/XIRR are
+	// all built by grouping Transactions, and a tracked-only Asset has
+	// none) never appears in Holdings, Allocation, or any owned-funds
+	// computation - it only surfaces through the Returns table's
+	// Asset+PriceSeries iteration, which doesn't require an Account.
+	// See IsOwned() below and AddTrackedFund/PromoteTrackedFund for the
+	// full lifecycle: a tracked fund the person later actually buys
+	// gets its AccountID SET (promoted) rather than being duplicated
+	// into a second Asset row - see PromoteTrackedFund's own doc
+	// comment for why that matters (keeps the ISIN's already-fetched
+	// price history instead of starting over).
 	AccountID  string
 	Name       string
 	ISIN       string
@@ -478,6 +494,13 @@ func backupBeforeWrite(path string) error {
 	return os.WriteFile(backupPath, data, 0644)
 }
 
+// IsOwned reports whether this Asset represents a real holding (has an
+// owning Account) as opposed to an "Additional Fund" tracked purely
+// for comparison - see AccountID's own doc comment.
+func (a Asset) IsOwned() bool {
+	return a.AccountID != ""
+}
+
 // FindAssetByISIN returns the first Asset with the given ISIN, if any.
 func (p *Portfolio) FindAssetByISIN(isin string) (Asset, bool) {
 	for _, a := range p.Assets {
@@ -486,6 +509,81 @@ func (p *Portfolio) FindAssetByISIN(isin string) (Asset, bool) {
 		}
 	}
 	return Asset{}, false
+}
+
+// FindTrackedFundByISIN is FindAssetByISIN scoped to ONLY not-yet-owned
+// entries (AccountID == "") - used both by AddTrackedFund (reject a
+// duplicate) and by the CAS-import commit path (find one to promote -
+// see PromoteTrackedFund) - deliberately never matches an already-owned
+// Asset, which has its own separate per-account lookup
+// (findAssetByISINInAccount, on the bridge side).
+func (p *Portfolio) FindTrackedFundByISIN(isin string) (Asset, bool) {
+	if isin == "" {
+		return Asset{}, false
+	}
+	for _, a := range p.Assets {
+		if a.ISIN == isin && !a.IsOwned() {
+			return a, true
+		}
+	}
+	return Asset{}, false
+}
+
+// AddTrackedFund adds an "Additional Fund" - see Asset.AccountID's own
+// doc comment for what that means. Deliberately does NOT check for an
+// existing owned Asset with the same ISIN - a person tracking a fund
+// they ALSO already own under a different name/import isn't a
+// meaningful case to block (the tracked entry and the owned one stay
+// as two separate rows; it's an odd thing to do but not a broken one),
+// unlike a duplicate tracked entry, which the caller should check via
+// FindTrackedFundByISIN before calling this.
+func (p *Portfolio) AddTrackedFund(name, isin string) Asset {
+	a := Asset{ID: NewID("asset"), Name: name, ISIN: isin, Type: "MutualFund"}
+	p.Assets = append(p.Assets, a)
+	return a
+}
+
+// RemoveTrackedFund removes an Additional Fund by ID - refuses (returns
+// false, no-op) if the Asset is actually owned (has an Account) or
+// doesn't exist, so this can never be used to accidentally delete a
+// real holding via the wrong screen. No-op, not an error return, to
+// match RemoveBenchmark's own established convention in this file.
+func (p *Portfolio) RemoveTrackedFund(id string) bool {
+	for i, a := range p.Assets {
+		if a.ID == id {
+			if a.IsOwned() {
+				return false
+			}
+			p.Assets = append(p.Assets[:i], p.Assets[i+1:]...)
+			return true
+		}
+	}
+	return false
+}
+
+// PromoteTrackedFund attaches a real Account to an existing Additional
+// Fund (see Asset.AccountID's own doc comment) - called from the CAS-
+// import commit path when a transaction's ISIN matches a currently-
+// tracked-but-not-owned Asset, instead of creating a brand new Asset
+// for it. This is the entire point of the promotion design: the
+// tracked entry's ID stays the same, so all of its already-fetched NAV
+// history (keyed by that ID in Prices) carries over automatically as
+// the new holding's price history - nothing needs to be re-fetched,
+// migrated, or merged. No-op (returns false) if the Asset doesn't
+// exist or is already owned - promoting an already-owned Asset a
+// second time onto a DIFFERENT account would silently reassign a real
+// holding's ownership, which is never the right outcome of an import.
+func (p *Portfolio) PromoteTrackedFund(id string, accountID string) bool {
+	for i, a := range p.Assets {
+		if a.ID == id {
+			if a.IsOwned() {
+				return false
+			}
+			p.Assets[i].AccountID = accountID
+			return true
+		}
+	}
+	return false
 }
 
 // FindAccountByName returns the first Account with the given name under
