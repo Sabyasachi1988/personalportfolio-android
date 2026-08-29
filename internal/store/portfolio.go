@@ -374,6 +374,30 @@ type Portfolio struct {
 	// Load(), same Gson-unsafe-allocation reasoning as Asset.Tags.
 	Benchmarks []Benchmark
 
+	// RiskFreeRatePercent is the annual risk-free rate (as a percent,
+	// e.g. 5.52 not 0.0552) used by Sharpe/Sortino/Alpha - see
+	// priceapi.AMCRiskFreeRateResult's own doc comment for what this
+	// actually is: real AMCs' own monthly factsheets state their FBIL
+	// Overnight MIBOR assumption verbatim, and this app fetches that
+	// SAME figure directly rather than approximating it. Zero (the Go
+	// default) means "never fetched or set yet" - callers fall back to
+	// a sane hardcoded default in that case rather than treating 0% as
+	// a genuine risk-free rate.
+	RiskFreeRatePercent float64
+	// RiskFreeRateAsOf and RiskFreeRateSource are the fetched value's
+	// own provenance (e.g. "31st May 2023", "PPFAS") - shown to the
+	// person so a fetched-vs-manually-set rate is never presented as
+	// more certain than it is.
+	RiskFreeRateAsOf   string
+	RiskFreeRateSource string
+	// RiskFreeRateManual, when true, means the person has explicitly
+	// overridden RiskFreeRatePercent themselves - see
+	// store.Portfolio.SetManualRiskFreeRate's doc comment. While true,
+	// a fetch refresh must NEVER silently overwrite the person's own
+	// chosen value - that would defeat the entire point of offering an
+	// override in the first place.
+	RiskFreeRateManual bool
+
 	// Lazily-built, per-instance lookup caches for PriceAsOf/FXRateAsOf -
 	// see those methods' doc comments for why they exist (a plain linear
 	// scan over ALL Prices/FXRates on every single call became the
@@ -905,6 +929,43 @@ func (p *Portfolio) DisplayName(seriesID string) string {
 // check) - if the person really wants two entries for the same index
 // (e.g. to compare two different data sources), that's their call, not
 // something worth guessing about and blocking.
+// SetManualRiskFreeRate lets the person override the risk-free rate
+// themselves - see Portfolio.RiskFreeRateManual's own doc comment for
+// why this exists (a confirmed real request: even with live-fetched
+// AMC factsheet figures plus a redundant second source, the person
+// should still be able to correct the value directly as a final
+// fallback). Marks RiskFreeRateManual true so a subsequent fetch
+// refresh (see SetFetchedRiskFreeRate) won't silently overwrite this
+// choice.
+func (p *Portfolio) SetManualRiskFreeRate(ratePercent float64) {
+	p.RiskFreeRatePercent = ratePercent
+	p.RiskFreeRateAsOf = ""
+	p.RiskFreeRateSource = "Manually set"
+	p.RiskFreeRateManual = true
+}
+
+// ClearManualRiskFreeRate reverts to letting fetches update the rate
+// again - the person's way of un-overriding without knowing (or
+// needing to re-enter) whatever the last fetched value actually was.
+func (p *Portfolio) ClearManualRiskFreeRate() {
+	p.RiskFreeRateManual = false
+}
+
+// SetFetchedRiskFreeRate records a freshly-fetched AMC factsheet
+// figure - a no-op (returns false) if the person has a manual override
+// active, since a fetch must never silently overwrite that (see
+// RiskFreeRateManual's own doc comment). Returns true if the value was
+// actually applied.
+func (p *Portfolio) SetFetchedRiskFreeRate(ratePercent float64, asOf, source string) bool {
+	if p.RiskFreeRateManual {
+		return false
+	}
+	p.RiskFreeRatePercent = ratePercent
+	p.RiskFreeRateAsOf = asOf
+	p.RiskFreeRateSource = source
+	return true
+}
+
 func (p *Portfolio) AddBenchmark(name, yahooTicker string) Benchmark {
 	b := Benchmark{ID: NewID("benchmark"), Name: name, YahooTicker: yahooTicker}
 	p.Benchmarks = append(p.Benchmarks, b)
