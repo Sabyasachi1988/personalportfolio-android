@@ -47,8 +47,8 @@ class PriceHistoryChartView @JvmOverloads constructor(
 
     companion object {
         private const val MIN_WINDOW_POINTS = 5
-        private const val MARKER_RADIUS_PX = 9f
-        private const val MARKER_TAP_RADIUS_PX = 32f // touch tolerance is deliberately larger than the drawn dot - a 9px dot is a small target to hit precisely with a finger
+        private const val MARKER_RADIUS_PX = 15f
+        private const val MARKER_TAP_RADIUS_PX = 42f // touch tolerance is deliberately larger than the drawn dot - a small dot is a small target to hit precisely with a finger
     }
 
     var onPointScrubbed: ((windowStartPoint: PricePoint, currentPoint: PricePoint) -> Unit)? = null
@@ -91,24 +91,33 @@ class PriceHistoryChartView @JvmOverloads constructor(
         style = Paint.Style.FILL
         color = ContextCompat.getColor(context, R.color.colorPrimary)
     }
-    // Buy/sell transaction markers - deliberately colorGain/colorLoss
-    // (this app's existing gain/loss convention), not a fresh color
-    // pair, so a buy dot reads the same visual language as everywhere
-    // else profit/loss is shown. A thin white-ish ring (markerRingPaint)
-    // sits under each dot so it stays visible against the line's own
-    // colorPrimary stroke passing directly behind/through it.
+    // Buy/sell transaction markers. Buy is deliberately colorAmber, NOT
+    // colorGain - a confirmed real bug: in this app's dark theme,
+    // colorGain (#66BB6A) and colorPrimary (#66BB6A, the LINE's own
+    // color) are the exact same hex value, so a buy dot was
+    // indistinguishable from the line it sits on. colorAmber has no hue
+    // overlap with either the green line or the red sell marker in
+    // EITHER theme, so buy/sell/line stay 3 genuinely distinct colors
+    // regardless of light/dark mode. Sell keeps colorLoss - already far
+    // enough from the green line to read clearly on its own.
     private val buyMarkerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL
-        color = ContextCompat.getColor(context, R.color.colorGain)
+        color = ContextCompat.getColor(context, R.color.colorAmber)
     }
     private val sellMarkerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL
         color = ContextCompat.getColor(context, R.color.colorLoss)
     }
+    // A bright outline ring around each marker, drawn in colorOnSurface
+    // (near-white in dark theme, near-black in light theme - always the
+    // theme's own high-contrast "text on surface" color) rather than
+    // colorSurface (which in dark theme is #1C1C1C - a near-black ring
+    // against a near-black chart background would itself be nearly
+    // invisible, the same class of bug as the buy-color one above).
     private val markerRingPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        strokeWidth = 3f
-        color = ContextCompat.getColor(context, R.color.colorSurface)
+        strokeWidth = 4f
+        color = ContextCompat.getColor(context, R.color.colorOnSurface)
     }
     private val gridlinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
