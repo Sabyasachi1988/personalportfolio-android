@@ -1,0 +1,43 @@
+package com.saby.personalportfolio
+
+import android.view.LayoutInflater
+import android.view.View
+import android.view.ViewGroup
+import android.widget.Button
+import android.widget.ImageButton
+import android.widget.TextView
+import androidx.recyclerview.widget.RecyclerView
+
+class AdditionalFundsAdapter(
+    private val funds: List<TrackedFundAsset>,
+    private val hasHistory: (assetId: String) -> Boolean,
+    private val onRefresh: (fund: TrackedFundAsset, rowHolder: RowHolder) -> Unit,
+    private val onDelete: (fund: TrackedFundAsset) -> Unit
+) : RecyclerView.Adapter<AdditionalFundsAdapter.RowHolder>() {
+
+    class RowHolder(view: View) : RecyclerView.ViewHolder(view) {
+        val name: TextView = view.findViewById(R.id.additionalFundRowName)
+        val status: TextView = view.findViewById(R.id.additionalFundRowStatus)
+        val refreshButton: Button = view.findViewById(R.id.additionalFundRowRefreshButton)
+        val deleteButton: ImageButton = view.findViewById(R.id.additionalFundRowDeleteButton)
+    }
+
+    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RowHolder {
+        val view = LayoutInflater.from(parent.context).inflate(R.layout.item_additional_fund, parent, false)
+        return RowHolder(view)
+    }
+
+    override fun onBindViewHolder(holder: RowHolder, position: Int) {
+        val fund = funds[position]
+        holder.name.text = FundNameFormatter.shorten(fund.name).ifBlank { fund.name }
+        holder.status.text = if (hasHistory(fund.id)) {
+            fund.isin
+        } else {
+            "${fund.isin} - no history fetched yet, tap Refresh"
+        }
+        holder.refreshButton.setOnClickListener { onRefresh(fund, holder) }
+        holder.deleteButton.setOnClickListener { onDelete(fund) }
+    }
+
+    override fun getItemCount(): Int = funds.size
+}
