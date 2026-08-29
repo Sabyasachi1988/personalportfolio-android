@@ -79,6 +79,58 @@ func TestParseMfapiNavHistory_MalformedRowSkippedNotFatal(t *testing.T) {
 	}
 }
 
+// realNiftyTRIFixture mirrors niftyindices.com's own confirmed doubly-
+// encoded response shape - see history.go's FetchNiftyIndicesTRI doc
+// comment for the source and how this was confirmed (a live capture
+// documented by a third party, matching the "d" field being a
+// JSON-ENCODED STRING, "DD MMM YYYY" dates with spaces, most-recent-
+// first ordering).
+const realNiftyTRIFixture = `{"d": "[{\"RequestNumber\":\"TRI63915064004640291500\",\"Index Name\":\"Nifty 500\",\"Date\":\"22 May 2026\",\"TotalReturnsIndex\":\"38121.36\",\"NTR_Value\":\"33450.12\"},{\"RequestNumber\":\"TRI63915064004640291501\",\"Index Name\":\"Nifty 500\",\"Date\":\"21 May 2026\",\"TotalReturnsIndex\":\"37980.50\",\"NTR_Value\":\"33320.44\"},{\"RequestNumber\":\"TRI63915064004640291502\",\"Index Name\":\"Nifty 500\",\"Date\":\"01 Jan 1999\",\"TotalReturnsIndex\":\"1000.00\",\"NTR_Value\":\"1000.00\"}]"}`
+
+func TestParseNiftyIndicesTRI_ParsesRealFixtureAndSortsAscending(t *testing.T) {
+	points, err := ParseNiftyIndicesTRI([]byte(realNiftyTRIFixture), "")
+	if err != nil {
+		t.Fatalf("failed to parse real niftyindices TRI fixture: %v", err)
+	}
+	if len(points) != 3 {
+		t.Fatalf("expected 3 points, got %d", len(points))
+	}
+	// Source is most-recent-first; parser must sort ascending like
+	// every other price series in this codebase.
+	if points[0].Date != "1999-01-01" || points[0].Nav != 1000.00 {
+		t.Errorf("first point = %+v, want {1999-01-01 1000.00}", points[0])
+	}
+	if points[2].Date != "2026-05-22" || points[2].Nav != 38121.36 {
+		t.Errorf("last point = %+v, want {2026-05-22 38121.36}", points[2])
+	}
+}
+
+func TestParseNiftyIndicesTRI_SinceFiltersOlderRows(t *testing.T) {
+	points, err := ParseNiftyIndicesTRI([]byte(realNiftyTRIFixture), "2026-01-01")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(points) != 2 {
+		t.Fatalf("expected 2 points after since filter, got %d: %+v", len(points), points)
+	}
+}
+
+func TestParseNiftyIndicesTRI_EmptyArrayIsNotAnError(t *testing.T) {
+	// A typo'd/unrecognized index name returns 200 OK with an empty
+	// array, not an error - see FetchNiftyIndicesTRI's doc comment.
+	// ParseNiftyIndicesTRI itself should reflect that faithfully (an
+	// empty result, not a parse failure) - FetchNiftyIndicesTRI is
+	// where an unbounded empty-result IS treated as an error.
+	fixture := `{"d": "[]"}`
+	points, err := ParseNiftyIndicesTRI([]byte(fixture), "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(points) != 0 {
+		t.Errorf("expected 0 points, got %d", len(points))
+	}
+}
+
 // frankfurterTimeSeriesFixture follows the documented time-series shape
 // (start_date/end_date, rates keyed by date then currency) consistent
 // across every Frankfurter client library checked - not independently
