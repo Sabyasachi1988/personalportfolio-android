@@ -66,6 +66,11 @@ data class AdditionalFundsSnapshot(
     @SerializedName("Prices") val prices: List<PricePoint>?
 )
 
+/** Mirrors bridge.ResolveFundNameByISIN's success shape ({"name":"..."}). */
+data class IsinNameResolution(
+    @SerializedName("name") val name: String
+)
+
 /** Mirrors priceapi.MfapiSchemeMatch - one fund-name search hit when adding an Additional Fund by name. */
 data class MfapiSchemeMatch(
     @SerializedName("Name") val name: String,
