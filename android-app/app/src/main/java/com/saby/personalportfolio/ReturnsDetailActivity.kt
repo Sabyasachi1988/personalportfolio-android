@@ -143,6 +143,21 @@ class ReturnsDetailActivity : AppCompatActivity() {
         container.addView(buildPresetChip("Max") {
             chart.setWindowByDates(firstDate, lastDate)
         })
+
+        // Free-typed custom window, in years (including fractional -
+        // "4.5 years, 1.5 years, whatever" was the exact ask) - a
+        // complement to the fixed preset chips above, not a
+        // replacement.
+        val yearsInput = findViewById<android.widget.EditText>(R.id.returnsDetailChartWindowYears)
+        findViewById<View>(R.id.returnsDetailChartWindowYearsShow).setOnClickListener {
+            val years = yearsInput.text?.toString()?.trim()?.toDoubleOrNull()
+            if (years == null || years <= 0) {
+                yearsInput.error = "Enter a window in years, e.g. 4.5"
+                return@setOnClickListener
+            }
+            yearsInput.error = null
+            chart.setWindowByDates(dateYearsBefore(lastDate, years), lastDate)
+        }
     }
 
     private fun buildPresetChip(label: String, onClick: () -> Unit): TextView {
@@ -169,6 +184,23 @@ class ReturnsDetailActivity : AppCompatActivity() {
             cal.time = fmt.parse(storedDate) ?: return storedDate
             cal.add(Calendar.MONTH, -months)
             fmt.format(cal.time)
+        } catch (e: Exception) {
+            storedDate
+        }
+    }
+
+    // Same convention as dateMonthsBefore, but for a free-typed
+    // FRACTIONAL year count (4.5, 1.5, ...) where whole-month arithmetic
+    // isn't exact - subtracts years * 365.25 days' worth of milliseconds
+    // directly instead, which handles any fractional value precisely
+    // rather than only exact half/quarter years.
+    private fun dateYearsBefore(storedDate: String, years: Double): String {
+        val fmt = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+        return try {
+            val date = fmt.parse(storedDate) ?: return storedDate
+            val millisPerYear = 365.25 * 24 * 60 * 60 * 1000
+            val shifted = java.util.Date(date.time - (years * millisPerYear).toLong())
+            fmt.format(shifted)
         } catch (e: Exception) {
             storedDate
         }
