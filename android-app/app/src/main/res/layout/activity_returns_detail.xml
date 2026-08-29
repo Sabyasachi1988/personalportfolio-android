@@ -24,11 +24,28 @@
             android:textSize="14sp"
             android:textColor="@color/colorNeutral" />
 
-        <com.saby.personalportfolio.PriceHistoryChartView
-            android:id="@+id/returnsDetailChart"
+        <!-- FrameLayout wrapper so the transaction-marker popup
+             (returnsDetailMarkerPopup) overlays the chart instead of
+             pushing it down/around - see AutoDismissPopupView's own
+             doc comment for why an overlay, not an AlertDialog. -->
+        <FrameLayout
             android:layout_width="match_parent"
-            android:layout_height="280dp"
-            android:layout_marginTop="16dp" />
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp">
+
+            <com.saby.personalportfolio.PriceHistoryChartView
+                android:id="@+id/returnsDetailChart"
+                android:layout_width="match_parent"
+                android:layout_height="280dp" />
+
+            <com.saby.personalportfolio.AutoDismissPopupView
+                android:id="@+id/returnsDetailMarkerPopup"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="top|center_horizontal"
+                android:layout_marginTop="8dp" />
+
+        </FrameLayout>
 
         <!-- Independent scroller for the zoomed chart above - see
              ChartRangeScrubberView's doc comment: dragging on the chart
@@ -141,33 +158,21 @@
 
             </LinearLayout>
 
-            <TextView
-                android:id="@+id/returnsDetailMetricBeta"
-                style="@style/MetricRow" />
-
-            <TextView
-                android:id="@+id/returnsDetailMetricInfoRatio"
-                style="@style/MetricRow" />
-
-            <TextView
-                android:id="@+id/returnsDetailMetricUpCapture"
-                style="@style/MetricRow" />
-
-            <TextView
-                android:id="@+id/returnsDetailMetricDownCapture"
-                style="@style/MetricRow" />
-
-            <TextView
-                android:id="@+id/returnsDetailMetricMaxDrawdown"
-                style="@style/MetricRow" />
-
-            <TextView
-                android:id="@+id/returnsDetailMetricSharpe"
-                style="@style/MetricRow" />
-
-            <TextView
-                android:id="@+id/returnsDetailMetricSortino"
-                style="@style/MetricRow" />
+            <!-- Metric cards (Beta/Info Ratio/Up-Down Capture/Max
+                 Drawdown/Sharpe/Sortino) are built programmatically as
+                 a 2-per-row grid of small cards - see
+                 ReturnsDetailActivity.bindMetrics/buildMetricCardRows.
+                 Chosen over 7 near-identical static XML blocks (or
+                 <include> reused 7 times, which would create duplicate
+                 view IDs within one tree - a real footgun findViewById
+                 can't safely resolve) since every card is structurally
+                 identical, just different label/value/color. -->
+            <LinearLayout
+                android:id="@+id/returnsDetailMetricsGrid"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:orientation="vertical" />
 
         </LinearLayout>
 
