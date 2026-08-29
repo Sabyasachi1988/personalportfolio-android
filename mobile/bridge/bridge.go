@@ -1755,6 +1755,21 @@ func SearchMfapiSchemes(query string) string {
 	return string(out)
 }
 
+// ResolveFundNameByISIN looks up a fund's real name from mfapi.in by
+// ISIN (see priceapi.ResolveMfapiSchemeName's own doc comment) - used
+// when a person adds an Additional Fund by pasting a bare ISIN rather
+// than picking one from a name search, so the fund can be shown by its
+// actual name instead of the ISIN string itself - a confirmed real
+// complaint with the ISIN-only add path. Returns {"name":"..."} on
+// success.
+func ResolveFundNameByISIN(isin string) string {
+	name, err := priceapi.ResolveMfapiSchemeName(strings.TrimSpace(strings.ToUpper(isin)))
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+	return fmt.Sprintf(`{"name":%q}`, name)
+}
+
 // RemoveBenchmark removes a tracked index by ID - see
 // store.Portfolio.RemoveBenchmark. Returns the updated portfolio JSON.
 func RemoveBenchmark(portfolioJSON string, benchmarkID string) string {
