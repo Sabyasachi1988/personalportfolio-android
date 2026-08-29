@@ -80,7 +80,7 @@ class HoldingsAdapter(private val holdings: List<Holding>) :
             val totalValue = pricedHoldings.sumOf { it.currentValue }
             val slices = pricedHoldings
                 .filter { totalValue > 0 }
-                .map { DonutChartView.Slice(FundNameFormatter.shorten(it.assetName), ((it.currentValue / totalValue) * 100).toFloat()) }
+                .map { DonutChartView.Slice(FundNameFormatter.shorten(it.canonicalName.ifEmpty { it.assetName }), ((it.currentValue / totalValue) * 100).toFloat()) }
                 .sortedByDescending { it.percent }
             holder.donut.setSlices(slices)
             val openExpanded = {
@@ -110,7 +110,13 @@ class HoldingsAdapter(private val holdings: List<Holding>) :
             rowHolder.itemView.context.startActivity(intent)
         }
 
-        rowHolder.name.text = FundNameFormatter.shorten(h.assetName).ifBlank { "(unnamed asset)" }
+        rowHolder.name.text = FundNameFormatter.shorten(h.canonicalName.ifEmpty { h.assetName }).ifBlank { "(unnamed asset)" }
+
+        val alsoHeldByPart = if (h.alsoHeldByMembers.isNotEmpty()) {
+            " · also held by ${h.alsoHeldByMembers.joinToString(", ")}"
+        } else {
+            ""
+        }
 
         if (h.hasPrice) {
             rowHolder.currentValue.text = IndianCurrencyFormatter.format(h.currentValue, decimals = 0)
@@ -125,15 +131,15 @@ class HoldingsAdapter(private val holdings: List<Holding>) :
             val xirrPart = if (h.hasXirr) String.format(Locale.getDefault(), " · XIRR %.2f%%", h.xirr) else ""
             rowHolder.secondaryLine.text = String.format(
                 Locale.getDefault(),
-                "%s units · Invested %s%s",
-                unitsDisplay(h.unitsHeld), IndianCurrencyFormatter.format(h.netInvested, decimals = 0), xirrPart
+                "%s units · Invested %s%s%s",
+                unitsDisplay(h.unitsHeld), IndianCurrencyFormatter.format(h.netInvested, decimals = 0), xirrPart, alsoHeldByPart
             )
             bindDayGain(rowHolder.dayGain, h.hasDayGain, h.dayGain, h.dayGainPercent)
         } else {
             rowHolder.currentValue.text = "Price not available"
             rowHolder.gainBadge.text = ""
             rowHolder.secondaryLine.text = String.format(
-                Locale.getDefault(), "%s units · Invested %s", unitsDisplay(h.unitsHeld), IndianCurrencyFormatter.format(h.netInvested, decimals = 0)
+                Locale.getDefault(), "%s units · Invested %s%s", unitsDisplay(h.unitsHeld), IndianCurrencyFormatter.format(h.netInvested, decimals = 0), alsoHeldByPart
             )
             rowHolder.dayGain.visibility = View.GONE
         }
