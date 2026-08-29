@@ -35,6 +35,9 @@ class ReturnsActivity : AppCompatActivity() {
         findViewById<View>(R.id.returnsManageBenchmarksButton).setOnClickListener {
             startActivity(Intent(this, BenchmarksActivity::class.java))
         }
+        findViewById<View>(R.id.returnsManageAdditionalFundsButton).setOnClickListener {
+            startActivity(Intent(this, AdditionalFundsActivity::class.java))
+        }
         findViewById<View>(R.id.returnsCompareButton).setOnClickListener {
             startActivity(Intent(this, ComparisonActivity::class.java))
         }
@@ -81,12 +84,16 @@ class ReturnsActivity : AppCompatActivity() {
 
         // Keep the existing selection across a reload (e.g. returning
         // from the drill-down chart) if it's still present; otherwise
-        // default to the first fund (funds are what you hold, so more
-        // likely to be what you want to see first) or, failing that,
-        // the first row of any kind.
+        // default to the first OWNED fund (what you actually hold is
+        // more likely to be what you want to see first - an Additional
+        // Fund you're only tracking for comparison is a deliberate
+        // second choice, not the default) or, failing that, the first
+        // row of any kind.
         val stillPresent = rows.any { it.seriesId == selectedSeriesId }
         if (!stillPresent) {
-            selectedSeriesId = rows.firstOrNull { !it.isBenchmark }?.seriesId ?: rows.first().seriesId
+            selectedSeriesId = rows.firstOrNull { !it.isBenchmark && !it.isAdditional }?.seriesId
+                ?: rows.firstOrNull { !it.isBenchmark }?.seriesId
+                ?: rows.first().seriesId
         }
         showSelectedCard()
     }
@@ -141,28 +148,38 @@ class ReturnsActivity : AppCompatActivity() {
     }
 
     /**
-     * Two-stage picker: Fund vs Index category first, then the specific
-     * item within it - same reasoning as Progression's picker (see its
-     * own doc comment): with 15+ funds and benchmarks combined, one flat
-     * list would be exactly the unmanageable-length problem this screen
-     * was just redesigned to avoid.
+     * Three-stage picker: Fund / Additional Fund / Index category
+     * first, then the specific item within it - same reasoning as
+     * Progression's picker (see its own doc comment): with 15+ funds
+     * and benchmarks combined, one flat list would be exactly the
+     * unmanageable-length problem this screen was just redesigned to
+     * avoid. Additional Funds (tracked, not owned - see
+     * store.Asset.AccountID's Go doc comment) get their OWN category
+     * rather than being folded into Fund, since they're a genuinely
+     * different kind of thing to a person scanning this list.
      */
     private fun showPicker() {
-        val funds = rows.filter { !it.isBenchmark }
+        val ownedFunds = rows.filter { !it.isBenchmark && !it.isAdditional }
+        val additionalFunds = rows.filter { !it.isBenchmark && it.isAdditional }
         val benchmarks = rows.filter { it.isBenchmark }
 
         val popup = PopupMenu(this, pickerTab)
         val fundCategoryId = 0
-        val benchmarkCategoryId = 1
-        if (funds.isNotEmpty()) {
-            popup.menu.add(0, fundCategoryId, fundCategoryId, "Fund (${funds.size}) ▸")
+        val additionalCategoryId = 1
+        val benchmarkCategoryId = 2
+        if (ownedFunds.isNotEmpty()) {
+            popup.menu.add(0, fundCategoryId, fundCategoryId, "Fund (${ownedFunds.size}) ▸")
+        }
+        if (additionalFunds.isNotEmpty()) {
+            popup.menu.add(0, additionalCategoryId, additionalCategoryId, "Additional Funds (${additionalFunds.size}) ▸")
         }
         if (benchmarks.isNotEmpty()) {
             popup.menu.add(0, benchmarkCategoryId, benchmarkCategoryId, "Index (${benchmarks.size}) ▸")
         }
         popup.setOnMenuItemClickListener { item ->
             when (item.itemId) {
-                fundCategoryId -> showCategoryPicker(funds)
+                fundCategoryId -> showCategoryPicker(ownedFunds)
+                additionalCategoryId -> showCategoryPicker(additionalFunds)
                 benchmarkCategoryId -> showCategoryPicker(benchmarks)
             }
             true
