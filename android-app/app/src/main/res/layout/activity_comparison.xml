@@ -80,6 +80,24 @@
         android:layout_height="18dp"
         android:layout_marginTop="8dp" />
 
+    <!-- Fixed range-preset shortcuts on top of the existing pinch-
+         zoom/pan/scrubber - same as ReturnsDetailActivity's own chart.
+         A HorizontalScrollView since 6 chips can be tight on a narrow
+         phone screen at comfortable tap-target size. -->
+    <HorizontalScrollView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:scrollbars="none">
+
+        <LinearLayout
+            android:id="@+id/comparisonRangePresets"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal" />
+
+    </HorizontalScrollView>
+
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
