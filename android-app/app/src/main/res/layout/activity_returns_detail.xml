@@ -24,6 +24,20 @@
             android:textSize="14sp"
             android:textColor="@color/colorNeutral" />
 
+        <!-- Per-member invested breakdown, e.g. "Me: 12,499 · Mom:
+             15,000" - visible ONLY on a family-pooled chart (see
+             ReturnsDetailActivity.EXTRA_FAMILY_ASSET_IDS' own doc
+             comment). Empty/GONE otherwise. -->
+        <TextView
+            android:id="@+id/returnsDetailFamilyBreakdown"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:textColor="@color/colorOnSurface"
+            android:visibility="gone" />
+
         <!-- FrameLayout wrapper so the transaction-marker popup
              (returnsDetailMarkerPopup) overlays the chart instead of
              pushing it down/around - see AutoDismissPopupView's own
