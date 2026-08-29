@@ -2582,6 +2582,14 @@ func ComputeFundMetrics(portfolioJSON string, seriesID string, benchmarkID strin
 		result.MaxDrawdownHasData = true
 	}
 
+	// Everything below (Beta/Information Ratio/Capture/Alpha/Sharpe/
+	// Sortino/Standard Deviation) is windowed to the trailing 3 years -
+	// see finance.WindowToTrailingYears' own doc comment for the
+	// confirmed real-world convention this matches. Max Drawdown above
+	// deliberately stays on the FULL fundSeries (not windowed) - no
+	// equivalent 3-year convention was confirmed for it.
+	windowedFundSeries := finance.WindowToTrailingYears(fundSeries, 3)
+
 	autoSelected := false
 	if benchmarkID == "" {
 		// TRI is tried FIRST - a fund's real factsheet always
@@ -2621,16 +2629,16 @@ func ComputeFundMetrics(portfolioJSON string, seriesID string, benchmarkID strin
 				result.BenchmarkID = b.ID
 				result.BenchmarkName = b.DisplayName()
 				result.AutoSelected = autoSelected
-				benchSeries := p.PriceSeries(b.ID)
-				if beta, ok := finance.ComputeBeta(fundSeries, benchSeries); ok {
+				benchSeries := finance.WindowToTrailingYears(p.PriceSeries(b.ID), 3)
+				if beta, ok := finance.ComputeBeta(windowedFundSeries, benchSeries); ok {
 					result.Beta = beta
 					result.BetaHasData = true
 				}
-				if ir, ok := finance.ComputeInformationRatio(fundSeries, benchSeries); ok {
+				if ir, ok := finance.ComputeInformationRatio(windowedFundSeries, benchSeries); ok {
 					result.InformationRatio = ir
 					result.InfoRatioHasData = true
 				}
-				up, down, upOK, downOK := finance.ComputeCaptureRatios(fundSeries, benchSeries)
+				up, down, upOK, downOK := finance.ComputeCaptureRatios(windowedFundSeries, benchSeries)
 				if upOK {
 					result.UpCapture = up
 					result.UpCaptureHasData = true
@@ -2639,7 +2647,7 @@ func ComputeFundMetrics(portfolioJSON string, seriesID string, benchmarkID strin
 					result.DownCapture = down
 					result.DownCaptureHasData = true
 				}
-				if alpha, ok := finance.ComputeAlpha(fundSeries, benchSeries); ok {
+				if alpha, ok := finance.ComputeAlpha(windowedFundSeries, benchSeries); ok {
 					result.Alpha = alpha
 					result.AlphaHasData = true
 				}
@@ -2654,15 +2662,15 @@ func ComputeFundMetrics(portfolioJSON string, seriesID string, benchmarkID strin
 	// benchmark-relative block above (which also now includes Alpha,
 	// since Jensen's Alpha genuinely needs a Beta/benchmark, unlike
 	// these three).
-	if sharpe, ok := finance.ComputeSharpeRatio(fundSeries); ok {
+	if sharpe, ok := finance.ComputeSharpeRatio(windowedFundSeries); ok {
 		result.SharpeRatio = sharpe
 		result.SharpeHasData = true
 	}
-	if sortino, ok := finance.ComputeSortinoRatio(fundSeries); ok {
+	if sortino, ok := finance.ComputeSortinoRatio(windowedFundSeries); ok {
 		result.SortinoRatio = sortino
 		result.SortinoHasData = true
 	}
-	if sd, ok := finance.ComputeStandardDeviation(fundSeries); ok {
+	if sd, ok := finance.ComputeStandardDeviation(windowedFundSeries); ok {
 		result.StandardDeviation = sd
 		result.StdDevHasData = true
 	}
