@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="20dp">
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Additional Funds"
+        android:textSize="20sp"
+        android:textStyle="bold" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:textSize="13sp"
+        android:textColor="@color/colorNeutral"
+        android:text="Track a fund you don't own, purely for comparison - it gets the full Returns treatment (chart, risk metrics, trailing/rolling returns). If you later actually buy it, importing the statement will automatically link it to your existing tracked history instead of creating a duplicate." />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="18dp"
+        android:textSize="13sp"
+        android:textStyle="bold"
+        android:text="Add by name" />
+
+    <EditText
+        android:id="@+id/additionalFundsSearchInput"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:hint="Type at least 3 characters of the fund name"
+        android:inputType="text" />
+
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/additionalFundsSearchResults"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:maxHeight="240dp"
+        android:layout_marginTop="6dp" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="18dp"
+        android:textSize="13sp"
+        android:textStyle="bold"
+        android:text="Add by ISIN" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:orientation="horizontal">
+
+        <EditText
+            android:id="@+id/additionalFundsIsinInput"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="wrap_content"
+            android:hint="e.g. INF179K01BB2"
+            android:inputType="textCapCharacters" />
+
+        <Button
+            android:id="@+id/additionalFundsIsinAddButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:text="Add" />
+
+    </LinearLayout>
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="20dp"
+        android:textSize="13sp"
+        android:textStyle="bold"
+        android:text="Currently tracking" />
+
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/additionalFundsRecyclerView"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:layout_marginTop="8dp" />
+
+</LinearLayout>
