@@ -47,8 +47,9 @@ class PriceHistoryChartView @JvmOverloads constructor(
 
     companion object {
         private const val MIN_WINDOW_POINTS = 5
-        private const val MARKER_RADIUS_PX = 15f
-        private const val MARKER_TAP_RADIUS_PX = 42f // touch tolerance is deliberately larger than the drawn dot - a small dot is a small target to hit precisely with a finger
+        private const val MARKER_RADIUS_MIN_PX = 11f // smallest marker in a fund's own set (its smallest transaction) - never so small it disappears, even for a tiny top-up
+        private const val MARKER_RADIUS_MAX_PX = 24f // largest marker (its biggest transaction) - see setMarkers' doc comment on relative sizing
+        private const val MARKER_TAP_RADIUS_PAD_PX = 24f // touch tolerance ADDED on top of each marker's own drawn radius - a small dot is still a small target even when drawn bigger
     }
 
     var onPointScrubbed: ((windowStartPoint: PricePoint, currentPoint: PricePoint) -> Unit)? = null
@@ -56,28 +57,44 @@ class PriceHistoryChartView @JvmOverloads constructor(
     /** Invoked whenever the visible window (zoom/pan/reset/set-range) changes - lets a hosting Activity keep an independent ChartRangeScrubberView in sync. Fires with (totalPointCount, windowStart, windowEnd). */
     var onWindowChanged: ((total: Int, start: Int, end: Int) -> Unit)? = null
 
-    /** Invoked when a person taps directly on a transaction marker dot - see setMarkers/MARKER_TAP_RADIUS_PX. */
-    var onMarkerTapped: ((TransactionMarker) -> Unit)? = null
+    /** Invoked on a quick tap on a marker dot - (marker, screenX, screenY) so the popup can be positioned right at the touched point instead of a fixed location. Shows briefly - see AutoDismissPopupView. */
+    var onMarkerTapped: ((marker: TransactionMarker, x: Float, y: Float) -> Unit)? = null
+
+    /** Invoked when a press-and-hold BEGINS on a marker dot - the popup should show and stay up for as long as the finger stays down; see onMarkerHoldEnd for when to start the release-linger timer. */
+    var onMarkerHoldStart: ((marker: TransactionMarker, x: Float, y: Float) -> Unit)? = null
+
+    /** Invoked when a held marker's press ENDS (finger lifted) - the popup should start its short auto-dismiss timer now, not while still held. */
+    var onMarkerHoldEnd: (() -> Unit)? = null
 
     private var points: List<PricePoint> = emptyList()
     private var windowStart = 0
     private var windowEnd = 0 // inclusive
     private var scrubbedIndex = -1
 
-    // Each marker paired with the index (into `points`) of its closest
-    // matching date - resolved once in setMarkers, not on every frame,
-    // since points/markers only change together (a fresh setPoints call
-    // always precedes setMarkers for the same fund). Drawn/hit-tested at
-    // that point's actual (x, y) on the line - not at a position derived
-    // from the marker's OWN statement price - so a marker dot always
-    // sits exactly on the line even on the rare day the statement price
-    // and the later-fetched NAV differ by a paisa or two (see
-    // TransactionMarker's Go doc comment on why those can differ).
-    private var resolvedMarkers: List<Pair<Int, TransactionMarker>> = emptyList()
+    /** One resolved, drawable transaction marker - see setMarkers' doc comment for how index/radiusPx are derived. */
+    private data class ResolvedMarker(val index: Int, val marker: TransactionMarker, val radiusPx: Float)
+
+    // Resolved once in setMarkers, not on every frame - see that
+    // function's own doc comment for what "resolved" means (matched to
+    // a real point on the line) and how radiusPx is derived (scaled by
+    // this fund's OWN transaction amounts, per explicit request, so a
+    // fund with only small SIPs still shows visible size variation
+    // rather than being flattened by some other fund's much larger
+    // lump-sum purchases).
+    private var resolvedMarkers: List<ResolvedMarker> = emptyList()
+
+    // Tracks a marker currently being held (long-press in progress), so
+    // onTouchEvent's ACTION_UP/CANCEL knows to fire onMarkerHoldEnd
+    // instead of doing nothing - GestureDetector's onLongPress has no
+    // matching "hold ended" callback of its own, so this view has to
+    // track that transition itself.
+    private var isHoldingMarker = false
 
     private val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        strokeWidth = 4f
+        // 6f, not the original 4f - a confirmed real complaint that the
+        // line "appears too thin" / lacks visual weight.
+        strokeWidth = 6f
         strokeCap = Paint.Cap.ROUND
         strokeJoin = Paint.Join.ROUND
         color = ContextCompat.getColor(context, R.color.colorPrimary)
@@ -202,14 +219,36 @@ class PriceHistoryChartView @JvmOverloads constructor(
      * the marker's own statement price. A marker whose date has no
      * NAV history at all yet (a genuine data gap) is silently dropped
      * rather than drawn somewhere misleading.
+     *
+     * Dot RADIUS is scaled by this fund's own transaction amounts - a
+     * bigger investment draws a bigger dot, per explicit request.
+     * Scaled RELATIVE TO THIS FUND'S OWN transactions (min amount →
+     * MARKER_RADIUS_MIN_PX, max amount → MARKER_RADIUS_MAX_PX, linear
+     * in between), not on one absolute rupee scale shared across every
+     * fund's chart - a fund where every purchase happens to be a small
+     * SIP would otherwise draw every single dot at the same tiny size,
+     * losing exactly the size variation this feature is meant to show.
+     * A fund with only one transaction (min == max) draws it at
+     * MARKER_RADIUS_MAX_PX - there's no "relatively small" one to
+     * compare it against.
      */
     fun setMarkers(newMarkers: List<TransactionMarker>) {
-        if (points.isEmpty()) {
+        if (points.isEmpty() || newMarkers.isEmpty()) {
             resolvedMarkers = emptyList()
             return
         }
+        val minAmount = newMarkers.minOf { it.amount }
+        val maxAmount = newMarkers.maxOf { it.amount }
+        val amountRange = maxAmount - minAmount
         resolvedMarkers = newMarkers.mapNotNull { marker ->
-            closestPointIndexForDate(marker.date)?.let { idx -> idx to marker }
+            val idx = closestPointIndexForDate(marker.date) ?: return@mapNotNull null
+            val radius = if (amountRange <= 0.0) {
+                MARKER_RADIUS_MAX_PX
+            } else {
+                val fraction = ((marker.amount - minAmount) / amountRange).toFloat()
+                MARKER_RADIUS_MIN_PX + fraction * (MARKER_RADIUS_MAX_PX - MARKER_RADIUS_MIN_PX)
+            }
+            ResolvedMarker(idx, marker, radius)
         }
         invalidate()
     }
@@ -380,15 +419,17 @@ class PriceHistoryChartView @JvmOverloads constructor(
         // point index falls within the CURRENTLY VISIBLE window are
         // drawn, same "visible window" scoping as the crosshair/line
         // above, so zooming/panning naturally shows/hides markers along
-        // with the rest of the chart.
-        resolvedMarkers.forEach { (index, marker) ->
-            val localIndex = index - windowStart
+        // with the rest of the chart. Each marker's own radiusPx (set
+        // in setMarkers, scaled by that transaction's amount) decides
+        // its drawn size.
+        resolvedMarkers.forEach { rm ->
+            val localIndex = rm.index - windowStart
             if (localIndex !in visible.indices) return@forEach
             val x = xFor(localIndex)
             val y = yFor(visible[localIndex].price)
-            val paint = if (marker.isBuy) buyMarkerPaint else sellMarkerPaint
-            canvas.drawCircle(x, y, MARKER_RADIUS_PX, paint)
-            canvas.drawCircle(x, y, MARKER_RADIUS_PX, markerRingPaint)
+            val paint = if (rm.marker.isBuy) buyMarkerPaint else sellMarkerPaint
+            canvas.drawCircle(x, y, rm.radiusPx, paint)
+            canvas.drawCircle(x, y, rm.radiusPx, markerRingPaint)
         }
     }
 
@@ -452,6 +493,10 @@ class PriceHistoryChartView @JvmOverloads constructor(
                     scrubAt(event.x) // a tap (no real drag) while zoomed still scrubs
                 }
                 isPanning = false
+                if (isHoldingMarker) {
+                    isHoldingMarker = false
+                    onMarkerHoldEnd?.invoke()
+                }
             }
         }
         return true
@@ -531,46 +576,65 @@ class PriceHistoryChartView @JvmOverloads constructor(
         }
 
         // A confirmed single tap (not the first tap of a double-tap
-        // sequence) checks for a nearby marker dot - deliberately here
-        // rather than in onTouchEvent's ACTION_UP handling, since that
-        // already fires on every tap/drag-release for scrub purposes
-        // and doesn't distinguish a genuine tap from a drag the way
+        // sequence, and NOT held long enough to become onLongPress
+        // below - GestureDetector treats those as mutually exclusive)
+        // checks for a nearby marker dot - deliberately here rather
+        // than in onTouchEvent's ACTION_UP handling, since that already
+        // fires on every tap/drag-release for scrub purposes and
+        // doesn't distinguish a genuine tap from a drag the way
         // GestureDetector's own tap-confirmation timing does.
         override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
-            val marker = findMarkerNear(e.x, e.y) ?: return false
-            onMarkerTapped?.invoke(marker)
+            val hit = findMarkerNear(e.x, e.y) ?: return false
+            onMarkerTapped?.invoke(hit.marker, hit.x, hit.y)
             return true
+        }
+
+        // Press-and-hold on a marker: the popup shows and stays up for
+        // as long as the finger stays down - see onMarkerHoldStart's
+        // own doc comment. onTouchEvent's ACTION_UP/CANCEL handles the
+        // matching "hold ended" transition, since GestureDetector has
+        // no callback of its own for that.
+        override fun onLongPress(e: MotionEvent) {
+            val hit = findMarkerNear(e.x, e.y) ?: return
+            isHoldingMarker = true
+            onMarkerHoldStart?.invoke(hit.marker, hit.x, hit.y)
         }
     }
 
+    /** One marker found near a touch point, with its ON-SCREEN (x, y) so a hosting Activity can position a popup right at the touched dot instead of a fixed location. */
+    private data class MarkerHit(val marker: TransactionMarker, val x: Float, val y: Float)
+
     /**
-     * Finds the closest resolved marker within MARKER_TAP_RADIUS_PX of
-     * a tap, using the SAME geometry the most recent onDraw actually
+     * Finds the closest resolved marker within touch tolerance of a
+     * tap, using the SAME geometry the most recent onDraw actually
      * used (see the lastDrawn* fields' doc comment) - not a
      * re-derivation that could drift out of sync with where the dots
-     * were actually drawn.
+     * were actually drawn. Tolerance is each marker's OWN drawn radius
+     * plus a fixed pad, not one fixed radius for every marker - a
+     * bigger dot (see setMarkers' amount-based sizing) reasonably gets
+     * a bigger tap target too.
      */
-    private fun findMarkerNear(touchX: Float, touchY: Float): TransactionMarker? {
+    private fun findMarkerNear(touchX: Float, touchY: Float): MarkerHit? {
         if (resolvedMarkers.isEmpty()) return null
         val windowSize = lastDrawnWindowEnd - lastDrawnWindowStart + 1
         if (windowSize <= 0) return null
         val chartWidth = (lastDrawnChartRight - lastDrawnChartLeft).coerceAtLeast(1f)
         val chartHeight = (lastDrawnChartBottom - lastDrawnChartTop).coerceAtLeast(1f)
-        var closest: TransactionMarker? = null
+        var closest: MarkerHit? = null
         var closestDistSq = Float.MAX_VALUE
-        val tapRadiusSq = MARKER_TAP_RADIUS_PX * MARKER_TAP_RADIUS_PX
-        resolvedMarkers.forEach { (index, marker) ->
-            val localIndex = index - lastDrawnWindowStart
+        resolvedMarkers.forEach { rm ->
+            val localIndex = rm.index - lastDrawnWindowStart
             if (localIndex !in 0 until windowSize) return@forEach
-            val point = points.getOrNull(index) ?: return@forEach
+            val point = points.getOrNull(rm.index) ?: return@forEach
             val x = lastDrawnChartLeft + chartWidth * localIndex / (windowSize - 1).coerceAtLeast(1).toFloat()
             val y = lastDrawnChartTop + chartHeight * (1f - ((point.price - lastDrawnMinPrice) / lastDrawnPriceRange).toFloat())
             val dx = touchX - x
             val dy = touchY - y
             val distSq = dx * dx + dy * dy
-            if (distSq <= tapRadiusSq && distSq < closestDistSq) {
+            val tapRadius = rm.radiusPx + MARKER_TAP_RADIUS_PAD_PX
+            if (distSq <= tapRadius * tapRadius && distSq < closestDistSq) {
                 closestDistSq = distSq
-                closest = marker
+                closest = MarkerHit(rm.marker, x, y)
             }
         }
         return closest
