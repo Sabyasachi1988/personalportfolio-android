@@ -413,6 +413,139 @@ func GroupHoldingsByLabel(p *store.Portfolio, holdings []Holding) []GroupedHoldi
 	return out
 }
 
+// PoolHoldingsByISIN consolidates holdings sharing the same non-empty
+// ISIN into one GroupedHolding row apiece - the FAMILY-WIDE view's
+// pooling, a confirmed real request: the same real fund held by
+// different family members under separate accounts (e.g. the same
+// Nippon India Nifty 50 held by both "Me" and "Mom") should show as
+// ONE combined strip with the total invested/value/pooled XIRR when
+// looking at the whole family, not two separate cards - while each
+// person's OWN individual holding, with their own cost basis, stays
+// fully intact and separately visible via FilterHoldingsByMember for
+// their own tax/ownership purposes. This is a DIFFERENT mechanism from
+// GroupHoldingsByLabel above (which explicitly never combines across
+// members, for exactly that tax/ownership reason) - deliberately so:
+// GroupHoldingsByLabel groups DIFFERENT funds a person manually
+// decided represent "the same exposure"; this groups the SAME fund
+// (same ISIN, a fact, not an opinion) across different people, for a
+// family net-worth view specifically. An ISIN with only ONE
+// contributing holding still gets a proper (non-grouped) row here,
+// same CanonicalName-harmonized-display-name handling as
+// GroupHoldingsByLabel's own ungrouped case - so calling this on a
+// SINGLE person's already-filtered holdings is also safe and correct,
+// it just never finds anything to actually pool (Two ISIN-sharing
+// holdings under the SAME person's own different accounts would also
+// pool here - a reasonable outcome, not a bug: it's still the same
+// real fund, still with a completely correct combined XIRR/cost
+// basis, whether the two holders are the same person or different
+// people).
+//
+// Same XIRR-pooling technique as GroupHoldingsByLabel (recomputed from
+// pooled cash flows, not averaged) - see its own doc comment.
+// Holdings with an empty ISIN are never pooled (there's no fact to
+// pool them ON) and always get their own ungrouped row.
+func PoolHoldingsByISIN(p *store.Portfolio, holdings []Holding) []GroupedHolding {
+	type bucket struct {
+		isin    string
+		members []Holding
+	}
+	order := make([]string, 0, len(holdings))
+	buckets := make(map[string]*bucket)
+
+	for _, h := range holdings {
+		key := h.ISIN
+		if key == "" {
+			// No ISIN to pool on - each gets its own unique bucket key,
+			// same convention as GroupHoldingsByLabel's ungrouped case.
+			key = "\x00noisin:" + h.AssetID
+		}
+		b, ok := buckets[key]
+		if !ok {
+			b = &bucket{isin: h.ISIN}
+			buckets[key] = b
+			order = append(order, key)
+		}
+		b.members = append(b.members, h)
+	}
+
+	transactionsByAsset := make(map[string][]store.StoredTransaction, len(p.Assets))
+	for _, t := range p.Transactions {
+		transactionsByAsset[t.AssetID] = append(transactionsByAsset[t.AssetID], t)
+	}
+
+	out := make([]GroupedHolding, 0, len(order))
+	for _, key := range order {
+		b := buckets[key]
+		g := GroupedHolding{
+			IsGroup:           len(b.members) > 1,
+			AlsoHeldByMembers: []string{},
+		}
+		g.DisplayName = b.members[0].CanonicalName
+		if g.DisplayName == "" {
+			g.DisplayName = b.members[0].AssetName
+		}
+		if g.IsGroup {
+			// A pooled row genuinely spans more than one holder - no
+			// single MemberID/MemberName is correct here, unlike
+			// GroupHoldingsByLabel's grouped rows (which, per that
+			// function's own doc comment, never span more than one
+			// member in the first place).
+			g.MemberID = ""
+			g.MemberName = "Family"
+		} else {
+			g.MemberID = b.members[0].MemberID
+			g.MemberName = b.members[0].MemberName
+			g.AlsoHeldByMembers = b.members[0].AlsoHeldByMembers
+		}
+
+		var flows []CashFlow
+		allPricedHaveDayGain := true
+		for _, h := range b.members {
+			g.AssetIDs = append(g.AssetIDs, h.AssetID)
+			g.NetInvested += h.NetInvested
+			for _, t := range transactionsByAsset[h.AssetID] {
+				if d, err := time.Parse(dateLayout, t.Date); err == nil {
+					flows = append(flows, CashFlow{Date: d, Amount: -t.Amount})
+				}
+			}
+			if h.HasPrice {
+				g.HasPrice = true
+				g.CurrentValue += h.CurrentValue
+				if h.UnitsHeld > 0.0001 {
+					flows = append(flows, CashFlow{Date: time.Now(), Amount: h.CurrentValue})
+				}
+				if h.HasDayGain {
+					g.DayGain += h.DayGain
+				} else {
+					allPricedHaveDayGain = false
+				}
+			}
+		}
+		g.NetInvested = round2(g.NetInvested)
+		g.CurrentValue = round2(g.CurrentValue)
+		if g.HasPrice {
+			g.Gain = round2(g.CurrentValue - g.NetInvested)
+			if g.NetInvested != 0 {
+				g.GainPercent = round2(g.Gain / g.NetInvested * 100)
+			}
+			if allPricedHaveDayGain {
+				g.DayGain = round2(g.DayGain)
+				priorValue := g.CurrentValue - g.DayGain
+				if priorValue != 0 {
+					g.DayGainPercent = round2(g.DayGain / priorValue * 100)
+				}
+				g.HasDayGain = true
+			}
+		}
+		if rate, ok := XIRR(flows); ok {
+			g.XIRR = round2(rate * 100)
+			g.HasXIRR = true
+		}
+		out = append(out, g)
+	}
+	return out
+}
+
 // priorDistinctPrice returns the price at the second-most-recent DISTINCT
 // date in an already-sorted-ascending series (e.g. from
 // store.Portfolio.PriceSeries) - the "prior" side of a per-fund Day
