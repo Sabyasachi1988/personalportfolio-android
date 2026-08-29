@@ -1,6 +1,8 @@
 package finance
 
 import (
+	"encoding/json"
+	"strings"
 	"testing"
 
 	"ledger/internal/store"
@@ -226,6 +228,48 @@ func TestComputeHoldings_AlsoHeldByMembersCrossReferencesOtherMembers(t *testing
 	}
 	if got := byAssetID["a3"].AlsoHeldByMembers; len(got) != 0 {
 		t.Errorf("a3.AlsoHeldByMembers = %v, want empty (unique ISIN, nobody else holds it)", got)
+	}
+}
+
+// TestComputeHoldings_AlsoHeldByMembersNeverMarshalsAsNull is the actual
+// regression test for a CONFIRMED REAL CRASH: a nil Go slice marshals
+// to JSON `null`, and Gson's Kotlin deserialization sets the field to
+// an actual null REGARDLESS of the Kotlin data class's `= emptyList()`
+// default (the exact same landmine already documented for
+// store.Asset.Tags/GroupLabel elsewhere in this codebase) - a holding
+// with NO cross-member match (the common case) had a nil
+// AlsoHeldByMembers, so `.isNotEmpty()` on the Kotlin side threw a
+// NullPointerException the instant RecyclerView scrolled to reveal any
+// such row. This test checks the actual marshaled JSON text for the
+// literal substring "null" next to this field name, not just the Go
+// slice's own nil-ness, since that's the level at which the real bug
+// lived.
+func TestComputeHoldings_AlsoHeldByMembersNeverMarshalsAsNull(t *testing.T) {
+	units := 10.0
+	p := &store.Portfolio{
+		Assets: []store.Asset{
+			{ID: "a1", AccountID: "acc1", Name: "Fund With No Cross-Member Match", ISIN: "INF_UNIQUE_0003"},
+		},
+		Transactions: []store.StoredTransaction{
+			{ID: "t1", AccountID: "acc1", AssetID: "a1", Date: "2024-01-01", Amount: 1000, Units: &units},
+		},
+	}
+	holdings := ComputeHoldings(p)
+	out, err := json.Marshal(holdings)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if strings.Contains(string(out), `"AlsoHeldByMembers":null`) {
+		t.Errorf("AlsoHeldByMembers marshaled as JSON null - this is the confirmed real Kotlin crash, got: %s", string(out))
+	}
+
+	groups := GroupHoldingsByLabel(p, holdings)
+	groupsOut, err := json.Marshal(groups)
+	if err != nil {
+		t.Fatalf("marshal groups: %v", err)
+	}
+	if strings.Contains(string(groupsOut), `"AlsoHeldByMembers":null`) {
+		t.Errorf("GroupedHolding.AlsoHeldByMembers marshaled as JSON null, got: %s", string(groupsOut))
 	}
 }
 
