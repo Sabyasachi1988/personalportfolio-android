@@ -348,6 +348,29 @@ func DefaultBenchmarkTicker(fundName string) string {
 	}
 }
 
+// DefaultBenchmarkTRIName is DefaultBenchmarkTicker's Total-Return
+// counterpart - the canonical NSE Indices name (see
+// priceapi.FetchNiftyIndicesTRI's doc comment for confirmed spellings)
+// for the SAME market-cap-segment match DefaultBenchmarkTicker uses,
+// so a fund auto-selects the TRI version of its usual benchmark when
+// one has been added, and falls back to the plain price-index version
+// otherwise - see ComputeFundMetrics' auto-select logic on the Kotlin
+// bridge side for how the two are tried in that order.
+func DefaultBenchmarkTRIName(fundName string) string {
+	switch GuessMarketCapSegment(fundName) {
+	case "Large Cap":
+		return "NIFTY 50"
+	case "Mid Cap":
+		return "NIFTY MIDCAP 150"
+	case "Small Cap":
+		return "NIFTY SMALLCAP 250"
+	case "Multi Cap", "Flexi Cap":
+		return "NIFTY 500"
+	default: // Debt, Commodity, Unclassified
+		return ""
+	}
+}
+
 // monthlyReturnsOf resamples a single series to month-end (see
 // lastPricePerMonth) and returns its own month-over-month % returns -
 // the single-series counterpart to alignedMonthlyReturns, used by
