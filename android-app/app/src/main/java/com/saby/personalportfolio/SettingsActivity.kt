@@ -3,6 +3,8 @@ package com.saby.personalportfolio
 import android.app.AlertDialog
 import android.net.Uri
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.widget.ArrayAdapter
 import android.widget.EditText
 import android.widget.RadioButton
@@ -16,7 +18,9 @@ import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
 import androidx.core.content.ContextCompat
 import com.google.android.material.switchmaterial.SwitchMaterial
+import com.google.gson.Gson
 import com.google.gson.JsonParser
+import com.ledger.bridge.Bridge
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -25,6 +29,8 @@ import java.util.Locale
 class SettingsActivity : AppCompatActivity() {
 
     private lateinit var statusText: TextView
+    private val gson = Gson()
+    private val mainHandler = Handler(Looper.getMainLooper())
 
     private val createBackupFile = registerForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
         if (uri != null) exportTo(uri)
@@ -42,6 +48,7 @@ class SettingsActivity : AppCompatActivity() {
         setupThemeToggle()
         setupLockSettings()
         setupPopupDurationSetting()
+        setupRiskFreeRateSetting()
 
         findViewById<android.widget.Button>(R.id.manageMembersButton).setOnClickListener {
             startActivity(android.content.Intent(this, MembersActivity::class.java))
@@ -204,6 +211,108 @@ class SettingsActivity : AppCompatActivity() {
             seconds.toLong().toString()
         } else {
             seconds.toString()
+        }
+    }
+
+    /**
+     * The risk-free rate used by Sharpe/Sortino/Alpha - see
+     * store.Portfolio.RiskFreeRatePercent's own Go doc comment. Three
+     * ways to control it, all on this one small panel: a manual "Refresh
+     * now" (in addition to the automatic refresh already wired into NAV
+     * history updates), a manual override input, and a way to clear
+     * that override. The manual-override fetch/save calls are run on a
+     * background thread - "Refresh now" fetches a real PDF factsheet
+     * over the network, and the SAME class of ANR bug already fixed
+     * once in AdditionalFundsActivity (a blocking network call on the
+     * main thread) would recur here otherwise.
+     */
+    private fun setupRiskFreeRateSetting() {
+        val statusView = findViewById<TextView>(R.id.riskFreeRateStatus)
+        val refreshButton = findViewById<TextView>(R.id.riskFreeRateRefreshButton)
+        val manualInput = findViewById<EditText>(R.id.riskFreeRateManualInput)
+        val manualSaveButton = findViewById<TextView>(R.id.riskFreeRateManualSaveButton)
+        val clearManualButton = findViewById<TextView>(R.id.riskFreeRateClearManualButton)
+
+        fun refreshDisplay() {
+            val portfolioPath = PortfolioStorage.filePath(this)
+            val portfolioJson = PortfolioLoadCache.load(portfolioPath)
+            val snapshot: RiskFreeRateSnapshot = try {
+                gson.fromJson(portfolioJson, RiskFreeRateSnapshot::class.java) ?: RiskFreeRateSnapshot()
+            } catch (e: Exception) {
+                RiskFreeRateSnapshot()
+            }
+            statusView.text = when {
+                snapshot.manual -> "Currently: ${snapshot.ratePercent}% (manually set)"
+                snapshot.ratePercent > 0 -> "Currently: ${snapshot.ratePercent}%" +
+                    (if (snapshot.asOf.isNotEmpty()) " (${snapshot.source}, as on ${snapshot.asOf})" else " (${snapshot.source})")
+                else -> "Not yet fetched - using a default until the first refresh"
+            }
+            clearManualButton.visibility = if (snapshot.manual) android.view.View.VISIBLE else android.view.View.GONE
+        }
+        refreshDisplay()
+
+        refreshButton.setOnClickListener {
+            refreshButton.isEnabled = false
+            statusView.text = "Fetching from PPFAS's factsheet…"
+            Thread {
+                val portfolioPath = PortfolioStorage.filePath(this)
+                val portfolioJson = PortfolioLoadCache.load(portfolioPath)
+                val afterFetch = Bridge.refreshRiskFreeRate(portfolioJson)
+                mainHandler.post {
+                    refreshButton.isEnabled = true
+                    if (afterFetch.trimStart().startsWith("{\"error\"")) {
+                        Toast.makeText(this, "Could not fetch: $afterFetch", Toast.LENGTH_LONG).show()
+                        refreshDisplay()
+                        return@post
+                    }
+                    val saveResult = Bridge.savePortfolio(portfolioPath, afterFetch)
+                    if (saveResult.trimStart().startsWith("{\"error\"")) {
+                        Toast.makeText(this, "Failed to save: $saveResult", Toast.LENGTH_LONG).show()
+                        return@post
+                    }
+                    Toast.makeText(this, "Risk-free rate updated", Toast.LENGTH_SHORT).show()
+                    refreshDisplay()
+                }
+            }.start()
+        }
+
+        manualSaveButton.setOnClickListener {
+            val ratePercent = manualInput.text?.toString()?.trim()?.toDoubleOrNull()
+            if (ratePercent == null || ratePercent <= 0) {
+                manualInput.error = "Enter a rate as a percent, e.g. 5.5"
+                return@setOnClickListener
+            }
+            manualInput.error = null
+            val portfolioPath = PortfolioStorage.filePath(this)
+            val portfolioJson = PortfolioLoadCache.load(portfolioPath)
+            val afterSet = Bridge.setManualRiskFreeRate(portfolioJson, ratePercent)
+            if (afterSet.trimStart().startsWith("{\"error\"")) {
+                Toast.makeText(this, "Failed to set: $afterSet", Toast.LENGTH_LONG).show()
+                return@setOnClickListener
+            }
+            val saveResult = Bridge.savePortfolio(portfolioPath, afterSet)
+            if (saveResult.trimStart().startsWith("{\"error\"")) {
+                Toast.makeText(this, "Failed to save: $saveResult", Toast.LENGTH_LONG).show()
+                return@setOnClickListener
+            }
+            manualInput.text.clear()
+            refreshDisplay()
+        }
+
+        clearManualButton.setOnClickListener {
+            val portfolioPath = PortfolioStorage.filePath(this)
+            val portfolioJson = PortfolioLoadCache.load(portfolioPath)
+            val afterClear = Bridge.clearManualRiskFreeRate(portfolioJson)
+            if (afterClear.trimStart().startsWith("{\"error\"")) {
+                Toast.makeText(this, "Failed to clear: $afterClear", Toast.LENGTH_LONG).show()
+                return@setOnClickListener
+            }
+            val saveResult = Bridge.savePortfolio(portfolioPath, afterClear)
+            if (saveResult.trimStart().startsWith("{\"error\"")) {
+                Toast.makeText(this, "Failed to save: $saveResult", Toast.LENGTH_LONG).show()
+                return@setOnClickListener
+            }
+            refreshDisplay()
         }
     }
 
