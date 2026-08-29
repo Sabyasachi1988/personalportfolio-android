@@ -273,6 +273,109 @@ func TestComputeHoldings_AlsoHeldByMembersNeverMarshalsAsNull(t *testing.T) {
 	}
 }
 
+func TestPoolHoldingsByISIN_PoolsSameISINAcrossMembersIntoOneRow(t *testing.T) {
+	units := 10.0
+	p := &store.Portfolio{
+		Members:  []store.Member{{ID: "m1", Name: "Me"}, {ID: "m2", Name: "Mom"}},
+		Accounts: []store.Account{{ID: "acc1", MemberID: "m1"}, {ID: "acc2", MemberID: "m2"}},
+		Assets: []store.Asset{
+			{ID: "a1", AccountID: "acc1", Name: "Nippon India Nifty 50", ISIN: "INF_SHARED_0001"},
+			{ID: "a2", AccountID: "acc2", Name: "Nippon India Nifty 50 Index Fund", ISIN: "INF_SHARED_0001"},
+			{ID: "a3", AccountID: "acc1", Name: "A Fund Only I Hold", ISIN: "INF_UNIQUE_0002"},
+		},
+		Transactions: []store.StoredTransaction{
+			{ID: "t1", AccountID: "acc1", AssetID: "a1", Date: "2024-01-01", Amount: 1000, Units: &units},
+			{ID: "t2", AccountID: "acc2", AssetID: "a2", Date: "2024-01-01", Amount: 2000, Units: &units},
+			{ID: "t3", AccountID: "acc1", AssetID: "a3", Date: "2024-01-01", Amount: 500, Units: &units},
+		},
+	}
+	holdings := ComputeHoldings(p) // whole-portfolio, unfiltered - the "All (family)" view
+	pooled := PoolHoldingsByISIN(p, holdings)
+
+	if len(pooled) != 2 {
+		t.Fatalf("expected 2 rows (1 pooled + 1 unique), got %d: %+v", len(pooled), pooled)
+	}
+
+	var nifty50Row, uniqueRow *GroupedHolding
+	for i := range pooled {
+		if pooled[i].IsGroup {
+			nifty50Row = &pooled[i]
+		} else {
+			uniqueRow = &pooled[i]
+		}
+	}
+	if nifty50Row == nil {
+		t.Fatal("expected one pooled (IsGroup) row for the shared ISIN")
+	}
+	if nifty50Row.NetInvested != 3000 {
+		t.Errorf("pooled NetInvested = %v, want 3000 (1000 + 2000, combined across both members)", nifty50Row.NetInvested)
+	}
+	if len(nifty50Row.AssetIDs) != 2 {
+		t.Errorf("pooled AssetIDs = %v, want both a1 and a2", nifty50Row.AssetIDs)
+	}
+	if nifty50Row.MemberName != "Family" || nifty50Row.MemberID != "" {
+		t.Errorf("pooled row MemberID/MemberName = %q/%q, want empty/\"Family\" (spans more than one holder)", nifty50Row.MemberID, nifty50Row.MemberName)
+	}
+
+	if uniqueRow == nil || uniqueRow.IsGroup {
+		t.Fatal("expected an ungrouped row for the unique-ISIN holding")
+	}
+	if uniqueRow.NetInvested != 500 {
+		t.Errorf("unique row NetInvested = %v, want 500", uniqueRow.NetInvested)
+	}
+}
+
+func TestPoolHoldingsByISIN_NoISINNeverPooled(t *testing.T) {
+	units := 10.0
+	p := &store.Portfolio{
+		Members:  []store.Member{{ID: "m1", Name: "Me"}, {ID: "m2", Name: "Mom"}},
+		Accounts: []store.Account{{ID: "acc1", MemberID: "m1"}, {ID: "acc2", MemberID: "m2"}},
+		Assets: []store.Asset{
+			{ID: "a1", AccountID: "acc1", Name: "Manually Entered Fund A", ISIN: ""},
+			{ID: "a2", AccountID: "acc2", Name: "Manually Entered Fund A", ISIN: ""}, // same NAME, but no ISIN to pool on
+		},
+		Transactions: []store.StoredTransaction{
+			{ID: "t1", AccountID: "acc1", AssetID: "a1", Date: "2024-01-01", Amount: 1000, Units: &units},
+			{ID: "t2", AccountID: "acc2", AssetID: "a2", Date: "2024-01-01", Amount: 1000, Units: &units},
+		},
+	}
+	holdings := ComputeHoldings(p)
+	pooled := PoolHoldingsByISIN(p, holdings)
+	if len(pooled) != 2 {
+		t.Fatalf("expected 2 SEPARATE rows (no ISIN to pool on, even with matching names), got %d: %+v", len(pooled), pooled)
+	}
+	for _, g := range pooled {
+		if g.IsGroup {
+			t.Errorf("row %+v incorrectly pooled despite having no ISIN", g)
+		}
+	}
+}
+
+func TestPoolHoldingsByISIN_SingleHolderStillGetsCanonicalNameAndAlsoHeldBy(t *testing.T) {
+	units := 10.0
+	p := &store.Portfolio{
+		Members:  []store.Member{{ID: "m1", Name: "Me"}},
+		Accounts: []store.Account{{ID: "acc1", MemberID: "m1"}},
+		Assets: []store.Asset{
+			{ID: "a1", AccountID: "acc1", Name: "Some Fund Only I Hold", ISIN: "INF_UNIQUE_0003"},
+		},
+		Transactions: []store.StoredTransaction{
+			{ID: "t1", AccountID: "acc1", AssetID: "a1", Date: "2024-01-01", Amount: 1000, Units: &units},
+		},
+	}
+	holdings := ComputeHoldings(p)
+	pooled := PoolHoldingsByISIN(p, holdings)
+	if len(pooled) != 1 || pooled[0].IsGroup {
+		t.Fatalf("expected 1 ungrouped row, got %+v", pooled)
+	}
+	if pooled[0].MemberID != "m1" || pooled[0].MemberName != "Me" {
+		t.Errorf("ungrouped row MemberID/MemberName = %q/%q, want m1/Me", pooled[0].MemberID, pooled[0].MemberName)
+	}
+	if pooled[0].DisplayName != "Some Fund Only I Hold" {
+		t.Errorf("DisplayName = %q, want the CanonicalName", pooled[0].DisplayName)
+	}
+}
+
 func TestComputeHoldings_DayGainUsesPriorDistinctDate(t *testing.T) {
 	units := 10.0
 	p := &store.Portfolio{
