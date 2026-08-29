@@ -1727,6 +1727,40 @@ func TestComputePriceHistory_ReturnsSeriesForKnownKeyEmptyForUnknown(t *testing.
 	}
 }
 
+func TestComputeFamilyTransactionMarkers_TagsEachMarkerWithItsOwnMember(t *testing.T) {
+	units := 1.0
+	p := &store.Portfolio{
+		Members:  []store.Member{{ID: "m1", Name: "Me"}, {ID: "m2", Name: "Mom"}},
+		Accounts: []store.Account{{ID: "acc1", MemberID: "m1"}, {ID: "acc2", MemberID: "m2"}},
+		Assets: []store.Asset{
+			{ID: "a1", AccountID: "acc1", Name: "Nippon India Nifty 50", ISIN: "INF_SHARED_0001"},
+			{ID: "a2", AccountID: "acc2", Name: "Nippon India Nifty 50 Index Fund", ISIN: "INF_SHARED_0001"},
+		},
+		Transactions: []store.StoredTransaction{
+			{AssetID: "a1", Date: "2026-01-08", Type: store.Purchase, Amount: 1000, Units: &units, Price: floatPtr(100)},
+			{AssetID: "a2", Date: "2026-02-08", Type: store.Purchase, Amount: 2000, Units: &units, Price: floatPtr(110)},
+		},
+	}
+	portfolioJSON, _ := json.Marshal(p)
+	assetIDsJSON, _ := json.Marshal([]string{"a1", "a2"})
+
+	resultJSON := ComputeFamilyTransactionMarkers(string(portfolioJSON), string(assetIDsJSON))
+	var markers []TransactionMarker
+	if err := json.Unmarshal([]byte(resultJSON), &markers); err != nil {
+		t.Fatalf("unmarshal: %v, raw: %s", err, resultJSON)
+	}
+	if len(markers) != 2 {
+		t.Fatalf("expected 2 markers (one per asset), got %d: %+v", len(markers), markers)
+	}
+	// Sorted ascending by date - a1's Jan marker first, a2's Feb marker second.
+	if markers[0].Member != "Me" || markers[0].Amount != 1000 {
+		t.Errorf("markers[0] = %+v, want Member=Me Amount=1000", markers[0])
+	}
+	if markers[1].Member != "Mom" || markers[1].Amount != 2000 {
+		t.Errorf("markers[1] = %+v, want Member=Mom Amount=2000", markers[1])
+	}
+}
+
 func TestBuildTransactionMarkers_ClassifiesBuySellAndSkipsUnplottable(t *testing.T) {
 	transactions := []store.StoredTransaction{
 		{AssetID: "fund1", Date: "2026-01-08", Type: store.Purchase, Amount: 12499.37, Units: floatPtr(131.972), Price: floatPtr(94.712), Description: "Purchase"},
