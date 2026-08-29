@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"testing"
+	"time"
 
 	"ledger/internal/store"
 )
@@ -78,6 +79,35 @@ func monthFor(i int) string {
 	return fmt.Sprintf("%04d-%02d-%02d", year, month, 15)
 }
 
+// dayFor returns a distinct calendar day, `i` days after 2020-01-01, in
+// dateLayout format - for tests exercising DAILY-granularity functions
+// (ComputeInformationRatio, per SEBI circular SEBI/HO/IMD/IMD-PoD-2/P/CIR/2025/6 -
+// see that function's own doc comment) where buildCorrelatedMonthlySeries'
+// one-point-per-CALENDAR-MONTH spacing would only produce a handful of
+// aligned points for a realistic n, nowhere near the 60-point minimum
+// a genuinely daily series needs.
+func dayFor(i int) string {
+	t := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC).AddDate(0, 0, i)
+	return t.Format(dateLayout)
+}
+
+// buildCorrelatedDailySeries is buildCorrelatedMonthlySeries' daily-
+// spaced counterpart - same alternating-moves pattern, one distinct
+// calendar day apart instead of one distinct calendar month apart.
+func buildCorrelatedDailySeries(n int, multiplier float64) (fund, bench []store.PriceRecord) {
+	fundPrice, benchPrice := 100.0, 100.0
+	dailyMoves := []float64{0.010, -0.004, 0.012, -0.006, 0.009, -0.008, 0.007, 0.008, -0.003, 0.010}
+	for i := 0; i < n; i++ {
+		move := dailyMoves[i%len(dailyMoves)]
+		date := dayFor(i)
+		fund = append(fund, store.PriceRecord{Date: date, Price: fundPrice})
+		bench = append(bench, store.PriceRecord{Date: date, Price: benchPrice})
+		fundPrice *= 1 + move*multiplier
+		benchPrice *= 1 + move
+	}
+	return fund, bench
+}
+
 func TestComputeBeta_ExactMultiplierGivesExpectedBeta(t *testing.T) {
 	fund, bench := buildCorrelatedMonthlySeries(18, 1.5)
 	got, ok := ComputeBeta(fund, bench)
@@ -100,7 +130,7 @@ func TestComputeBeta_TooFewOverlappingPeriodsReportsNoData(t *testing.T) {
 }
 
 func TestComputeInformationRatio_IdenticalSeriesHasNoTrackingError(t *testing.T) {
-	fund, bench := buildCorrelatedMonthlySeries(18, 1.0)
+	fund, bench := buildCorrelatedDailySeries(90, 1.0)
 	// Identical returns every period -> zero excess-return stddev ->
 	// undefined IR (division by zero avoided, not a real ratio).
 	_, ok := ComputeInformationRatio(fund, bench)
@@ -110,13 +140,21 @@ func TestComputeInformationRatio_IdenticalSeriesHasNoTrackingError(t *testing.T)
 }
 
 func TestComputeInformationRatio_ConsistentOutperformanceIsPositive(t *testing.T) {
-	fund, bench := buildCorrelatedMonthlySeries(18, 1.2)
+	fund, bench := buildCorrelatedDailySeries(90, 1.2)
 	got, ok := ComputeInformationRatio(fund, bench)
 	if !ok {
 		t.Fatalf("HasData = false, want true")
 	}
 	if got <= 0 {
 		t.Errorf("InformationRatio = %v, want positive (fund consistently beats benchmark)", got)
+	}
+}
+
+func TestComputeInformationRatio_TooFewDaysReportsNoData(t *testing.T) {
+	fund, bench := buildCorrelatedDailySeries(30, 1.2)
+	_, ok := ComputeInformationRatio(fund, bench)
+	if ok {
+		t.Errorf("HasData = true, want false (fewer than 60 aligned trading days)")
 	}
 }
 
