@@ -270,13 +270,16 @@ class ReturnsDetailActivity : AppCompatActivity() {
         val label: String, val value: Double, val hasData: Boolean, val decimals: Int, val suffix: String, val colorRes: Int
     )
 
-    // 2-per-row grid of small cards, replacing the old flat "Label:
-    // value" list - see the XML container's own doc comment for why
-    // this is built programmatically rather than as static XML blocks.
+    // 3-per-row grid of small cards (9 metrics = exactly 3 even rows,
+    // cleaner than the old 2-per-row layout's awkward trailing half
+    // row once Alpha and Std. Deviation brought the count from 7 to 9)
+    // - see the XML container's own doc comment for why this is built
+    // programmatically rather than as static XML blocks.
     private fun buildMetricCardGrid(cards: List<MetricCardSpec>) {
         val grid = findViewById<LinearLayout>(R.id.returnsDetailMetricsGrid)
         grid.removeAllViews()
-        cards.chunked(2).forEach { rowCards ->
+        val columns = 3
+        cards.chunked(columns).forEach { rowCards ->
             val row = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 layoutParams = LinearLayout.LayoutParams(
@@ -290,12 +293,12 @@ class ReturnsDetailActivity : AppCompatActivity() {
                     }
                 })
             }
-            // An odd final row (7 cards = 3 rows of 2 + 1) gets an
-            // invisible spacer in the second slot, so the lone card
-            // stays HALF width like every other card rather than
-            // stretching to fill the row - a stretched final card would
-            // look like a mistake, not a deliberate layout.
-            if (rowCards.size == 1) {
+            // A short final row (the count isn't a multiple of 3) gets
+            // invisible spacers filling the remaining slots, so each
+            // real card stays THIRD-width like every other card rather
+            // than stretching to fill the row - a stretched final card
+            // would look like a mistake, not a deliberate layout.
+            repeat(columns - rowCards.size) {
                 row.addView(View(this).apply {
                     layoutParams = LinearLayout.LayoutParams(0, 0, 1f).apply { marginStart = dpToPx(8) }
                 })
