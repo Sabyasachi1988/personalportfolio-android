@@ -9,6 +9,7 @@ import (
 	neturl "net/url"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -605,6 +606,63 @@ func ResolveMfapiSchemeCode(isin string) (int, error) {
 	return 0, fmt.Errorf("no mfapi.in scheme found for ISIN %s", isin)
 }
 
+// MfapiSchemeMatch is one search hit from SearchMfapiSchemes - the
+// (name, ISIN) pair actually needed to let a person pick a fund and
+// add it as an Additional Fund, without exposing mfapi.in's own
+// internal schemeCode (this project identifies funds by ISIN
+// throughout, not by any one source's internal ID).
+type MfapiSchemeMatch struct {
+	Name string
+	ISIN string
+}
+
+// SearchMfapiSchemes looks up funds by a case-insensitive substring of
+// their name against mfapi.in's full scheme list (see MfapiScheme's
+// doc comment for provenance) - reuses the SAME cached list
+// ResolveMfapiSchemeCode already fetches, so a search doesn't trigger
+// its own separate ~37,000-row download.
+func SearchMfapiSchemes(query string, limit int) ([]MfapiSchemeMatch, error) {
+	schemes, err := fetchMfapiSchemeList()
+	if err != nil {
+		return nil, err
+	}
+	return FilterMfapiSchemes(schemes, query, limit), nil
+}
+
+// FilterMfapiSchemes is SearchMfapiSchemes' pure matching logic, split
+// out so it has a real test against a small fixed list, independent of
+// the live network fetch (fetchMfapiSchemeList) this sandbox can't make
+// to api.mfapi.in - same reasoning as every other Parse*/Filter*
+// function in this file. A scheme with BOTH a growth and a
+// dividend-reinvestment ISIN contributes one match per non-empty ISIN
+// variant, since they're genuinely different investable ISINs even
+// though mfapi.in groups them under one schemeCode - each is labeled
+// accordingly so they're not shown as identical duplicates. Capped at
+// `limit` results, in the order `schemes` was given - a broad query
+// would otherwise return far more than anyone could usefully scan.
+func FilterMfapiSchemes(schemes []MfapiScheme, query string, limit int) []MfapiSchemeMatch {
+	lowerQuery := strings.ToLower(query)
+	matches := make([]MfapiSchemeMatch, 0, limit)
+	for _, s := range schemes {
+		if !strings.Contains(strings.ToLower(s.SchemeName), lowerQuery) {
+			continue
+		}
+		if s.ISINGrowth != "" {
+			matches = append(matches, MfapiSchemeMatch{Name: s.SchemeName + " (Growth)", ISIN: s.ISINGrowth})
+			if len(matches) >= limit {
+				break
+			}
+		}
+		if s.ISINDivReinvestment != "" {
+			matches = append(matches, MfapiSchemeMatch{Name: s.SchemeName + " (IDCW Reinvestment)", ISIN: s.ISINDivReinvestment})
+			if len(matches) >= limit {
+				break
+			}
+		}
+	}
+	return matches
+}
+
 // mfapiNavHistoryResponse mirrors GET https://api.mfapi.in/mf/{code} -
 // see MfapiScheme's doc comment for how this was confirmed. Dates come
 // back as "DD-MM-YYYY" strings (converted to this project's own
@@ -801,6 +859,7 @@ func ParseNiftyIndicesTRI(body []byte, since string) ([]TigzigNavPoint, error) {
 	sort.Slice(points, func(i, j int) bool { return points[i].Date < points[j].Date })
 	return points, nil
 }
+
 // parsing/date-conversion/filtering logic has a real test against a
 // fixture, independent of the live network call this sandbox can't
 // make to api.mfapi.in - same reasoning as ParseYahooDirectChart and
