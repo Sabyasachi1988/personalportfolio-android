@@ -41,6 +41,7 @@ class SettingsActivity : AppCompatActivity() {
         statusText = findViewById(R.id.settingsStatusText)
         setupThemeToggle()
         setupLockSettings()
+        setupPopupDurationSetting()
 
         findViewById<android.widget.Button>(R.id.manageMembersButton).setOnClickListener {
             startActivity(android.content.Intent(this, MembersActivity::class.java))
@@ -156,6 +157,25 @@ class SettingsActivity : AppCompatActivity() {
         if (LockPreference.allowWeakBiometric(this)) weakRadio.isChecked = true else strictRadio.isChecked = true
         strictnessGroup.setOnCheckedChangeListener { _, checkedId ->
             LockPreference.setAllowWeakBiometric(this, checkedId == R.id.lockWeakRadio)
+        }
+    }
+
+    /**
+     * How long the self-dismissing chart-marker/period-gain popup stays
+     * visible - see PopupDurationPreference's own doc comment. Same
+     * spinner pattern as setupLockSettings' graceSpinner just above.
+     */
+    private fun setupPopupDurationSetting() {
+        val spinner = findViewById<Spinner>(R.id.popupDurationSpinner)
+        spinner.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, PopupDurationPreference.DURATION_LABELS)
+        val currentSeconds = PopupDurationPreference.durationMs(this) / 1000.0
+        val currentIndex = PopupDurationPreference.DURATION_OPTIONS_SECONDS.indexOf(currentSeconds).coerceAtLeast(0)
+        spinner.setSelection(currentIndex)
+        spinner.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: android.view.View?, position: Int, id: Long) {
+                PopupDurationPreference.setDurationSeconds(this@SettingsActivity, PopupDurationPreference.DURATION_OPTIONS_SECONDS.getOrElse(position) { 0.8 })
+            }
+            override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {}
         }
     }
 
