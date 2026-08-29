@@ -1,5 +1,6 @@
 package com.saby.personalportfolio
 
+import android.content.Intent
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -92,6 +93,22 @@ class HoldingsAdapter(private val holdings: List<Holding>) :
 
         val rowHolder = holder as RowHolder
         val h = holdings[if (hasHeader) position - 1 else position]
+
+        // Tap-through to the same per-fund chart (with transaction
+        // markers + range presets) the Returns screen's own row tap
+        // already opens - see ReturnsDetailActivity. Holdings is the
+        // natural "specific fund" card list for this: Allocation's own
+        // tabs (market cap / equity origin / portfolio class / tags)
+        // are all AGGREGATED slices with no single fund's identity to
+        // navigate with, so there's no equivalent tap target to add
+        // there.
+        rowHolder.itemView.setOnClickListener {
+            val intent = Intent(rowHolder.itemView.context, ReturnsDetailActivity::class.java)
+            intent.putExtra(ReturnsDetailActivity.EXTRA_SERIES_ID, h.assetId)
+            intent.putExtra(ReturnsDetailActivity.EXTRA_NAME, FundNameFormatter.shorten(h.assetName))
+            intent.putExtra(ReturnsDetailActivity.EXTRA_IS_BENCHMARK, false)
+            rowHolder.itemView.context.startActivity(intent)
+        }
 
         rowHolder.name.text = FundNameFormatter.shorten(h.assetName).ifBlank { "(unnamed asset)" }
 
