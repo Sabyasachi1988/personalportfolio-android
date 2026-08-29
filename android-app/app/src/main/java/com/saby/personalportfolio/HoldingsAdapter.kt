@@ -56,6 +56,7 @@ class HoldingsAdapter(private val holdings: List<Holding>) :
         val currentValue: TextView = view.findViewById(R.id.holdingCurrentValue)
         val gainBadge: TextView = view.findViewById(R.id.holdingGainBadge)
         val secondaryLine: TextView = view.findViewById(R.id.holdingSecondaryLine)
+        val isin: TextView = view.findViewById(R.id.holdingIsin)
         val dayGain: TextView = view.findViewById(R.id.holdingDayGain)
     }
 
@@ -111,6 +112,13 @@ class HoldingsAdapter(private val holdings: List<Holding>) :
         }
 
         rowHolder.name.text = FundNameFormatter.shorten(h.canonicalName.ifEmpty { h.assetName }).ifBlank { "(unnamed asset)" }
+
+        if (h.isin.isNotEmpty()) {
+            rowHolder.isin.text = "ISIN: ${h.isin}"
+            rowHolder.isin.visibility = View.VISIBLE
+        } else {
+            rowHolder.isin.visibility = View.GONE
+        }
 
         val alsoHeldByPart = if (h.alsoHeldByMembers.isNotEmpty()) {
             " · also held by ${h.alsoHeldByMembers.joinToString(", ")}"
