@@ -2,6 +2,7 @@ package finance
 
 import (
 	"fmt"
+	"math"
 	"testing"
 
 	"ledger/internal/store"
@@ -186,6 +187,60 @@ func TestComputeSortinoRatio_TooFewMonthsReportsNoData(t *testing.T) {
 	_, ok := ComputeSortinoRatio(fund)
 	if ok {
 		t.Errorf("HasData = true, want false (fewer than 12 months)")
+	}
+}
+
+func TestComputeStandardDeviation_HigherVolatilityGivesHigherStdDev(t *testing.T) {
+	steady, _ := buildCorrelatedMonthlySeries(18, 1.0)
+	volatile, _ := buildCorrelatedMonthlySeries(18, 3.0) // 3x the monthly swings, same direction pattern
+	steadySD, ok1 := ComputeStandardDeviation(steady)
+	volatileSD, ok2 := ComputeStandardDeviation(volatile)
+	if !ok1 || !ok2 {
+		t.Fatalf("HasData = (%v, %v), want (true, true)", ok1, ok2)
+	}
+	if volatileSD <= steadySD {
+		t.Errorf("volatile StdDev = %v, steady StdDev = %v - want volatile strictly higher", volatileSD, steadySD)
+	}
+}
+
+func TestComputeStandardDeviation_TooFewMonthsReportsNoData(t *testing.T) {
+	fund, _ := buildCorrelatedMonthlySeries(6, 1.0)
+	_, ok := ComputeStandardDeviation(fund)
+	if ok {
+		t.Errorf("HasData = true, want false (fewer than 12 months)")
+	}
+}
+
+func TestComputeAlpha_OutperformingBeyondItsBetaIsPositive(t *testing.T) {
+	// Fund moves 1.0x the benchmark's swings (so Beta ~= 1, expected
+	// return ~= benchmark's own return under CAPM) but starts from a
+	// higher baseline compounding - constructed via an EXTRA flat
+	// multiplicative bump applied every period on top of the 1:1
+	// correlated moves, so its realized return exceeds what a Beta-1
+	// fund should have earned. That gap is exactly what Alpha should
+	// pick up as positive.
+	fund, bench := buildCorrelatedMonthlySeries(18, 1.0)
+	for i := range fund {
+		// Compound an extra 0.5%/month of pure outperformance into the
+		// fund alone, leaving the benchmark untouched - this decouples
+		// "beats its own Beta-implied expectation" from "just has a
+		// higher multiplier", which would also inflate Beta itself.
+		fund[i].Price *= math.Pow(1.005, float64(i))
+	}
+	got, ok := ComputeAlpha(fund, bench)
+	if !ok {
+		t.Fatalf("HasData = false, want true")
+	}
+	if got <= 0 {
+		t.Errorf("Alpha = %v, want positive for a fund with genuine outperformance beyond its Beta", got)
+	}
+}
+
+func TestComputeAlpha_TooFewOverlappingPeriodsReportsNoData(t *testing.T) {
+	fund, bench := buildCorrelatedMonthlySeries(10, 1.0)
+	_, ok := ComputeAlpha(fund, bench)
+	if ok {
+		t.Errorf("HasData = true, want false (fewer than 12 overlapping monthly periods)")
 	}
 }
 
