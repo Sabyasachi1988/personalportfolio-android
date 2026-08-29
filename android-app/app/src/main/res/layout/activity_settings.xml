@@ -345,11 +345,39 @@
         android:textColor="@color/colorNeutral"
         android:text="How long a tapped chart marker or period-gain popup stays visible before disappearing on its own." />
 
-    <Spinner
-        android:id="@+id/popupDurationSpinner"
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="6dp" />
+        android:layout_marginTop="8dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+
+        <EditText
+            android:id="@+id/popupDurationInput"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="wrap_content"
+            android:hint="Seconds, e.g. 1.75"
+            android:inputType="numberDecimal" />
+
+        <TextView
+            android:id="@+id/popupDurationSaveButton"
+            style="@style/ActionChip"
+            android:layout_width="wrap_content"
+            android:layout_marginStart="8dp"
+            android:text="Save" />
+
+    </LinearLayout>
+
+    <!-- Quick presets, purely as tap-to-fill shortcuts into the free-text
+         field above - not a constraint on what can be typed there. -->
+    <com.google.android.material.chip.ChipGroup
+        android:id="@+id/popupDurationQuickPicks"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        app:chipSpacingHorizontal="6dp"
+        xmlns:app="http://schemas.android.com/apk/res-auto" />
 
     <View
         android:layout_width="match_parent"
