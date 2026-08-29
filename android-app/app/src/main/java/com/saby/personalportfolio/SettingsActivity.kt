@@ -162,20 +162,48 @@ class SettingsActivity : AppCompatActivity() {
 
     /**
      * How long the self-dismissing chart-marker/period-gain popup stays
-     * visible - see PopupDurationPreference's own doc comment. Same
-     * spinner pattern as setupLockSettings' graceSpinner just above.
+     * visible - see PopupDurationPreference's own doc comment. A free-
+     * text seconds field (any decimal, e.g. 1.75), not a fixed set of
+     * choices - a confirmed real ask not to be confined to preset
+     * options. The quick-pick chips below it are tap-to-FILL shortcuts
+     * into that same field, not a separate constrained control.
      */
     private fun setupPopupDurationSetting() {
-        val spinner = findViewById<Spinner>(R.id.popupDurationSpinner)
-        spinner.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, PopupDurationPreference.DURATION_LABELS)
+        val input = findViewById<android.widget.EditText>(R.id.popupDurationInput)
+        val saveButton = findViewById<TextView>(R.id.popupDurationSaveButton)
+        val quickPicksGroup = findViewById<com.google.android.material.chip.ChipGroup>(R.id.popupDurationQuickPicks)
+
         val currentSeconds = PopupDurationPreference.durationMs(this) / 1000.0
-        val currentIndex = PopupDurationPreference.DURATION_OPTIONS_SECONDS.indexOf(currentSeconds).coerceAtLeast(0)
-        spinner.setSelection(currentIndex)
-        spinner.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
-            override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: android.view.View?, position: Int, id: Long) {
-                PopupDurationPreference.setDurationSeconds(this@SettingsActivity, PopupDurationPreference.DURATION_OPTIONS_SECONDS.getOrElse(position) { 0.8 })
+        input.setText(formatSeconds(currentSeconds))
+
+        PopupDurationPreference.DURATION_OPTIONS_SECONDS.forEachIndexed { i, seconds ->
+            val chip = com.google.android.material.chip.Chip(this)
+            chip.text = PopupDurationPreference.DURATION_LABELS[i]
+            chip.isClickable = true
+            chip.setOnClickListener { input.setText(formatSeconds(seconds)) }
+            quickPicksGroup.addView(chip)
+        }
+
+        saveButton.setOnClickListener {
+            val seconds = input.text?.toString()?.trim()?.toDoubleOrNull()
+            if (seconds == null || seconds <= 0) {
+                input.error = "Enter a positive number of seconds, e.g. 1.75"
+                return@setOnClickListener
             }
-            override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {}
+            input.error = null
+            PopupDurationPreference.setDurationSeconds(this, seconds)
+            Toast.makeText(this, "Popup duration set to ${formatSeconds(seconds)}s", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun formatSeconds(seconds: Double): String {
+        // No trailing ".0" for a whole number, but keeps real decimals
+        // (1.75 stays 1.75) - purely cosmetic, doesn't affect what's
+        // actually saved.
+        return if (seconds == seconds.toLong().toDouble()) {
+            seconds.toLong().toString()
+        } else {
+            seconds.toString()
         }
     }
 
