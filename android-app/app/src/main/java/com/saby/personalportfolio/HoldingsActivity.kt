@@ -68,6 +68,11 @@ class HoldingsActivity : AppCompatActivity() {
     // Populated only when groupByLabelSwitch is on - see loadAndShowHoldings.
     private var allGroupedHoldings: List<GroupedHolding> = emptyList()
 
+    // True while "All (family)" is selected (and no segment filter) -
+    // see loadAndShowHoldings' own comment for what this forces
+    // (mandatory same-ISIN pooling, regardless of groupByLabelSwitch).
+    private var isFamilyView = false
+
     private val sortOptions = listOf(
         "Value (high to low)", "Value (low to high)",
         "Gain % (high to low)", "Gain % (low to high)",
@@ -228,7 +233,26 @@ class HoldingsActivity : AppCompatActivity() {
 
         allHoldings = holdings
 
-        allGroupedHoldings = if (groupByLabelSwitch.isChecked && filter == null) {
+        // "All (family)" ALWAYS pools same-ISIN holdings across members
+        // into one row (see finance.PoolHoldingsByISIN's own doc
+        // comment) - a confirmed real correction: the same fund held by
+        // different people should show as one combined strip, not two,
+        // regardless of whether "Group by fund label" happens to be on.
+        // That toggle stays meaningful once a SPECIFIC member is
+        // selected (grouping different funds under one manual label,
+        // unrelated to this).
+        isFamilyView = memberId.isEmpty() && filter == null
+        groupByLabelSwitch.isEnabled = !isFamilyView && filter == null
+
+        allGroupedHoldings = if (isFamilyView) {
+            val pooledJson = Bridge.computeFamilyPooledHoldings(portfolioJson)
+            val groupedType = object : TypeToken<List<GroupedHolding>>() {}.type
+            try {
+                gson.fromJson(pooledJson, groupedType) ?: emptyList()
+            } catch (e: Exception) {
+                emptyList()
+            }
+        } else if (groupByLabelSwitch.isChecked && filter == null) {
             val groupedJson = Bridge.computeGroupedHoldings(portfolioJson, memberId)
             val groupedType = object : TypeToken<List<GroupedHolding>>() {}.type
             try {
@@ -303,7 +327,7 @@ class HoldingsActivity : AppCompatActivity() {
     private fun applyFilterAndSort() {
         val query = searchInput.text?.toString()?.trim().orEmpty()
 
-        if (groupByLabelSwitch.isChecked && segmentFilter == null) {
+        if ((isFamilyView || groupByLabelSwitch.isChecked) && segmentFilter == null) {
             var grouped = if (query.isBlank()) {
                 allGroupedHoldings
             } else {
@@ -317,7 +341,7 @@ class HoldingsActivity : AppCompatActivity() {
                 4 -> grouped.sortedBy { it.displayName }
                 else -> grouped
             }
-            recyclerView.adapter = GroupedHoldingsAdapter(grouped) { row -> showGroupDrillDown(row) }
+            recyclerView.adapter = GroupedHoldingsAdapter(grouped) { row -> onGroupedRowTapped(row) }
             return
         }
 
@@ -337,6 +361,40 @@ class HoldingsActivity : AppCompatActivity() {
         }
 
         recyclerView.adapter = HoldingsAdapter(result)
+    }
+
+    /**
+     * Routes a tap on a consolidated row to the right place - see
+     * GroupedHolding.IsFamilyPool's own Go doc comment for why this
+     * isn't one behavior for every grouped row: a family-pooled row
+     * (the same fund held by different people) opens the SAME chart
+     * screen any single fund would, with everyone's transaction
+     * markers on it - a GroupLabel-grouped row (several DIFFERENT
+     * funds under one manual label) still just shows which funds it's
+     * made of, since there's no single NAV line to chart for those.
+     */
+    private fun onGroupedRowTapped(row: GroupedHolding) {
+        if (row.isFamilyPool && row.isGroup) {
+            val intent = android.content.Intent(this, ReturnsDetailActivity::class.java)
+            intent.putExtra(ReturnsDetailActivity.EXTRA_SERIES_ID, row.assetIds.firstOrNull().orEmpty())
+            intent.putExtra(ReturnsDetailActivity.EXTRA_NAME, FundNameFormatter.shorten(row.displayName))
+            intent.putExtra(ReturnsDetailActivity.EXTRA_IS_BENCHMARK, false)
+            intent.putExtra(ReturnsDetailActivity.EXTRA_FAMILY_ASSET_IDS, gson.toJson(row.assetIds))
+            startActivity(intent)
+        } else if (row.isGroup) {
+            showGroupDrillDown(row)
+        } else if (row.assetIds.size == 1) {
+            // A family-view row that DIDN'T end up pooled (unique ISIN,
+            // only one holder) - still tap-through to its own chart,
+            // same as HoldingsAdapter's own single-fund rows do, rather
+            // than silently doing nothing.
+            val assetId = row.assetIds[0]
+            val intent = android.content.Intent(this, ReturnsDetailActivity::class.java)
+            intent.putExtra(ReturnsDetailActivity.EXTRA_SERIES_ID, assetId)
+            intent.putExtra(ReturnsDetailActivity.EXTRA_NAME, FundNameFormatter.shorten(row.displayName))
+            intent.putExtra(ReturnsDetailActivity.EXTRA_IS_BENCHMARK, false)
+            startActivity(intent)
+        }
     }
 
     /**
