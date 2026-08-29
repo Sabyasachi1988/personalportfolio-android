@@ -3,6 +3,7 @@ package finance
 import (
 	"math"
 	"sort"
+	"time"
 
 	"ledger/internal/store"
 )
@@ -38,16 +39,72 @@ type FundMetrics struct {
 	AlphaHasData       bool
 }
 
-// assumedAnnualRiskFreeRate is used by ComputeSharpeRatio and
-// ComputeSortinoRatio in place of a live risk-free-rate feed, which
-// this app has no data source for. Set to approximate the yield on a
-// 91-day Government of India Treasury Bill, the conventional Indian
-// risk-free proxy used by domestic fund-factsheet Sharpe figures. This
-// is a deliberate simplification, not a fetched value - flagged plainly
-// here (and via each metric's own doc comment) rather than dressed up
-// as more precise than it is. If this app ever wires up a live G-Sec/
-// T-Bill yield source, this constant should be replaced by that feed.
-const assumedAnnualRiskFreeRate = 0.065
+// assumedAnnualRiskFreeRate is used by ComputeSharpeRatio, ComputeAlpha,
+// and ComputeSortinoRatio in place of a live risk-free-rate feed, which
+// this app has no data source for.
+//
+// Set to FBIL Overnight MIBOR (the Mumbai Interbank Overnight Rate,
+// published by Financial Benchmarks India Ltd) - CONFIRMED as the
+// actual risk-free-rate benchmark real Indian AMCs use, not assumed:
+// PPFAS Mutual Fund's own May 2026 factsheet (fetched live) states
+// verbatim in its Quantitative Indicators footnote: "Risk free rate
+// assumed to be (FBIL Overnight MIBOR as on May 31, 2026) 5.52%". This
+// corrects an earlier, WRONG assumption in this file that Indian
+// factsheets use a 91-day T-Bill - they don't; MIBOR is an overnight
+// rate, a different instrument entirely, and the two aren't
+// numerically interchangeable (MIBOR sits below T-Bill yields most of
+// the time).
+//
+// Still a static value, not a live feed - FBIL publishes Overnight
+// MIBOR only via its own site (fbil.org.in) and CCIL, with no free
+// public API found (only paid data-vendor feeds like CEIC), unlike
+// every other external data source this app already wires up live. If
+// a genuine free/scrapable FBIL feed is ever found, this constant
+// should be replaced by that feed - flagged here plainly, the same way
+// this constant always has been, rather than dressed up as more
+// precise/current than it is. 5.5% approximates the confirmed May 2026
+// PPFAS figure; update this if a materially different current MIBOR
+// print becomes known.
+const assumedAnnualRiskFreeRate = 0.055
+
+// WindowToTrailingYears returns only the records from the trailing N
+// years of `series`, anchored to the series' own LATEST date (not
+// today's real-world date, so a fund whose price history hasn't been
+// refreshed in a while still gets a meaningful window instead of an
+// empty one). This is the standard "3-year" window real Indian AMC
+// factsheets use for their Risk Statistics block (Beta, Information
+// Ratio, Up/Down Capture, Alpha, Sharpe, Sortino, Standard Deviation) -
+// confirmed via multiple live-fetched sources: an industry-methodology
+// article stating plainly that "the standard Indian AMC methodology
+// uses monthly NAV data over a 3-year period", cross-checked against
+// Fidelity's own (US) factsheet glossary describing the identical
+// "3-Year Sharpe Ratio... Beta... 36 months" convention. Deliberately
+// NOT applied to Max Drawdown, which has no equivalent confirmed
+// 3-year convention in what was actually verified here and is left
+// computed over the fund's full available history, same as before.
+func WindowToTrailingYears(series []store.PriceRecord, years int) []store.PriceRecord {
+	if len(series) == 0 {
+		return series
+	}
+	latest := series[0].Date
+	for _, r := range series[1:] {
+		if r.Date > latest {
+			latest = r.Date
+		}
+	}
+	t, err := time.Parse(dateLayout, latest)
+	if err != nil {
+		return series // malformed date somewhere - fail open to the full series rather than silently dropping everything
+	}
+	cutoff := t.AddDate(-years, 0, 0).Format(dateLayout)
+	out := make([]store.PriceRecord, 0, len(series))
+	for _, r := range series {
+		if r.Date >= cutoff {
+			out = append(out, r)
+		}
+	}
+	return out
+}
 
 // ComputeMaxDrawdown finds the worst peak-to-trough decline in a price
 // series - the largest percentage drop from any running peak to the
