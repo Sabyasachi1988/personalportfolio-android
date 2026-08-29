@@ -34,30 +34,32 @@ import androidx.core.content.ContextCompat
  *
  * Two ways to trigger it, per explicit feedback that the original fixed
  * 4-second display felt too long:
- *  - show(): a quick tap - displays for LINGER_DURATION_MS then
- *    auto-hides on its own.
+ *  - show(): a quick tap - displays for the user's configured duration
+ *    (see PopupDurationPreference) then auto-hides on its own.
  *  - showPersistent() + dismissAfterLinger(): a press-and-hold - shows
  *    with NO timer while the finger is down (showPersistent), then once
- *    released (dismissAfterLinger) stays up for just LINGER_DURATION_MS
- *    more before going away - "as we leave the point... stays for
- *    half a second to one second" was the exact ask.
+ *    released (dismissAfterLinger) stays up for the same configured
+ *    duration more before going away - "as we leave the point... stays
+ *    for half a second to one second" was the original ask; the exact
+ *    duration is now the person's own choice in Settings, not fixed.
  */
 class AutoDismissPopupView @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null
 ) : LinearLayout(context, attrs) {
 
-    companion object {
-        // 800ms - inside the explicitly requested "half a second to one
-        // second" window, used both for a quick tap's own display time
-        // and for how long a HELD marker's popup lingers after release.
-        const val LINGER_DURATION_MS = 800L
-    }
-
     private val titleView: TextView
     private val messageView: TextView
     private val handler = Handler(Looper.getMainLooper())
     private val hideRunnable = Runnable { visibility = GONE }
+
+    // Read once per show/dismissAfterLinger call, not cached at
+    // construction - so a change made in Settings mid-session (the
+    // person opens Settings, changes the duration, comes back) takes
+    // effect on the very next popup without needing this view
+    // recreated.
+    private val configuredDurationMs: Long
+        get() = PopupDurationPreference.durationMs(context)
 
     init {
         orientation = VERTICAL
@@ -110,7 +112,7 @@ class AutoDismissPopupView @JvmOverloads constructor(
         if (anchorX != null && anchorY != null) positionNear(anchorX, anchorY)
         visibility = VISIBLE
         handler.removeCallbacks(hideRunnable)
-        handler.postDelayed(hideRunnable, LINGER_DURATION_MS)
+        handler.postDelayed(hideRunnable, configuredDurationMs)
     }
 
     /**
@@ -129,7 +131,7 @@ class AutoDismissPopupView @JvmOverloads constructor(
     /** Starts the short auto-hide timer - call once a showPersistent() hold has ended (finger lifted). */
     fun dismissAfterLinger() {
         handler.removeCallbacks(hideRunnable)
-        handler.postDelayed(hideRunnable, LINGER_DURATION_MS)
+        handler.postDelayed(hideRunnable, configuredDurationMs)
     }
 
     private fun setContent(title: String, message: String, accentColorRes: Int) {
