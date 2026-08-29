@@ -238,7 +238,7 @@ func TestComputeCaptureRatios_TooFewMonthlyPeriodsReportsNoData(t *testing.T) {
 
 func TestComputeSharpeRatio_StrongConsistentGrowthIsPositive(t *testing.T) {
 	fund, _ := buildCorrelatedMonthlySeries(18, 1.0)
-	got, ok := ComputeSharpeRatio(fund)
+	got, ok := ComputeSharpeRatio(fund, 0.055)
 	if !ok {
 		t.Fatalf("HasData = false, want true")
 	}
@@ -249,7 +249,7 @@ func TestComputeSharpeRatio_StrongConsistentGrowthIsPositive(t *testing.T) {
 
 func TestComputeSharpeRatio_TooFewMonthsReportsNoData(t *testing.T) {
 	fund, _ := buildCorrelatedMonthlySeries(6, 1.0)
-	_, ok := ComputeSharpeRatio(fund)
+	_, ok := ComputeSharpeRatio(fund, 0.055)
 	if ok {
 		t.Errorf("HasData = true, want false (fewer than 12 months)")
 	}
@@ -257,7 +257,7 @@ func TestComputeSharpeRatio_TooFewMonthsReportsNoData(t *testing.T) {
 
 func TestComputeSortinoRatio_HasDataWhenDownMonthsExist(t *testing.T) {
 	fund, _ := buildCorrelatedMonthlySeries(18, 1.0)
-	got, ok := ComputeSortinoRatio(fund)
+	got, ok := ComputeSortinoRatio(fund, 0.055)
 	if !ok {
 		t.Fatalf("HasData = false, want true (series has real down-months)")
 	}
@@ -268,7 +268,7 @@ func TestComputeSortinoRatio_HasDataWhenDownMonthsExist(t *testing.T) {
 
 func TestComputeSortinoRatio_TooFewMonthsReportsNoData(t *testing.T) {
 	fund, _ := buildCorrelatedMonthlySeries(6, 1.0)
-	_, ok := ComputeSortinoRatio(fund)
+	_, ok := ComputeSortinoRatio(fund, 0.055)
 	if ok {
 		t.Errorf("HasData = true, want false (fewer than 12 months)")
 	}
@@ -311,7 +311,7 @@ func TestComputeAlpha_OutperformingBeyondItsBetaIsPositive(t *testing.T) {
 		// higher multiplier", which would also inflate Beta itself.
 		fund[i].Price *= math.Pow(1.005, float64(i))
 	}
-	got, ok := ComputeAlpha(fund, bench)
+	got, ok := ComputeAlpha(fund, bench, 0.055)
 	if !ok {
 		t.Fatalf("HasData = false, want true")
 	}
@@ -322,7 +322,7 @@ func TestComputeAlpha_OutperformingBeyondItsBetaIsPositive(t *testing.T) {
 
 func TestComputeAlpha_TooFewOverlappingPeriodsReportsNoData(t *testing.T) {
 	fund, bench := buildCorrelatedMonthlySeries(10, 1.0)
-	_, ok := ComputeAlpha(fund, bench)
+	_, ok := ComputeAlpha(fund, bench, 0.055)
 	if ok {
 		t.Errorf("HasData = true, want false (fewer than 12 overlapping monthly periods)")
 	}
