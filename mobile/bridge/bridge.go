@@ -1891,7 +1891,19 @@ type UpdateAllHistoryResult struct {
 	BenchmarkTotal        int
 	BenchmarkFailures     []string
 	BenchmarkUsedFallback []string // labels of benchmarks whose history came from the fallback source
-	PortfolioJSON         string
+	// RiskFreeRateUpdated/RiskFreeRateError report the outcome of a
+	// best-effort risk-free-rate refresh (see RefreshRiskFreeRate's own
+	// doc comment) bundled into this same NAV-refresh action, per an
+	// explicit request that it happen "on a regular basis... when I
+	// refresh to get NAV updates" rather than needing its own separate
+	// trigger. Deliberately does NOT fail the whole UpdateAllHistory
+	// call if this one piece fails - NAV/price/FX/benchmark history is
+	// the primary purpose of this function, and a factsheet PDF being
+	// briefly unreachable shouldn't block everything else that
+	// succeeded.
+	RiskFreeRateUpdated bool
+	RiskFreeRateError   string
+	PortfolioJSON       string
 }
 
 // historyOutcome is one concurrent fetch's result, collected before any
@@ -2212,6 +2224,27 @@ func UpdateAllHistory(portfolioJSON string) string {
 		}
 	}
 
+	// Best-effort risk-free-rate refresh, bundled into this same NAV-
+	// refresh action - see UpdateAllHistoryResult.RiskFreeRateUpdated's
+	// own doc comment for why this doesn't fail the whole call on
+	// error. Skipped entirely (not even attempted) while a manual
+	// override is active - SetFetchedRiskFreeRate already no-ops in
+	// that case, but checking here too avoids the pointless network
+	// fetch when its result would just be discarded anyway.
+	if !p.RiskFreeRateManual {
+		if rfResult, errs := priceapi.FetchConsensusRiskFreeRate(); len(errs) == 0 || rfResult.RatePercent != 0 {
+			if p.SetFetchedRiskFreeRate(rfResult.RatePercent, rfResult.AsOfDate, rfResult.Source) {
+				result.RiskFreeRateUpdated = true
+			}
+		} else {
+			msgs := make([]string, 0, len(errs))
+			for _, e := range errs {
+				msgs = append(msgs, e.Error())
+			}
+			result.RiskFreeRateError = strings.Join(msgs, "; ")
+		}
+	}
+
 	portfolioOut, err := json.Marshal(p)
 	if err != nil {
 		return fmt.Sprintf(`{"error":%q}`, err.Error())
@@ -2235,9 +2268,9 @@ func UpdateAllHistory(portfolioJSON string) string {
 // historically looked like") side by side, so the two different
 // questions those numbers answer are both visible at once.
 type ReturnsTableRow struct {
-	SeriesID          string // an Asset.ID or a Benchmark.ID - pass back to ComputePriceHistory for the tap-to-graph drill-down
-	Name              string
-	IsBenchmark       bool
+	SeriesID    string // an Asset.ID or a Benchmark.ID - pass back to ComputePriceHistory for the tap-to-graph drill-down
+	Name        string
+	IsBenchmark bool
 	// IsAdditional marks an "Additional Fund" - a fund tracked for
 	// comparison but not actually owned (see store.Asset.AccountID's
 	// own doc comment). Always false for a benchmark row. The Returns
@@ -2383,6 +2416,15 @@ type TransactionMarker struct {
 	Price       float64 // NAV/price at the time of this transaction, as recorded on the statement - NOT re-derived from the price history series, since the two can legitimately differ slightly (statement price vs a later-fetched close)
 	Amount      float64 // absolute value - sign is already conveyed by IsBuy, no need to double-encode it
 	Description string
+	// Member is who made this specific transaction - always "" for a
+	// single-fund chart (ComputeAssetTransactionMarkers), only ever
+	// populated by ComputeFamilyTransactionMarkers below, where a
+	// single chart can now show markers from more than one family
+	// member's own account. A confirmed real request: the SAME real
+	// fund held by different members should show as ONE chart with
+	// everyone's transactions on it, each labeled whose it is - not a
+	// tap-through summary dialog.
+	Member string
 }
 
 // ComputeAssetTransactionMarkers returns every plottable transaction
@@ -2401,6 +2443,60 @@ func ComputeAssetTransactionMarkers(portfolioJSON string, seriesID string) strin
 	}
 	markers := buildTransactionMarkers(p.Transactions, seriesID)
 	out, err := json.Marshal(markers)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+	return string(out)
+}
+
+// ComputeFamilyTransactionMarkers is ComputeAssetTransactionMarkers'
+// multi-asset counterpart - for a fund pooled across family members
+// (see finance.PoolHoldingsByISIN's own doc comment for the "same
+// ISIN, different accounts" pooling this serves), returns EVERY
+// plottable transaction across ALL the given asset IDs on one combined,
+// date-sorted list, each marker tagged with which member made it (via
+// that asset's own Account -> Member chain) - so a single chart can
+// show the whole family's buys/sells on the one fund they all hold,
+// not just one person's. assetIDsJSON is a JSON array of Asset.ID
+// strings (the pooled group's AssetIDs, exactly as
+// finance.GroupedHolding.AssetIDs already provides them).
+func ComputeFamilyTransactionMarkers(portfolioJSON string, assetIDsJSON string) string {
+	var p store.Portfolio
+	if portfolioJSON != "" {
+		if err := json.Unmarshal([]byte(portfolioJSON), &p); err != nil {
+			return fmt.Sprintf(`{"error":%q}`, "invalid portfolio JSON: "+err.Error())
+		}
+	}
+	var assetIDs []string
+	if err := json.Unmarshal([]byte(assetIDsJSON), &assetIDs); err != nil {
+		return fmt.Sprintf(`{"error":%q}`, "invalid assetIDs JSON: "+err.Error())
+	}
+
+	accountMember := make(map[string]string, len(p.Accounts))
+	for _, a := range p.Accounts {
+		accountMember[a.ID] = a.MemberID
+	}
+	memberName := make(map[string]string, len(p.Members))
+	for _, m := range p.Members {
+		memberName[m.ID] = m.Name
+	}
+	assetAccount := make(map[string]string, len(p.Assets))
+	for _, a := range p.Assets {
+		assetAccount[a.ID] = a.AccountID
+	}
+
+	var all []TransactionMarker
+	for _, assetID := range assetIDs {
+		markers := buildTransactionMarkers(p.Transactions, assetID)
+		mName := memberName[accountMember[assetAccount[assetID]]]
+		for i := range markers {
+			markers[i].Member = mName
+		}
+		all = append(all, markers...)
+	}
+	sort.Slice(all, func(i, j int) bool { return all[i].Date < all[j].Date })
+
+	out, err := json.Marshal(all)
 	if err != nil {
 		return fmt.Sprintf(`{"error":%q}`, err.Error())
 	}
@@ -2542,6 +2638,84 @@ type FundMetricsResult struct {
 	BenchmarkID   string
 	BenchmarkName string
 	AutoSelected  bool // true if BenchmarkID was picked by DefaultBenchmarkTicker, not chosen by the person
+	// RiskFreeRatePercent/AsOf/Source/Manual mirror the SAME fields on
+	// store.Portfolio (see RiskFreeRatePercent's own doc comment) -
+	// included here so the Kotlin side can show WHICH rate was actually
+	// used for this specific Sharpe/Sortino/Alpha, and where it came
+	// from, rather than presenting the figures with no visible
+	// assumption behind them.
+	RiskFreeRatePercent float64
+	RiskFreeRateAsOf    string
+	RiskFreeRateSource  string
+	RiskFreeRateManual  bool
+}
+
+// RefreshRiskFreeRate fetches the current risk-free rate directly from
+// a real AMC's own monthly factsheet - see priceapi.FetchConsensusRiskFreeRate's
+// own doc comment for the source/redundancy/fallback details. No-op
+// (does NOT overwrite) if the person has a manual override active -
+// see store.Portfolio.RiskFreeRateManual's own doc comment for why.
+// Meant to be called from the same "refresh" action that already
+// fetches NAV history, so the rate stays current without a separate
+// dedicated action to remember.
+func RefreshRiskFreeRate(portfolioJSON string) string {
+	var p store.Portfolio
+	if portfolioJSON != "" {
+		if err := json.Unmarshal([]byte(portfolioJSON), &p); err != nil {
+			return fmt.Sprintf(`{"error":%q}`, "invalid portfolio JSON: "+err.Error())
+		}
+	}
+	result, errs := priceapi.FetchConsensusRiskFreeRate()
+	if len(errs) > 0 && result.RatePercent == 0 {
+		msgs := make([]string, 0, len(errs))
+		for _, e := range errs {
+			msgs = append(msgs, e.Error())
+		}
+		return fmt.Sprintf(`{"error":%q}`, "could not fetch a risk-free rate from any source: "+strings.Join(msgs, "; "))
+	}
+	p.SetFetchedRiskFreeRate(result.RatePercent, result.AsOfDate, result.Source)
+	out, err := json.Marshal(p)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+	return string(out)
+}
+
+// SetManualRiskFreeRate lets the person override the risk-free rate
+// directly - see store.Portfolio.SetManualRiskFreeRate's own doc
+// comment. ratePercent is a PERCENT (5.5 for 5.5%), matching the
+// field's own convention throughout this app.
+func SetManualRiskFreeRate(portfolioJSON string, ratePercent float64) string {
+	var p store.Portfolio
+	if portfolioJSON != "" {
+		if err := json.Unmarshal([]byte(portfolioJSON), &p); err != nil {
+			return fmt.Sprintf(`{"error":%q}`, "invalid portfolio JSON: "+err.Error())
+		}
+	}
+	p.SetManualRiskFreeRate(ratePercent)
+	out, err := json.Marshal(p)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+	return string(out)
+}
+
+// ClearManualRiskFreeRate reverts to letting RefreshRiskFreeRate update
+// the rate again - see store.Portfolio.ClearManualRiskFreeRate's own
+// doc comment.
+func ClearManualRiskFreeRate(portfolioJSON string) string {
+	var p store.Portfolio
+	if portfolioJSON != "" {
+		if err := json.Unmarshal([]byte(portfolioJSON), &p); err != nil {
+			return fmt.Sprintf(`{"error":%q}`, "invalid portfolio JSON: "+err.Error())
+		}
+	}
+	p.ClearManualRiskFreeRate()
+	out, err := json.Marshal(p)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+	return string(out)
 }
 
 // ComputeFundMetrics computes Beta/Information Ratio/Up-Down Capture/Max
@@ -2581,6 +2755,11 @@ func ComputeFundMetrics(portfolioJSON string, seriesID string, benchmarkID strin
 		result.MaxDrawdown = dd
 		result.MaxDrawdownHasData = true
 	}
+
+	// The person's own stored/fetched risk-free rate, resolved once and
+	// reused across every metric below that needs it (Alpha/Sharpe/
+	// Sortino) - see finance.ResolveRiskFreeRate's own doc comment.
+	riskFreeRate := finance.ResolveRiskFreeRate(&p)
 
 	// Everything below (Beta/Information Ratio/Capture/Alpha/Sharpe/
 	// Sortino/Standard Deviation) is windowed to the trailing 3 years -
@@ -2647,7 +2826,7 @@ func ComputeFundMetrics(portfolioJSON string, seriesID string, benchmarkID strin
 					result.DownCapture = down
 					result.DownCaptureHasData = true
 				}
-				if alpha, ok := finance.ComputeAlpha(windowedFundSeries, benchSeries); ok {
+				if alpha, ok := finance.ComputeAlpha(windowedFundSeries, benchSeries, riskFreeRate); ok {
 					result.Alpha = alpha
 					result.AlphaHasData = true
 				}
@@ -2662,17 +2841,29 @@ func ComputeFundMetrics(portfolioJSON string, seriesID string, benchmarkID strin
 	// benchmark-relative block above (which also now includes Alpha,
 	// since Jensen's Alpha genuinely needs a Beta/benchmark, unlike
 	// these three).
-	if sharpe, ok := finance.ComputeSharpeRatio(windowedFundSeries); ok {
+	if sharpe, ok := finance.ComputeSharpeRatio(windowedFundSeries, riskFreeRate); ok {
 		result.SharpeRatio = sharpe
 		result.SharpeHasData = true
 	}
-	if sortino, ok := finance.ComputeSortinoRatio(windowedFundSeries); ok {
+	if sortino, ok := finance.ComputeSortinoRatio(windowedFundSeries, riskFreeRate); ok {
 		result.SortinoRatio = sortino
 		result.SortinoHasData = true
 	}
 	if sd, ok := finance.ComputeStandardDeviation(windowedFundSeries); ok {
 		result.StandardDeviation = sd
 		result.StdDevHasData = true
+	}
+	result.RiskFreeRatePercent = p.RiskFreeRatePercent
+	result.RiskFreeRateAsOf = p.RiskFreeRateAsOf
+	result.RiskFreeRateSource = p.RiskFreeRateSource
+	result.RiskFreeRateManual = p.RiskFreeRateManual
+	if result.RiskFreeRatePercent == 0 && !p.RiskFreeRateManual {
+		// Nothing fetched or set yet - report the actual fallback value
+		// being used (as a percent, matching the field's own
+		// convention) rather than leaving this looking like a genuine
+		// 0% rate was used.
+		result.RiskFreeRatePercent = finance.DefaultAnnualRiskFreeRate * 100
+		result.RiskFreeRateSource = "Default (not yet fetched)"
 	}
 
 	out, err := json.Marshal(result)
