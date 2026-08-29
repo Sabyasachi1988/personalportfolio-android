@@ -909,6 +909,23 @@ func CommitStagedRows(portfolioJSON string, stagedRowsJSON string, memberID stri
 			asset, ok = findAssetByNameInAccount(&p, txn.Scheme, account.ID)
 		}
 		if !ok {
+			// A fund that was being TRACKED (an "Additional Fund", not
+			// yet owned - see store.Asset.AccountID's own doc comment)
+			// and is now genuinely being bought for the first time gets
+			// PROMOTED (its existing Asset ID gains a real Account)
+			// rather than getting a second, brand-new Asset row - see
+			// store.Portfolio.PromoteTrackedFund's own doc comment for
+			// why that matters (its already-fetched NAV history carries
+			// straight over, nothing re-fetched or merged).
+			if tracked, found := p.FindTrackedFundByISIN(txn.ISIN); found {
+				if p.PromoteTrackedFund(tracked.ID, account.ID) {
+					asset = tracked
+					asset.AccountID = account.ID
+					ok = true
+				}
+			}
+		}
+		if !ok {
 			asset = store.Asset{
 				ID:        store.NewID("asset"),
 				AccountID: account.ID,
@@ -1664,6 +1681,80 @@ func AddTRIBenchmark(portfolioJSON string, name string, niftyTRIIndexName string
 	return string(out)
 }
 
+// AddTrackedFund adds an "Additional Fund" - a fund tracked purely for
+// comparison, not actually owned - see store.Asset.AccountID's own doc
+// comment. Rejects a duplicate ISIN already being tracked (an ISIN
+// already OWNED is fine - see store.Portfolio.AddTrackedFund's own doc
+// comment for why that case isn't blocked). Returns the updated
+// portfolio JSON, same convention as every other Add* bridge function.
+func AddTrackedFund(portfolioJSON string, name string, isin string) string {
+	var p store.Portfolio
+	if portfolioJSON != "" {
+		if err := json.Unmarshal([]byte(portfolioJSON), &p); err != nil {
+			return fmt.Sprintf(`{"error":%q}`, "invalid portfolio JSON: "+err.Error())
+		}
+	}
+	name = strings.TrimSpace(name)
+	isin = strings.TrimSpace(strings.ToUpper(isin))
+	if name == "" {
+		return `{"error":"name cannot be empty"}`
+	}
+	if isin == "" {
+		return `{"error":"isin cannot be empty"}`
+	}
+	if _, found := p.FindTrackedFundByISIN(isin); found {
+		return `{"error":"this fund is already being tracked"}`
+	}
+	p.AddTrackedFund(name, isin)
+	out, err := json.Marshal(p)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+	return string(out)
+}
+
+// RemoveTrackedFund removes an Additional Fund by ID - see
+// store.Portfolio.RemoveTrackedFund's own doc comment for why this
+// refuses (returns an error, changes nothing) if the ID actually
+// belongs to a real, owned holding rather than a tracked-only entry.
+func RemoveTrackedFund(portfolioJSON string, assetID string) string {
+	var p store.Portfolio
+	if portfolioJSON != "" {
+		if err := json.Unmarshal([]byte(portfolioJSON), &p); err != nil {
+			return fmt.Sprintf(`{"error":%q}`, "invalid portfolio JSON: "+err.Error())
+		}
+	}
+	if !p.RemoveTrackedFund(assetID) {
+		return `{"error":"no tracked (not-owned) fund with that ID exists - an owned holding can't be removed this way"}`
+	}
+	out, err := json.Marshal(p)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+	return string(out)
+}
+
+// SearchMfapiSchemes looks up funds by name against mfapi.in's full
+// scheme list (the same cached list priceapi.ResolveMfapiSchemeCode
+// already uses for the NAV fallback - see its own doc comment for
+// provenance) - the search step behind "add an Additional Fund by
+// name" rather than requiring a person to already know its ISIN.
+func SearchMfapiSchemes(query string) string {
+	query = strings.TrimSpace(query)
+	if len(query) < 3 {
+		return `{"error":"query must be at least 3 characters"}`
+	}
+	matches, err := priceapi.SearchMfapiSchemes(query, 25)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+	out, err := json.Marshal(matches)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+	return string(out)
+}
+
 // RemoveBenchmark removes a tracked index by ID - see
 // store.Portfolio.RemoveBenchmark. Returns the updated portfolio JSON.
 func RemoveBenchmark(portfolioJSON string, benchmarkID string) string {
@@ -1850,24 +1941,50 @@ func UpdateAllHistory(portfolioJSON string) string {
 		mu.Unlock()
 	}
 
+	// Grouped by ISIN, not iterated per-Asset directly - two Assets
+	// sharing the same ISIN (the same real fund held under two
+	// different Accounts/members, or an owned Asset alongside its own
+	// not-yet-owned "Additional Fund" tracking entry before promotion)
+	// would otherwise trigger two independent, fully redundant network
+	// fetches for the exact same NAV history. Fetch once per unique
+	// ISIN, then apply the same result to every Asset sharing it.
+	assetsByISIN := make(map[string][]store.Asset)
 	for _, a := range p.Assets {
 		if a.ISIN == "" {
 			continue
 		}
-		a := a
+		assetsByISIN[a.ISIN] = append(assetsByISIN[a.ISIN], a)
+	}
+	for isin, assetsForISIN := range assetsByISIN {
+		isin := isin
+		assetsForISIN := assetsForISIN
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			since := dayAfterLatest(p.PriceSeries(a.ID))
-			history, err := priceapi.FetchTigzigNavHistory(a.ISIN, since)
-			o := historyOutcome{kind: "nav", label: a.DisplayName()}
+			// "since" must cover the EARLIEST gap across every Asset
+			// sharing this ISIN - if one of them already has fuller
+			// history than another (e.g. one was added earlier), an
+			// incremental "since" based on only one of them could skip
+			// dates the other one still needs.
+			since := ""
+			for i, a := range assetsForISIN {
+				s := dayAfterLatest(p.PriceSeries(a.ID))
+				if i == 0 {
+					since = s
+				} else if s == "" || (since != "" && s < since) {
+					since = s
+				}
+			}
+			history, err := priceapi.FetchTigzigNavHistory(isin, since)
+			label := assetsForISIN[0].DisplayName()
+			o := historyOutcome{kind: "nav", label: label}
 			var navPoints []priceapi.TigzigNavPoint
 			if err != nil {
 				// Primary (TigZig) failed - retry via mfapi.in, a
 				// genuinely independent second source with no TigZig
 				// involvement. See priceapi.FetchMfapiNavHistory's doc
 				// comment for how this was confirmed.
-				navPoints, err = priceapi.FetchMfapiNavHistory(a.ISIN, since)
+				navPoints, err = priceapi.FetchMfapiNavHistory(isin, since)
 				if err == nil {
 					o.usedFallback = true
 				}
@@ -1881,8 +1998,10 @@ func UpdateAllHistory(portfolioJSON string) string {
 				if o.usedFallback {
 					source = "MFAPI_FALLBACK"
 				}
-				for _, pt := range navPoints {
-					o.priceRecs = append(o.priceRecs, store.PriceRecord{AssetID: a.ID, Date: pt.Date, Price: pt.Nav, Source: source})
+				for _, a := range assetsForISIN {
+					for _, pt := range navPoints {
+						o.priceRecs = append(o.priceRecs, store.PriceRecord{AssetID: a.ID, Date: pt.Date, Price: pt.Nav, Source: source})
+					}
 				}
 			}
 			record(o)
@@ -2104,6 +2223,12 @@ type ReturnsTableRow struct {
 	SeriesID          string // an Asset.ID or a Benchmark.ID - pass back to ComputePriceHistory for the tap-to-graph drill-down
 	Name              string
 	IsBenchmark       bool
+	// IsAdditional marks an "Additional Fund" - a fund tracked for
+	// comparison but not actually owned (see store.Asset.AccountID's
+	// own doc comment). Always false for a benchmark row. The Returns
+	// screen uses this to split fund rows into two sections (owned vs
+	// tracked-only) rather than one flat list.
+	IsAdditional      bool
 	Day               finance.TrailingReturn
 	Month             finance.TrailingReturn
 	OneYearTrailing   finance.TrailingReturn
@@ -2141,7 +2266,9 @@ func ComputeReturnsTable(portfolioJSON string) string {
 		if len(series) == 0 {
 			continue // never had a price fetched - nothing to show
 		}
-		rows = append(rows, buildReturnsRow(a.ID, a.DisplayName(), false, series))
+		row := buildReturnsRow(a.ID, a.DisplayName(), false, series)
+		row.IsAdditional = !a.IsOwned()
+		rows = append(rows, row)
 	}
 	for _, b := range p.Benchmarks {
 		series := p.PriceSeries(b.ID)
