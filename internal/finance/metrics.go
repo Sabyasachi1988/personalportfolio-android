@@ -39,33 +39,37 @@ type FundMetrics struct {
 	AlphaHasData       bool
 }
 
-// assumedAnnualRiskFreeRate is used by ComputeSharpeRatio, ComputeAlpha,
-// and ComputeSortinoRatio in place of a live risk-free-rate feed, which
-// this app has no data source for.
-//
-// Set to FBIL Overnight MIBOR (the Mumbai Interbank Overnight Rate,
-// published by Financial Benchmarks India Ltd) - CONFIRMED as the
-// actual risk-free-rate benchmark real Indian AMCs use, not assumed:
-// PPFAS Mutual Fund's own May 2026 factsheet (fetched live) states
-// verbatim in its Quantitative Indicators footnote: "Risk free rate
-// assumed to be (FBIL Overnight MIBOR as on May 31, 2026) 5.52%". This
-// corrects an earlier, WRONG assumption in this file that Indian
-// factsheets use a 91-day T-Bill - they don't; MIBOR is an overnight
-// rate, a different instrument entirely, and the two aren't
-// numerically interchangeable (MIBOR sits below T-Bill yields most of
-// the time).
-//
-// Still a static value, not a live feed - FBIL publishes Overnight
-// MIBOR only via its own site (fbil.org.in) and CCIL, with no free
-// public API found (only paid data-vendor feeds like CEIC), unlike
-// every other external data source this app already wires up live. If
-// a genuine free/scrapable FBIL feed is ever found, this constant
-// should be replaced by that feed - flagged here plainly, the same way
-// this constant always has been, rather than dressed up as more
-// precise/current than it is. 5.5% approximates the confirmed May 2026
-// PPFAS figure; update this if a materially different current MIBOR
-// print becomes known.
-const assumedAnnualRiskFreeRate = 0.055
+// DefaultAnnualRiskFreeRate is the FALLBACK used only when the
+// portfolio has never had a risk-free rate fetched or manually set -
+// see store.Portfolio.RiskFreeRatePercent's own doc comment for the
+// real mechanism (live-fetched from an AMC's own factsheet, e.g.
+// priceapi.FetchConsensusRiskFreeRate, or a person's manual override),
+// which is what every ComputeSharpeRatio/ComputeSortinoRatio/
+// ComputeAlpha call in this app actually uses via the riskFreeRate
+// parameter below. This constant only matters before that first
+// fetch/manual-set ever happens. 5.5% approximates a real PPFAS
+// factsheet figure confirmed live (May 2026: 5.52%, FBIL Overnight
+// MIBOR) - see that confirmation's own history in this file's git log
+// for the full story of how this number was chosen.
+const DefaultAnnualRiskFreeRate = 0.055
+
+// ResolveRiskFreeRate converts a Portfolio's own stored
+// RiskFreeRatePercent (a PERCENT, e.g. 5.52) into the fraction (0.0552)
+// every risk-metric function in this file actually takes, falling back
+// to DefaultAnnualRiskFreeRate when nothing has ever been fetched or
+// manually set (RiskFreeRatePercent == 0, the Go zero value - a
+// genuine 0% risk-free rate is not a realistic value this app would
+// ever see in practice, so this is a safe way to detect "unset"
+// without a separate boolean field). Centralized here rather than
+// inlined at each of ComputeFundMetrics' several call sites, so the
+// "percent vs fraction, with this exact fallback" conversion only ever
+// happens in one place.
+func ResolveRiskFreeRate(p *store.Portfolio) float64 {
+	if p.RiskFreeRatePercent == 0 {
+		return DefaultAnnualRiskFreeRate
+	}
+	return p.RiskFreeRatePercent / 100
+}
 
 // WindowToTrailingYears returns only the records from the trailing N
 // years of `series`, anchored to the series' own LATEST date (not
@@ -493,15 +497,19 @@ func monthlyReturnsOf(series []store.PriceRecord) []float64 {
 // own writeup notes they previously over-annualized by sqrt(365) before
 // a since-corrected fix, which is the mistake this project is
 // deliberately avoiding by using trading/reporting periods - 252 daily
-// or 12 monthly - not calendar days). Uses assumedAnnualRiskFreeRate -
-// see its own doc comment. Requires at least 12 months of returns and a
+// or 12 monthly - not calendar days). annualRiskFreeRate is a fraction
+// (0.055 for 5.5%), not a percent - see
+// store.Portfolio.RiskFreeRatePercent's own doc comment for where the
+// caller should actually source this (a live-fetched AMC factsheet
+// figure or the person's own manual override), not a value this
+// function invents itself. Requires at least 12 months of returns and a
 // non-zero return standard deviation, the same bar as ComputeBeta.
-func ComputeSharpeRatio(series []store.PriceRecord) (float64, bool) {
+func ComputeSharpeRatio(series []store.PriceRecord, annualRiskFreeRate float64) (float64, bool) {
 	returns := monthlyReturnsOf(series)
 	if len(returns) < 12 {
 		return 0, false
 	}
-	monthlyRF := math.Pow(1+assumedAnnualRiskFreeRate, 1.0/12) - 1
+	monthlyRF := math.Pow(1+annualRiskFreeRate, 1.0/12) - 1
 	excess := make([]float64, len(returns))
 	for i, r := range returns {
 		excess[i] = r - monthlyRF
@@ -521,17 +529,18 @@ func ComputeSharpeRatio(series []store.PriceRecord) (float64, bool) {
 // rather than the full standard deviation - a fund with big upside
 // swings but no bad downside months gets penalized by Sharpe but not by
 // Sortino, which is the whole point of using both side by side. Same
-// monthly/sqrt(12) convention and assumedAnnualRiskFreeRate as
-// ComputeSharpeRatio. Requires at least 12 months of returns and at
+// monthly/sqrt(12) convention as ComputeSharpeRatio, and the same
+// annualRiskFreeRate parameter meaning (a fraction, sourced by the
+// caller the same way). Requires at least 12 months of returns and at
 // least one below-target month to compute a downside deviation from -
 // a fund with literally zero down-months in its whole history can't
 // produce a meaningful Sortino denominator.
-func ComputeSortinoRatio(series []store.PriceRecord) (float64, bool) {
+func ComputeSortinoRatio(series []store.PriceRecord, annualRiskFreeRate float64) (float64, bool) {
 	returns := monthlyReturnsOf(series)
 	if len(returns) < 12 {
 		return 0, false
 	}
-	monthlyRF := math.Pow(1+assumedAnnualRiskFreeRate, 1.0/12) - 1
+	monthlyRF := math.Pow(1+annualRiskFreeRate, 1.0/12) - 1
 	var sumSqDownside float64
 	downsideCount := 0
 	var sumExcess float64
@@ -603,9 +612,11 @@ func annualizedReturnFromMonthly(returns []float64) float64 {
 // the Beta a person sees on the Beta card and the Beta implicitly
 // behind their Alpha card are guaranteed to be the exact same number,
 // never two independently-computed values that could drift apart.
-// Same >=12-overlapping-month requirement as ComputeBeta, since Alpha
-// is meaningless without a real Beta estimate behind it.
-func ComputeAlpha(fundSeries, benchSeries []store.PriceRecord) (float64, bool) {
+// annualRiskFreeRate is a fraction (0.055 for 5.5%) - same meaning and
+// same caller-sourcing convention as ComputeSharpeRatio's own
+// parameter. Same >=12-overlapping-month requirement as ComputeBeta,
+// since Alpha is meaningless without a real Beta estimate behind it.
+func ComputeAlpha(fundSeries, benchSeries []store.PriceRecord, annualRiskFreeRate float64) (float64, bool) {
 	beta, betaOK := ComputeBeta(fundSeries, benchSeries)
 	if !betaOK {
 		return 0, false
@@ -616,7 +627,7 @@ func ComputeAlpha(fundSeries, benchSeries []store.PriceRecord) (float64, bool) {
 	}
 	fundAnnual := annualizedReturnFromMonthly(fundReturns)
 	benchAnnual := annualizedReturnFromMonthly(benchReturns)
-	expected := assumedAnnualRiskFreeRate + beta*(benchAnnual-assumedAnnualRiskFreeRate)
+	expected := annualRiskFreeRate + beta*(benchAnnual-annualRiskFreeRate)
 	alpha := fundAnnual - expected
 	return round2(alpha * 100), true
 }
