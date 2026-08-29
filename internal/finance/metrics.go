@@ -246,9 +246,37 @@ func ComputeBeta(fundSeries, benchSeries []store.PriceRecord) (float64, bool) {
 // this project already confirmed against TigZig's own documented SPR
 // methodology, just at monthly instead of daily granularity). Requires
 // at least 12 overlapping periods, same reasoning as ComputeBeta.
+// ComputeInformationRatio is Information Ratio EXACTLY as mandated by
+// SEBI circular SEBI/HO/IMD/IMD-PoD-2/P/CIR/2025/6 (17 Jan 2025,
+// fetched and read directly - text confirmed, not paraphrased from a
+// summary): IR = (Portfolio Return − Benchmark Return) / Standard
+// Deviation of Excess Return, using DAILY arithmetic returns - the
+// circular's own words are "Volatility/Standard deviation shall be
+// calculated on the basis of daily return values" and "Daily portfolio
+// return shall be calculated using arithmetic function" (i.e. simple
+// day-over-day % change, curPrice/prevPrice - 1, NOT log returns).
+// This deliberately does NOT use alignedMonthlyReturns the way this
+// project's Sharpe/Sortino/Beta/Capture ratios do - those have no
+// equivalent SEBI-mandated formula (only general industry practice),
+// but Information Ratio specifically does, and this project now
+// matches it exactly rather than approximating with monthly data.
+//
+// Annualized by sqrt(252) (standard trading-days-per-year convention),
+// consistent with this file's own sqrt(12) monthly annualization
+// elsewhere - the circular itself doesn't specify an annualization
+// step explicitly, but a raw daily-period ratio isn't meaningfully
+// comparable across funds with different amounts of history the way
+// an annualized one is, and sqrt(252) is the standard method for
+// annualizing a ratio built on daily observations.
+//
+// Requires at least 60 aligned trading days (~3 months) - a genuinely
+// pragmatic floor, not something SEBI specifies, chosen for the same
+// reason as this file's other minimum-sample thresholds: too few
+// daily observations makes the standard deviation of excess return
+// noise-dominated rather than meaningful.
 func ComputeInformationRatio(fundSeries, benchSeries []store.PriceRecord) (float64, bool) {
-	fundReturns, benchReturns := alignedMonthlyReturns(fundSeries, benchSeries)
-	if len(fundReturns) < 12 {
+	fundReturns, benchReturns := alignedReturns(fundSeries, benchSeries)
+	if len(fundReturns) < 60 {
 		return 0, false
 	}
 	excess := make([]float64, len(fundReturns))
@@ -260,7 +288,7 @@ func ComputeInformationRatio(fundSeries, benchSeries []store.PriceRecord) (float
 	if sd == 0 {
 		return 0, false
 	}
-	ir := meanExcess / sd * math.Sqrt(12)
+	ir := meanExcess / sd * math.Sqrt(252)
 	return round2(ir), true
 }
 
