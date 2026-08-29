@@ -3,12 +3,15 @@ package com.saby.personalportfolio
 import android.app.AlertDialog
 import android.os.Bundle
 import android.view.View
+import android.view.ViewGroup
+import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import com.ledger.bridge.Bridge
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Locale
 
 class ReturnsDetailActivity : AppCompatActivity() {
@@ -80,8 +83,20 @@ class ReturnsDetailActivity : AppCompatActivity() {
         chart.onWindowChanged = { total, start, end -> chartScrubber.setRange(total, start, end) }
         chartScrubber.onRangeDragged = { start, end -> chart.setWindowByIndex(start, end) }
 
+        setUpRangePresets(points, chart)
+
         findViewById<View>(R.id.returnsDetailSetDateRange).setOnClickListener {
             showDateRangeDialog(points) { start, end -> chart.setWindowByDates(start, end) }
+        }
+
+        // Transaction markers (buy/sell dots on the chart) only make
+        // sense for a real holding, not a Benchmark - see Benchmark's
+        // own Go doc comment (never a portfolio holding, has no
+        // transactions at all), so this is skipped entirely for a
+        // benchmark row rather than making a call that would just come
+        // back empty every time.
+        if (!isBenchmark) {
+            loadTransactionMarkers(chart)
         }
 
         // Risk & relative performance metrics only make sense for a FUND
@@ -101,6 +116,100 @@ class ReturnsDetailActivity : AppCompatActivity() {
     private fun showDateRangeDialog(points: List<PricePoint>, onPicked: (start: String, end: String) -> Unit) {
         if (points.size < 2) return
         DateRangePicker.show(this, points.first().date, points.last().date, onPicked)
+    }
+
+    // 3M/6M/1Y/2Y/3Y/Max quick-jump shortcuts alongside the chart's own
+    // free pinch-zoom/pan and the ChartRangeScrubberView - built
+    // programmatically (all 6 are structurally identical: an ActionChip
+    // that computes a start date some fixed offset before the series'
+    // LAST point and sets the chart's window to [that date, last date])
+    // rather than 6 near-duplicate XML blocks. "Max" is the one
+    // non-offset case - it just resets to the whole series, same as the
+    // chart's own double-tap-to-reset gesture.
+    private fun setUpRangePresets(points: List<PricePoint>, chart: PriceHistoryChartView) {
+        if (points.size < 2) return
+        val container = findViewById<LinearLayout>(R.id.returnsDetailRangePresets)
+        val lastDate = points.last().date
+        val firstDate = points.first().date
+        val presets = listOf(
+            "3M" to 3, "6M" to 6, "1Y" to 12, "2Y" to 24, "3Y" to 36
+        )
+        presets.forEach { (label, monthsBack) ->
+            container.addView(buildPresetChip(label) {
+                chart.setWindowByDates(dateMonthsBefore(lastDate, monthsBack), lastDate)
+            })
+        }
+        container.addView(buildPresetChip("Max") {
+            chart.setWindowByDates(firstDate, lastDate)
+        })
+    }
+
+    private fun buildPresetChip(label: String, onClick: () -> Unit): TextView {
+        val chip = TextView(this, null, 0, R.style.ActionChip)
+        chip.text = label
+        chip.layoutParams = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply { marginEnd = dpToPx(8) }
+        chip.setOnClickListener { onClick() }
+        return chip
+    }
+
+    private fun dpToPx(dp: Int): Int = (dp * resources.displayMetrics.density).toInt()
+
+    // storedDate is "yyyy-MM-dd" (this app's stored-date convention
+    // throughout - see PriceHistoryChartView's own dateStoredFormat).
+    // Falls back to storedDate itself if parsing ever fails, so a
+    // preset tap degrades to "show everything from the start" rather
+    // than crashing.
+    private fun dateMonthsBefore(storedDate: String, months: Int): String {
+        val fmt = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+        return try {
+            val cal = Calendar.getInstance()
+            cal.time = fmt.parse(storedDate) ?: return storedDate
+            cal.add(Calendar.MONTH, -months)
+            fmt.format(cal.time)
+        } catch (e: Exception) {
+            storedDate
+        }
+    }
+
+    private fun loadTransactionMarkers(chart: PriceHistoryChartView) {
+        val resultJson = Bridge.computeAssetTransactionMarkers(portfolioJson, seriesId)
+        if (isBridgeError(resultJson)) return
+        val markerType = object : TypeToken<List<TransactionMarker>>() {}.type
+        val markers: List<TransactionMarker> = try {
+            gson.fromJson(resultJson, markerType) ?: emptyList()
+        } catch (e: Exception) {
+            emptyList()
+        }
+        if (markers.isEmpty()) return
+        chart.setMarkers(markers)
+        chart.onMarkerTapped = { marker -> showMarkerDialog(marker) }
+    }
+
+    private fun showMarkerDialog(marker: TransactionMarker) {
+        val displayFormat = SimpleDateFormat("d MMM yyyy", Locale.getDefault())
+        val storedFormat = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+        val displayDate = try {
+            displayFormat.format(storedFormat.parse(marker.date) ?: marker.date)
+        } catch (e: Exception) {
+            marker.date
+        }
+        val title = if (marker.isBuy) "Buy" else "Sell"
+        val message = buildString {
+            append("Date: $displayDate\n")
+            append("NAV: ${PricePerUnitFormatter.format(marker.price, decimals = 3)}\n")
+            append("Units: ${String.format(Locale.getDefault(), "%.3f", marker.units)}\n")
+            append("Amount: ${IndianCurrencyFormatter.format(marker.amount)}")
+            if (marker.description.isNotEmpty()) {
+                append("\n${marker.description}")
+            }
+        }
+        AlertDialog.Builder(this)
+            .setTitle(title)
+            .setMessage(message)
+            .setPositiveButton("OK", null)
+            .show()
     }
 
     private fun isBridgeError(json: String): Boolean = json.trimStart().startsWith("{\"error\"")
