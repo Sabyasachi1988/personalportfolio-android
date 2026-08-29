@@ -389,6 +389,30 @@ func ComputeGroupedHoldings(portfolioJSON string, memberID string) string {
 	return string(out)
 }
 
+// ComputeFamilyPooledHoldings is the "All (family)" view's own holdings
+// list - see finance.PoolHoldingsByISIN's own doc comment for what
+// pooling means here (the SAME fund held by different members shows as
+// ONE row with combined totals, confirmed as the correct family-wide
+// behavior). Always operates on the WHOLE portfolio (every member,
+// unfiltered) - there's no memberID parameter, since pooling across
+// members is specifically what this is for; use ComputeGroupedHoldings
+// or the plain per-holding path instead for a single member's own view.
+func ComputeFamilyPooledHoldings(portfolioJSON string) string {
+	var p store.Portfolio
+	if portfolioJSON != "" {
+		if err := json.Unmarshal([]byte(portfolioJSON), &p); err != nil {
+			return fmt.Sprintf(`{"error":%q}`, "invalid portfolio JSON: "+err.Error())
+		}
+	}
+	holdings := finance.ComputeHoldings(&p)
+	pooled := finance.PoolHoldingsByISIN(&p, holdings)
+	out, err := json.Marshal(pooled)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+	return string(out)
+}
+
 // SetAssetSymbolAndType updates an asset's Symbol and Type - see
 // store.Portfolio.SetAssetSymbolAndType's doc comment. Returns the
 // updated portfolio as JSON.
