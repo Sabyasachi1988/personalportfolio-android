@@ -226,7 +226,29 @@ type Benchmark struct {
 	// YahooTicker is the Yahoo Finance index ticker (e.g. "^NSEI" for
 	// Nifty 50, "^BSESN" for Sensex) - see priceapi.FetchYahooAdjClose,
 	// the same fetch path already used for ETF/stock price history.
+	// Ignored (fetch goes via NiftyTRIIndexName instead) once that field
+	// is set - see its own doc comment for why a benchmark uses ONE
+	// source or the other, never both.
 	YahooTicker string
+	// NiftyTRIIndexName, when set, means this benchmark tracks the
+	// index's TOTAL RETURN variant (dividends reinvested) via NSE
+	// Indices' own TRI data - see priceapi.FetchNiftyIndicesTRI's doc
+	// comment for the source and its confirmed canonical index-name
+	// spellings (e.g. "NIFTY 500", "NIFTY MIDCAP 150"). This is
+	// deliberately a SEPARATE Benchmark entry from the plain
+	// price-index version of the same index (e.g. "Nifty 500" via
+	// YahooTicker "^CRSLDX" AND "Nifty 500 TRI" via this field can both
+	// exist at once) rather than one Benchmark trying to hold two
+	// different price series - every fund factsheet benchmarks against
+	// the TRI variant (it runs measurably higher than the price index
+	// over any real holding period, since it includes reinvested
+	// dividends the price index doesn't), so having BOTH available lets
+	// the person compare a fund against whichever is actually
+	// meaningful for their purpose. Empty means "use YahooTicker as
+	// before" - every benchmark added before this field existed keeps
+	// working unchanged. Deliberately NOT omitempty, same
+	// Gson-unsafe-allocation reasoning as Asset.GroupLabel/Tags.
+	NiftyTRIIndexName string
 	// Nickname - see Asset.Nickname's doc comment, same concept applied
 	// to a tracked index instead of a fund. Deliberately NOT omitempty,
 	// same reasoning.
@@ -787,6 +809,16 @@ func (p *Portfolio) DisplayName(seriesID string) string {
 // something worth guessing about and blocking.
 func (p *Portfolio) AddBenchmark(name, yahooTicker string) Benchmark {
 	b := Benchmark{ID: NewID("benchmark"), Name: name, YahooTicker: yahooTicker}
+	p.Benchmarks = append(p.Benchmarks, b)
+	return b
+}
+
+// AddTRIBenchmark is AddBenchmark's Total-Return counterpart - see
+// Benchmark.NiftyTRIIndexName's doc comment for why this is a
+// genuinely separate benchmark entry rather than a variant of the same
+// one.
+func (p *Portfolio) AddTRIBenchmark(name, niftyTRIIndexName string) Benchmark {
+	b := Benchmark{ID: NewID("benchmark"), Name: name, NiftyTRIIndexName: niftyTRIIndexName}
 	p.Benchmarks = append(p.Benchmarks, b)
 	return b
 }
