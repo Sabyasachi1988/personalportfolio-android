@@ -186,14 +186,21 @@ class ReturnsDetailActivity : AppCompatActivity() {
         if (markers.isEmpty()) return
         chart.setMarkers(markers)
         val popup = findViewById<AutoDismissPopupView>(R.id.returnsDetailMarkerPopup)
-        chart.onMarkerTapped = { marker -> showMarkerPopup(popup, marker) }
+        // Quick tap: shows near the touched point, lingers briefly on
+        // its own. Press-and-hold: shows near the point with NO timer
+        // while held, then lingers the same short duration once the
+        // finger lifts - see AutoDismissPopupView's own doc comment for
+        // why two entry points exist.
+        chart.onMarkerTapped = { marker, x, y -> showMarkerPopup(popup, marker, x, y, persistent = false) }
+        chart.onMarkerHoldStart = { marker, x, y -> showMarkerPopup(popup, marker, x, y, persistent = true) }
+        chart.onMarkerHoldEnd = { popup.dismissAfterLinger() }
     }
 
     // Only Date/NAV/Units/Amount are shown - a transaction's raw
     // Description (e.g. "Sys. Investment ISIP (11/28)") was deliberately
     // dropped after explicit feedback that it wasn't meaningful
     // information for this popup, unlike the other 4 fields.
-    private fun showMarkerPopup(popup: AutoDismissPopupView, marker: TransactionMarker) {
+    private fun showMarkerPopup(popup: AutoDismissPopupView, marker: TransactionMarker, x: Float, y: Float, persistent: Boolean) {
         val displayFormat = SimpleDateFormat("d MMM yyyy", Locale.getDefault())
         val storedFormat = SimpleDateFormat("yyyy-MM-dd", Locale.US)
         val displayDate = try {
@@ -207,7 +214,11 @@ class ReturnsDetailActivity : AppCompatActivity() {
             "NAV: ${PricePerUnitFormatter.format(marker.price, decimals = 3)}\n" +
             "Units: ${String.format(Locale.getDefault(), "%.3f", marker.units)}\n" +
             "Amount: ${IndianCurrencyFormatter.format(marker.amount)}"
-        popup.show(title, message, accentColorRes)
+        if (persistent) {
+            popup.showPersistent(title, message, accentColorRes, x, y)
+        } else {
+            popup.show(title, message, accentColorRes, x, y)
+        }
     }
 
     private fun isBridgeError(json: String): Boolean = json.trimStart().startsWith("{\"error\"")
@@ -243,7 +254,9 @@ class ReturnsDetailActivity : AppCompatActivity() {
         // color Down Capture backwards.
         val cards = listOf(
             MetricCardSpec("Beta", m.beta, m.betaHasData, decimals = 2, suffix = "", colorRes = R.color.colorOnSurface),
+            MetricCardSpec("Alpha", m.alpha, m.alphaHasData, decimals = 2, suffix = "%", colorRes = if (m.alpha >= 0) R.color.colorGain else R.color.colorLoss),
             MetricCardSpec("Information Ratio", m.informationRatio, m.infoRatioHasData, decimals = 2, suffix = "", colorRes = if (m.informationRatio >= 0) R.color.colorGain else R.color.colorLoss),
+            MetricCardSpec("Std. Deviation", m.standardDeviation, m.stdDevHasData, decimals = 2, suffix = "%", colorRes = R.color.colorOnSurface),
             MetricCardSpec("Up Capture", m.upCapture, m.upCaptureHasData, decimals = 2, suffix = "%", colorRes = if (m.upCapture >= 100) R.color.colorGain else R.color.colorLoss),
             MetricCardSpec("Down Capture", m.downCapture, m.downCaptureHasData, decimals = 2, suffix = "%", colorRes = if (m.downCapture <= 100) R.color.colorGain else R.color.colorLoss),
             MetricCardSpec("Max Drawdown", m.maxDrawdown, m.maxDrawdownHasData, decimals = 2, suffix = "%", colorRes = R.color.colorLoss),
