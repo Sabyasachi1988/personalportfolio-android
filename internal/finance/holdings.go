@@ -1,6 +1,7 @@
 package finance
 
 import (
+	"sort"
 	"time"
 
 	"ledger/internal/store"
@@ -8,9 +9,33 @@ import (
 
 // Holding summarises one asset's current position.
 type Holding struct {
-	AssetID            string
-	AssetName          string
-	ISIN               string
+	AssetID   string
+	AssetName string
+	ISIN      string
+	// CanonicalName is the SAME fund's display name, harmonized across
+	// every Asset that shares this ISIN regardless of which account or
+	// import gave it its own AssetName - e.g. one statement calling it
+	// "Nippon India Nifty 50" and another calling it "Nippon India
+	// Nifty 50 Index Fund" for the exact same underlying fund (same
+	// ISIN) would otherwise show as two differently-named things in
+	// any list, a confirmed real point of confusion. Resolved to
+	// whichever same-ISIN Asset appears FIRST in the portfolio's own
+	// Assets order (i.e. whichever was added first) - a stable,
+	// deterministic choice that doesn't change as long as no earlier
+	// asset is deleted. Equal to AssetName whenever this asset is the
+	// only one (or the first one) with its ISIN - the common case.
+	CanonicalName string
+	// AlsoHeldByMembers lists OTHER members (by name, deduplicated, NOT
+	// including this holding's own member) who hold an Asset with the
+	// SAME ISIN - e.g. a Nippon India Nifty 50 held by both "Me" and
+	// "Mom" under separate accounts. Deliberately informational only -
+	// see finance.GroupHoldingsByLabel's own doc comment for why
+	// holdings across different members are never merged into one row
+	// even when they're genuinely the same fund: ownership matters for
+	// tax/cost-basis purposes, so this stays a badge/note, not a merge.
+	// Empty (never nil - see ComputeHoldings) when no other member
+	// holds the same ISIN.
+	AlsoHeldByMembers  []string
 	AccountName        string
 	MemberID           string
 	MemberName         string
@@ -83,15 +108,57 @@ func ComputeHoldings(p *store.Portfolio) []Holding {
 	}
 
 	var holdings []Holding
+	// Both computed portfolio-WIDE, before any per-holding logic below -
+	// canonical name and "also held by" both need to see every Asset
+	// sharing an ISIN, not just the ones with transactions (an asset
+	// with a transaction obviously has one, but the canonical name
+	// should still resolve consistently even if, say, the FIRST-added
+	// same-ISIN asset happens to have no transactions yet for some
+	// reason).
+	canonicalNameByISIN := make(map[string]string)
+	membersByISIN := make(map[string]map[string]bool) // ISIN -> set of member NAMES holding it
+	for _, asset := range p.Assets {
+		if asset.ISIN == "" {
+			continue
+		}
+		if _, ok := canonicalNameByISIN[asset.ISIN]; !ok {
+			canonicalNameByISIN[asset.ISIN] = asset.DisplayName()
+		}
+		mName := memberName[accountMember[asset.AccountID]]
+		if mName == "" {
+			continue // an Additional Fund (tracked, not owned - see store.Asset.AccountID's doc comment) has no member to attribute
+		}
+		if membersByISIN[asset.ISIN] == nil {
+			membersByISIN[asset.ISIN] = make(map[string]bool)
+		}
+		membersByISIN[asset.ISIN][mName] = true
+	}
+
 	for _, asset := range p.Assets {
 		acc, ok := byAsset[asset.ID]
 		if !ok {
 			continue // no transactions for this asset yet
 		}
+		var alsoHeldBy []string
+		if asset.ISIN != "" {
+			thisMember := memberName[accountMember[asset.AccountID]]
+			for m := range membersByISIN[asset.ISIN] {
+				if m != thisMember {
+					alsoHeldBy = append(alsoHeldBy, m)
+				}
+			}
+			sort.Strings(alsoHeldBy) // deterministic order - map iteration alone isn't
+		}
+		canonicalName := canonicalNameByISIN[asset.ISIN]
+		if canonicalName == "" {
+			canonicalName = asset.DisplayName() // no ISIN to harmonize against - just use this asset's own name
+		}
 		h := Holding{
 			AssetID:            asset.ID,
 			AssetName:          asset.DisplayName(),
 			ISIN:               asset.ISIN,
+			CanonicalName:      canonicalName,
+			AlsoHeldByMembers:  alsoHeldBy,
 			AccountName:        accountName[asset.AccountID],
 			MemberID:           accountMember[asset.AccountID],
 			MemberName:         memberName[accountMember[asset.AccountID]],
@@ -204,21 +271,29 @@ func PortfolioTotals(holdings []Holding) (invested, value float64, anyPriced boo
 // a caller can still drill into or filter by the individual holdings
 // even when they're shown consolidated here.
 type GroupedHolding struct {
-	DisplayName    string // GroupLabel if grouped, else the single constituent's AssetName
-	IsGroup        bool
-	AssetIDs       []string
-	MemberID       string
-	MemberName     string
-	NetInvested    float64
-	HasPrice       bool // true if at least one constituent has a price; value/gain/XIRR below only reflect the priced constituents
-	CurrentValue   float64
-	Gain           float64
-	GainPercent    float64
-	XIRR           float64
-	HasXIRR        bool
-	DayGain        float64 // sum of each priced constituent's own DayGain - see Holding.DayGain's doc comment
-	DayGainPercent float64 // DayGain as a percent of the group's CurrentValue as of the PRIOR day (CurrentValue - DayGain), not NetInvested - matches Holding.DayGainPercent's own price-over-price meaning
-	HasDayGain     bool    // true only if EVERY priced constituent has day-gain data - a partial sum would understate the real day move for whichever constituent lacks it
+	DisplayName string // GroupLabel if grouped, else the single constituent's CanonicalName (harmonized across same-ISIN assets - see Holding.CanonicalName's own doc comment)
+	IsGroup     bool
+	AssetIDs    []string
+	// AlsoHeldByMembers is only meaningful (non-empty) for an UNGROUPED
+	// row (IsGroup false) - see Holding.AlsoHeldByMembers' own doc
+	// comment. A grouped row already consolidates several of the
+	// person's OWN holdings under one label; carrying "also held by"
+	// through a group as well would conflate two different kinds of
+	// "this same fund appears elsewhere" and isn't attempted here -
+	// always empty when IsGroup is true.
+	AlsoHeldByMembers []string
+	MemberID          string
+	MemberName        string
+	NetInvested       float64
+	HasPrice          bool // true if at least one constituent has a price; value/gain/XIRR below only reflect the priced constituents
+	CurrentValue      float64
+	Gain              float64
+	GainPercent       float64
+	XIRR              float64
+	HasXIRR           bool
+	DayGain           float64 // sum of each priced constituent's own DayGain - see Holding.DayGain's doc comment
+	DayGainPercent    float64 // DayGain as a percent of the group's CurrentValue as of the PRIOR day (CurrentValue - DayGain), not NetInvested - matches Holding.DayGainPercent's own price-over-price meaning
+	HasDayGain        bool    // true only if EVERY priced constituent has day-gain data - a partial sum would understate the real day move for whichever constituent lacks it
 }
 
 // GroupHoldingsByLabel consolidates holdings sharing the same
@@ -282,7 +357,11 @@ func GroupHoldingsByLabel(p *store.Portfolio, holdings []Holding) []GroupedHoldi
 		if g.IsGroup {
 			g.DisplayName = b.label
 		} else {
-			g.DisplayName = b.members[0].AssetName
+			g.DisplayName = b.members[0].CanonicalName
+			if g.DisplayName == "" {
+				g.DisplayName = b.members[0].AssetName // defensive fallback - CanonicalName is always populated by ComputeHoldings itself, but a Holding built some other way (e.g. directly in a test) might not set it
+			}
+			g.AlsoHeldByMembers = b.members[0].AlsoHeldByMembers
 		}
 
 		var flows []CashFlow
