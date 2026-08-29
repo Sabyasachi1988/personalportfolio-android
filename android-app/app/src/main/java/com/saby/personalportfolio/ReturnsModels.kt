@@ -97,3 +97,13 @@ data class MultiSeriesHistoryItem(
     @SerializedName("IsBenchmark") val isBenchmark: Boolean,
     @SerializedName("Points") val points: List<PricePoint>?
 )
+
+/** Mirrors bridge.TransactionMarker - one buy/sell point overlaid on a fund's price history chart. */
+data class TransactionMarker(
+    @SerializedName("Date") val date: String,
+    @SerializedName("IsBuy") val isBuy: Boolean,
+    @SerializedName("Units") val units: Double,
+    @SerializedName("Price") val price: Double,
+    @SerializedName("Amount") val amount: Double,
+    @SerializedName("Description") val description: String = ""
+)
