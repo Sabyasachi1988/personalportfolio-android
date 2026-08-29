@@ -31,6 +31,16 @@ import androidx.core.content.ContextCompat
  * showing calls show() again, which cancels the pending auto-hide,
  * immediately swaps in the new content, and restarts the timer - so the
  * first tap's information never lingers or delays the second's.
+ *
+ * Two ways to trigger it, per explicit feedback that the original fixed
+ * 4-second display felt too long:
+ *  - show(): a quick tap - displays for LINGER_DURATION_MS then
+ *    auto-hides on its own.
+ *  - showPersistent() + dismissAfterLinger(): a press-and-hold - shows
+ *    with NO timer while the finger is down (showPersistent), then once
+ *    released (dismissAfterLinger) stays up for just LINGER_DURATION_MS
+ *    more before going away - "as we leave the point... stays for
+ *    half a second to one second" was the exact ask.
  */
 class AutoDismissPopupView @JvmOverloads constructor(
     context: Context,
@@ -38,7 +48,10 @@ class AutoDismissPopupView @JvmOverloads constructor(
 ) : LinearLayout(context, attrs) {
 
     companion object {
-        const val DEFAULT_DURATION_MS = 4000L
+        // 800ms - inside the explicitly requested "half a second to one
+        // second" window, used both for a quick tap's own display time
+        // and for how long a HELD marker's popup lingers after release.
+        const val LINGER_DURATION_MS = 800L
     }
 
     private val titleView: TextView
@@ -79,18 +92,85 @@ class AutoDismissPopupView @JvmOverloads constructor(
     }
 
     /**
-     * Shows (or replaces) the card's content. accentColorRes tints the
+     * Shows (or replaces) the card's content for a quick tap - displays
+     * for LINGER_DURATION_MS then auto-hides. accentColorRes tints the
      * title only - e.g. colorGain/colorLoss for a buy/sell marker, or
      * left unset (colorOnSurface) for a neutral message like the
-     * Dashboard's period-gain explanation.
+     * Dashboard's period-gain explanation. anchorX/anchorY, if given,
+     * position the card near that point in the PARENT's own coordinate
+     * space - see positionNear's doc comment. Left unset (null),
+     * whatever position was last set stays (or the XML-declared
+     * default gravity, on first use).
      */
-    fun show(title: String, message: String, accentColorRes: Int = R.color.colorOnSurface, durationMs: Long = DEFAULT_DURATION_MS) {
-        handler.removeCallbacks(hideRunnable) // cancel any pending auto-dismiss from a PREVIOUS tap - see class doc comment
+    fun show(
+        title: String, message: String, accentColorRes: Int = R.color.colorOnSurface,
+        anchorX: Float? = null, anchorY: Float? = null
+    ) {
+        setContent(title, message, accentColorRes)
+        if (anchorX != null && anchorY != null) positionNear(anchorX, anchorY)
+        visibility = VISIBLE
+        handler.removeCallbacks(hideRunnable)
+        handler.postDelayed(hideRunnable, LINGER_DURATION_MS)
+    }
+
+    /**
+     * Shows the card's content with NO auto-dismiss timer - for a
+     * press-and-hold, where the popup should stay up for exactly as
+     * long as the finger stays down. Call dismissAfterLinger() once the
+     * hold ends to start the short auto-hide timer.
+     */
+    fun showPersistent(title: String, message: String, accentColorRes: Int, anchorX: Float, anchorY: Float) {
+        setContent(title, message, accentColorRes)
+        positionNear(anchorX, anchorY)
+        visibility = VISIBLE
+        handler.removeCallbacks(hideRunnable) // no timer while held
+    }
+
+    /** Starts the short auto-hide timer - call once a showPersistent() hold has ended (finger lifted). */
+    fun dismissAfterLinger() {
+        handler.removeCallbacks(hideRunnable)
+        handler.postDelayed(hideRunnable, LINGER_DURATION_MS)
+    }
+
+    private fun setContent(title: String, message: String, accentColorRes: Int) {
+        handler.removeCallbacks(hideRunnable) // cancel any pending auto-dismiss from a PREVIOUS tap/hold - see class doc comment
         titleView.text = title
         titleView.setTextColor(ContextCompat.getColor(context, accentColorRes))
         messageView.text = message
-        visibility = VISIBLE
-        handler.postDelayed(hideRunnable, durationMs)
+    }
+
+    /**
+     * Positions this card near (anchorX, anchorY) - the PARENT's own
+     * coordinate space (a chart view filling its FrameLayout parent at
+     * (0,0) means the chart's own touch coordinates ARE parent-relative
+     * coordinates already, no translation needed at the call site).
+     * Deferred to the NEXT layout pass (view.post) because the card's
+     * width/height for THIS content aren't known until Android actually
+     * measures/lays out the new text - reading width/height immediately
+     * after setting VISIBLE would still return the previous frame's
+     * (possibly stale, possibly zero) size.
+     *
+     * Prefers appearing ABOVE the touched point (a tooltip pointing
+     * down at it) since a finger touching the chart is usually resting
+     * below/on top of where a card below it would need to go anyway;
+     * flips to BELOW when there isn't enough room above (a marker near
+     * the very top of the chart). Horizontally centered on the touch
+     * point, clamped so it never runs off either edge of the parent.
+     */
+    private fun positionNear(anchorX: Float, anchorY: Float) {
+        post {
+            val parentView = parent as? android.view.ViewGroup ?: return@post
+            val gap = dpToPx(14)
+            var left = anchorX - width / 2f
+            left = left.coerceIn(0f, (parentView.width - width).coerceAtLeast(0).toFloat())
+            var top = anchorY - height - gap
+            if (top < 0f) {
+                top = anchorY + gap // not enough room above - flip below the point instead
+            }
+            top = top.coerceIn(0f, (parentView.height - height).coerceAtLeast(0).toFloat())
+            x = left
+            y = top
+        }
     }
 
     fun dismiss() {
