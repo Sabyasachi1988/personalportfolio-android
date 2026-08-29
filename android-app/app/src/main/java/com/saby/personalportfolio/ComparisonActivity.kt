@@ -276,6 +276,19 @@ class ComparisonActivity : AppCompatActivity() {
         container.addView(buildPresetChip("Max") {
             chart.setWindowByDates(firstDate, lastDate)
         })
+
+        // Free-typed custom window, in years (including fractional) -
+        // same as ReturnsDetailActivity's own chart.
+        val yearsInput = findViewById<android.widget.EditText>(R.id.comparisonChartWindowYears)
+        findViewById<View>(R.id.comparisonChartWindowYearsShow).setOnClickListener {
+            val years = yearsInput.text?.toString()?.trim()?.toDoubleOrNull()
+            if (years == null || years <= 0) {
+                yearsInput.error = "Enter a window in years, e.g. 4.5"
+                return@setOnClickListener
+            }
+            yearsInput.error = null
+            chart.setWindowByDates(dateYearsBefore(lastDate, years), lastDate)
+        }
     }
 
     private fun buildPresetChip(label: String, onClick: () -> Unit): TextView {
@@ -301,6 +314,21 @@ class ComparisonActivity : AppCompatActivity() {
             cal.time = fmt.parse(storedDate) ?: return storedDate
             cal.add(java.util.Calendar.MONTH, -months)
             fmt.format(cal.time)
+        } catch (e: Exception) {
+            storedDate
+        }
+    }
+
+    // Same as ReturnsDetailActivity's own dateYearsBefore - see its doc
+    // comment for why fractional-year arithmetic goes via milliseconds
+    // rather than whole-month Calendar math.
+    private fun dateYearsBefore(storedDate: String, years: Double): String {
+        val fmt = java.text.SimpleDateFormat("yyyy-MM-dd", Locale.US)
+        return try {
+            val date = fmt.parse(storedDate) ?: return storedDate
+            val millisPerYear = 365.25 * 24 * 60 * 60 * 1000
+            val shifted = java.util.Date(date.time - (years * millisPerYear).toLong())
+            fmt.format(shifted)
         } catch (e: Exception) {
             storedDate
         }
