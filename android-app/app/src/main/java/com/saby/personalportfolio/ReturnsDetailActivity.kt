@@ -21,18 +21,44 @@ class ReturnsDetailActivity : AppCompatActivity() {
         const val EXTRA_SERIES_ID = "series_id"
         const val EXTRA_NAME = "name"
         const val EXTRA_IS_BENCHMARK = "is_benchmark"
+        // A JSON array of Asset.IDs - present ONLY when this chart is
+        // showing a fund pooled across family members (see
+        // finance.PoolHoldingsByISIN's own Go doc comment for what
+        // "pooled" means here). When set, transaction markers come from
+        // ALL these assets combined (each tagged with whose it is - see
+        // TransactionMarker.Member) rather than just EXTRA_SERIES_ID's
+        // own transactions - a confirmed real correction: the pooled
+        // family view should show one chart with everyone's markers on
+        // it, not a tap-through summary dialog.
+        const val EXTRA_FAMILY_ASSET_IDS = "family_asset_ids"
     }
 
     private val gson = Gson()
     private lateinit var seriesId: String
     private lateinit var portfolioJson: String
     private var selectedBenchmarkId: String = "" // empty = let the bridge auto-pick
+    private var familyAssetIds: List<String> = emptyList()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_returns_detail)
 
-        seriesId = intent.getStringExtra(EXTRA_SERIES_ID) ?: return
+        val familyAssetIdsJson = intent.getStringExtra(EXTRA_FAMILY_ASSET_IDS)
+        familyAssetIds = if (familyAssetIdsJson != null) {
+            try {
+                gson.fromJson(familyAssetIdsJson, object : TypeToken<List<String>>() {}.type) ?: emptyList()
+            } catch (e: Exception) {
+                emptyList()
+            }
+        } else {
+            emptyList()
+        }
+        // For a pooled family fund, price HISTORY comes from just the
+        // first constituent asset - every asset sharing this ISIN
+        // already has IDENTICAL NAV history (see UpdateAllHistory's own
+        // same-ISIN fetch deduplication), so there's nothing to combine
+        // there, only the transaction markers need every constituent.
+        seriesId = familyAssetIds.firstOrNull() ?: intent.getStringExtra(EXTRA_SERIES_ID) ?: return
         val name = intent.getStringExtra(EXTRA_NAME) ?: seriesId
         val isBenchmark = intent.getBooleanExtra(EXTRA_IS_BENCHMARK, false)
 
@@ -207,7 +233,12 @@ class ReturnsDetailActivity : AppCompatActivity() {
     }
 
     private fun loadTransactionMarkers(chart: PriceHistoryChartView) {
-        val resultJson = Bridge.computeAssetTransactionMarkers(portfolioJson, seriesId)
+        val resultJson = if (familyAssetIds.size > 1) {
+            val assetIdsJson = gson.toJson(familyAssetIds)
+            Bridge.computeFamilyTransactionMarkers(portfolioJson, assetIdsJson)
+        } else {
+            Bridge.computeAssetTransactionMarkers(portfolioJson, seriesId)
+        }
         if (isBridgeError(resultJson)) return
         val markerType = object : TypeToken<List<TransactionMarker>>() {}.type
         val markers: List<TransactionMarker> = try {
@@ -217,6 +248,28 @@ class ReturnsDetailActivity : AppCompatActivity() {
         }
         if (markers.isEmpty()) return
         chart.setMarkers(markers)
+
+        // Per-member invested breakdown - only ever populated (and only
+        // ever shown) for a family-pooled chart. Net of buys minus
+        // sells, per member, since that's the same "invested" meaning
+        // used everywhere else in this app (NetInvested), not a raw
+        // sum of buy amounts alone.
+        if (familyAssetIds.size > 1) {
+            val netByMember = linkedMapOf<String, Double>()
+            markers.forEach { m ->
+                if (m.member.isEmpty()) return@forEach
+                val signed = if (m.isBuy) m.amount else -m.amount
+                netByMember[m.member] = (netByMember[m.member] ?: 0.0) + signed
+            }
+            val breakdownView = findViewById<TextView>(R.id.returnsDetailFamilyBreakdown)
+            if (netByMember.isNotEmpty()) {
+                breakdownView.text = netByMember.entries.joinToString(" · ") { (member, net) ->
+                    "$member: ${IndianCurrencyFormatter.format(net, decimals = 0)}"
+                }
+                breakdownView.visibility = View.VISIBLE
+            }
+        }
+
         val popup = findViewById<AutoDismissPopupView>(R.id.returnsDetailMarkerPopup)
         // Quick tap: shows near the touched point, lingers briefly on
         // its own. Press-and-hold: shows near the point with NO timer
@@ -242,10 +295,11 @@ class ReturnsDetailActivity : AppCompatActivity() {
         }
         val title = if (marker.isBuy) "Buy" else "Sell"
         val accentColorRes = if (marker.isBuy) R.color.colorAmber else R.color.colorLoss
+        val memberLine = if (marker.member.isNotEmpty()) "\nBy: ${marker.member}" else ""
         val message = "Date: $displayDate\n" +
             "NAV: ${PricePerUnitFormatter.format(marker.price, decimals = 3)}\n" +
             "Units: ${String.format(Locale.getDefault(), "%.3f", marker.units)}\n" +
-            "Amount: ${IndianCurrencyFormatter.format(marker.amount)}"
+            "Amount: ${IndianCurrencyFormatter.format(marker.amount)}$memberLine"
         if (persistent) {
             popup.showPersistent(title, message, accentColorRes, x, y)
         } else {
