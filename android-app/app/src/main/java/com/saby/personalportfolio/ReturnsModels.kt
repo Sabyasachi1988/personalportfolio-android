@@ -71,6 +71,14 @@ data class IsinNameResolution(
     @SerializedName("name") val name: String
 )
 
+/** Partial deserialization of the raw portfolio JSON's own RiskFreeRate* fields - see store.Portfolio.RiskFreeRatePercent's Go doc comment. */
+data class RiskFreeRateSnapshot(
+    @SerializedName("RiskFreeRatePercent") val ratePercent: Double = 0.0,
+    @SerializedName("RiskFreeRateAsOf") val asOf: String = "",
+    @SerializedName("RiskFreeRateSource") val source: String = "",
+    @SerializedName("RiskFreeRateManual") val manual: Boolean = false
+)
+
 /** Mirrors priceapi.MfapiSchemeMatch - one fund-name search hit when adding an Additional Fund by name. */
 data class MfapiSchemeMatch(
     @SerializedName("Name") val name: String,
