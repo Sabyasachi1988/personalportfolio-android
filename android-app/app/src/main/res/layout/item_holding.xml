@@ -54,6 +54,25 @@
             android:textSize="12sp"
             android:textColor="#888888" />
 
+        <!-- ISIN, shown only by HoldingsAdapter (the plain, ungrouped
+             view) - a diagnostic aid for checking whether two funds
+             that LOOK like the same thing (e.g. two "Nifty 50" rows
+             held by different people) actually share an ISIN, since
+             "also held by" only lights up on a genuine ISIN match, and
+             different plan variants (Direct vs Regular, Growth vs
+             IDCW) are real, different ISINs even for what's
+             colloquially "the same fund". Left GONE by
+             GroupedHoldingsAdapter, which has no single ISIN to show
+             once several assets are consolidated under a group label. -->
+        <TextView
+            android:id="@+id/holdingIsin"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:textSize="11sp"
+            android:textColor="@color/colorNeutral"
+            android:visibility="gone" />
+
         <TextView
             android:id="@+id/holdingDayGain"
             android:layout_width="match_parent"
