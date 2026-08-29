@@ -7,6 +7,7 @@ import android.view.ViewGroup
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import com.ledger.bridge.Bridge
@@ -184,10 +185,15 @@ class ReturnsDetailActivity : AppCompatActivity() {
         }
         if (markers.isEmpty()) return
         chart.setMarkers(markers)
-        chart.onMarkerTapped = { marker -> showMarkerDialog(marker) }
+        val popup = findViewById<AutoDismissPopupView>(R.id.returnsDetailMarkerPopup)
+        chart.onMarkerTapped = { marker -> showMarkerPopup(popup, marker) }
     }
 
-    private fun showMarkerDialog(marker: TransactionMarker) {
+    // Only Date/NAV/Units/Amount are shown - a transaction's raw
+    // Description (e.g. "Sys. Investment ISIP (11/28)") was deliberately
+    // dropped after explicit feedback that it wasn't meaningful
+    // information for this popup, unlike the other 4 fields.
+    private fun showMarkerPopup(popup: AutoDismissPopupView, marker: TransactionMarker) {
         val displayFormat = SimpleDateFormat("d MMM yyyy", Locale.getDefault())
         val storedFormat = SimpleDateFormat("yyyy-MM-dd", Locale.US)
         val displayDate = try {
@@ -196,20 +202,12 @@ class ReturnsDetailActivity : AppCompatActivity() {
             marker.date
         }
         val title = if (marker.isBuy) "Buy" else "Sell"
-        val message = buildString {
-            append("Date: $displayDate\n")
-            append("NAV: ${PricePerUnitFormatter.format(marker.price, decimals = 3)}\n")
-            append("Units: ${String.format(Locale.getDefault(), "%.3f", marker.units)}\n")
-            append("Amount: ${IndianCurrencyFormatter.format(marker.amount)}")
-            if (marker.description.isNotEmpty()) {
-                append("\n${marker.description}")
-            }
-        }
-        AlertDialog.Builder(this)
-            .setTitle(title)
-            .setMessage(message)
-            .setPositiveButton("OK", null)
-            .show()
+        val accentColorRes = if (marker.isBuy) R.color.colorAmber else R.color.colorLoss
+        val message = "Date: $displayDate\n" +
+            "NAV: ${PricePerUnitFormatter.format(marker.price, decimals = 3)}\n" +
+            "Units: ${String.format(Locale.getDefault(), "%.3f", marker.units)}\n" +
+            "Amount: ${IndianCurrencyFormatter.format(marker.amount)}"
+        popup.show(title, message, accentColorRes)
     }
 
     private fun isBridgeError(json: String): Boolean = json.trimStart().startsWith("{\"error\"")
@@ -234,29 +232,99 @@ class ReturnsDetailActivity : AppCompatActivity() {
             benchmarkLabel.text = "Compared against: ${m.benchmarkName}$suffix"
         }
 
-        bindMetricRow(R.id.returnsDetailMetricBeta, "Beta", m.beta, m.betaHasData, decimals = 2, suffix = "")
-        bindMetricRow(R.id.returnsDetailMetricInfoRatio, "Information Ratio", m.informationRatio, m.infoRatioHasData, decimals = 2, suffix = "")
-        bindMetricRow(R.id.returnsDetailMetricUpCapture, "Up Capture", m.upCapture, m.upCaptureHasData, decimals = 2, suffix = "%")
-        bindMetricRow(R.id.returnsDetailMetricDownCapture, "Down Capture", m.downCapture, m.downCaptureHasData, decimals = 2, suffix = "%")
-        bindMetricRow(R.id.returnsDetailMetricMaxDrawdown, "Max Drawdown", m.maxDrawdown, m.maxDrawdownHasData, decimals = 2, suffix = "%")
-        bindMetricRow(R.id.returnsDetailMetricSharpe, "Sharpe Ratio", m.sharpeRatio, m.sharpeHasData, decimals = 2, suffix = "")
-        bindMetricRow(R.id.returnsDetailMetricSortino, "Sortino Ratio", m.sortinoRatio, m.sortinoHasData, decimals = 2, suffix = "")
+        // Beta has no inherent "good/bad" direction (it's a market-
+        // sensitivity measure, not a performance one) so it stays
+        // neutral - every other card is colored by what a favorable
+        // reading actually means for THAT metric, not just "positive =
+        // green": Down Capture and Max Drawdown are both metrics where
+        // a LOWER number is the good outcome, the opposite of the other
+        // 5, so each card's threshold is spelled out at its own call
+        // site rather than one blanket "value >= 0" rule that would
+        // color Down Capture backwards.
+        val cards = listOf(
+            MetricCardSpec("Beta", m.beta, m.betaHasData, decimals = 2, suffix = "", colorRes = R.color.colorOnSurface),
+            MetricCardSpec("Information Ratio", m.informationRatio, m.infoRatioHasData, decimals = 2, suffix = "", colorRes = if (m.informationRatio >= 0) R.color.colorGain else R.color.colorLoss),
+            MetricCardSpec("Up Capture", m.upCapture, m.upCaptureHasData, decimals = 2, suffix = "%", colorRes = if (m.upCapture >= 100) R.color.colorGain else R.color.colorLoss),
+            MetricCardSpec("Down Capture", m.downCapture, m.downCaptureHasData, decimals = 2, suffix = "%", colorRes = if (m.downCapture <= 100) R.color.colorGain else R.color.colorLoss),
+            MetricCardSpec("Max Drawdown", m.maxDrawdown, m.maxDrawdownHasData, decimals = 2, suffix = "%", colorRes = R.color.colorLoss),
+            MetricCardSpec("Sharpe Ratio", m.sharpeRatio, m.sharpeHasData, decimals = 2, suffix = "", colorRes = if (m.sharpeRatio >= 0) R.color.colorGain else R.color.colorLoss),
+            MetricCardSpec("Sortino Ratio", m.sortinoRatio, m.sortinoHasData, decimals = 2, suffix = "", colorRes = if (m.sortinoRatio >= 0) R.color.colorGain else R.color.colorLoss)
+        )
+        buildMetricCardGrid(cards)
     }
 
-    private fun bindMetricRow(viewId: Int, label: String, value: Double, hasData: Boolean, decimals: Int, suffix: String) {
-        val view = findViewById<TextView>(viewId)
-        view.text = if (hasData) {
-            // NOTE: suffix ("%") must NOT be inside the format string
-            // itself - a bare trailing "%" is not a valid Java format
-            // conversion and throws UnknownFormatConversionException at
-            // runtime (this was a real, confirmed crash: tapping into
-            // any fund card with a computed Up/Down Capture or Max
-            // Drawdown value crashed the Activity). Format the number
-            // alone, then concatenate the suffix as plain text.
-            "$label: " + String.format(Locale.getDefault(), "%.${decimals}f", value) + suffix
-        } else {
-            "$label: — (not enough overlapping history)"
+    private data class MetricCardSpec(
+        val label: String, val value: Double, val hasData: Boolean, val decimals: Int, val suffix: String, val colorRes: Int
+    )
+
+    // 2-per-row grid of small cards, replacing the old flat "Label:
+    // value" list - see the XML container's own doc comment for why
+    // this is built programmatically rather than as static XML blocks.
+    private fun buildMetricCardGrid(cards: List<MetricCardSpec>) {
+        val grid = findViewById<LinearLayout>(R.id.returnsDetailMetricsGrid)
+        grid.removeAllViews()
+        cards.chunked(2).forEach { rowCards ->
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply { topMargin = dpToPx(8) }
+            }
+            rowCards.forEachIndexed { i, spec ->
+                row.addView(buildMetricCard(spec).apply {
+                    layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                        if (i > 0) marginStart = dpToPx(8)
+                    }
+                })
+            }
+            // An odd final row (7 cards = 3 rows of 2 + 1) gets an
+            // invisible spacer in the second slot, so the lone card
+            // stays HALF width like every other card rather than
+            // stretching to fill the row - a stretched final card would
+            // look like a mistake, not a deliberate layout.
+            if (rowCards.size == 1) {
+                row.addView(View(this).apply {
+                    layoutParams = LinearLayout.LayoutParams(0, 0, 1f).apply { marginStart = dpToPx(8) }
+                })
+            }
+            grid.addView(row)
         }
+    }
+
+    private fun buildMetricCard(spec: MetricCardSpec): LinearLayout {
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = ContextCompat.getDrawable(this@ReturnsDetailActivity, R.drawable.dropdown_tab_background)
+            val pad = dpToPx(12)
+            setPadding(pad, pad, pad, pad)
+        }
+        val labelView = TextView(this).apply {
+            text = spec.label
+            textSize = 12f
+            setTextColor(ContextCompat.getColor(this@ReturnsDetailActivity, R.color.colorNeutral))
+        }
+        val valueView = TextView(this).apply {
+            textSize = 18f
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dpToPx(2)
+            }
+            if (spec.hasData) {
+                // Same UnknownFormatConversionException landmine as
+                // before - see the original bindMetricRow's own note:
+                // a bare "%" inside a format STRING is invalid, so the
+                // number is formatted alone and the suffix concatenated
+                // as plain text afterward.
+                text = String.format(Locale.getDefault(), "%.${spec.decimals}f", spec.value) + spec.suffix
+                setTextColor(ContextCompat.getColor(this@ReturnsDetailActivity, spec.colorRes))
+            } else {
+                text = "—"
+                setTextColor(ContextCompat.getColor(this@ReturnsDetailActivity, R.color.colorNeutral))
+            }
+        }
+        card.addView(labelView)
+        card.addView(valueView)
+        return card
     }
 
     /**
