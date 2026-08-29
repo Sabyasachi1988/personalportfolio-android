@@ -261,6 +261,18 @@
             android:contentDescription="Import CAS PDF"
             app:srcCompat="@drawable/ic_fab_add" />
 
+        <!-- Self-dismissing info popup for the Day/1 Year/Calendar Year
+             period-gain chips - see AutoDismissPopupView's own doc
+             comment. Bottom-center so it doesn't sit under a thumb
+             tapping a chip near the top of the screen, and stays clear
+             of the FAB (bottom|END) sitting in the opposite corner. -->
+        <com.saby.personalportfolio.AutoDismissPopupView
+            android:id="@+id/dashboardPeriodGainPopup"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom|center_horizontal"
+            android:layout_marginBottom="24dp" />
+
     </FrameLayout>
 
     <com.google.android.material.bottomnavigation.BottomNavigationView
