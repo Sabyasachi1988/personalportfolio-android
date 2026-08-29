@@ -34,6 +34,7 @@ data class Holding(
 data class GroupedHolding(
     @SerializedName("DisplayName") val displayName: String,
     @SerializedName("IsGroup") val isGroup: Boolean,
+    @SerializedName("IsFamilyPool") val isFamilyPool: Boolean = false,
     @SerializedName("AssetIDs") val assetIds: List<String> = emptyList(),
     @SerializedName("AlsoHeldByMembers") val alsoHeldByMembers: List<String> = emptyList(),
     @SerializedName("MemberID") val memberId: String,
