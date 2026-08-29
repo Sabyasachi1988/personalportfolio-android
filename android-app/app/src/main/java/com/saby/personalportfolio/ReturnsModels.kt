@@ -7,6 +7,7 @@ data class Benchmark(
     @SerializedName("ID") val id: String,
     @SerializedName("Name") val name: String,
     @SerializedName("YahooTicker") val yahooTicker: String,
+    @SerializedName("NiftyTRIIndexName") val niftyTRIIndexName: String = "",
     @SerializedName("Nickname") val nickname: String = ""
 )
 
