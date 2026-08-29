@@ -7,6 +7,8 @@ import (
 	"net/http"
 	neturl "net/url"
 	"sort"
+	"strconv"
+	"sync"
 	"time"
 
 	"ledger/internal/store"
@@ -514,4 +516,178 @@ func ParseFrankfurterTimeSeries(body []byte, currency string) ([]store.FXRate, e
 	}
 	sort.Slice(rates, func(i, j int) bool { return rates[i].Date < rates[j].Date })
 	return rates, nil
+}
+
+// MfapiScheme is one entry in mfapi.in's full scheme list (GET
+// https://api.mfapi.in/mf). Confirmed shape via mfapi.in's own live
+// documentation page (fetched 2026-08-29) plus an independent
+// third-party reference showing a real captured entry:
+//
+//	{"schemeCode":125497,"schemeName":"...","isinGrowth":"INF179K01BB2",
+//	 "isinDivReinvestment":"INF179K01BC0"}
+//
+// This project's own AMFI-sourced attempt (the classic
+// DownloadNAVHistoryReport_Po.aspx endpoint) was confirmed DEAD via a
+// live fetch on 2026-08-29 (404) - AMFI's own NAV-download page states
+// the old-format download was retired 28th August 2026, and the
+// replacement is a JS-driven form with no documented plain GET
+// endpoint that could be verified from this sandbox. mfapi.in is used
+// instead: a free, independent, long-running third-party republication
+// of the same AMFI data (not affiliated with TigZig, this project's
+// primary MF source), giving genuine source diversity rather than a
+// second call to the same upstream.
+type MfapiScheme struct {
+	SchemeCode          int    `json:"schemeCode"`
+	SchemeName          string `json:"schemeName"`
+	ISINGrowth          string `json:"isinGrowth"`
+	ISINDivReinvestment string `json:"isinDivReinvestment"`
+}
+
+// mfapiSchemeList caches the ~37,000-row full scheme list for the
+// lifetime of the process - it changes rarely (only on new fund
+// launches) and re-fetching it per-fund on every UpdateAllHistory call
+// would be wasteful. sync.Once means concurrent callers (this list is
+// looked up from UpdateAllHistory's per-asset goroutines) share one
+// fetch instead of racing.
+var (
+	mfapiSchemeListOnce sync.Once
+	mfapiSchemeListData []MfapiScheme
+	mfapiSchemeListErr  error
+)
+
+func fetchMfapiSchemeList() ([]MfapiScheme, error) {
+	mfapiSchemeListOnce.Do(func() {
+		resp, err := http.Get("https://api.mfapi.in/mf")
+		if err != nil {
+			mfapiSchemeListErr = fmt.Errorf("mfapi.in scheme list request failed: %w", err)
+			return
+		}
+		defer resp.Body.Close()
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			mfapiSchemeListErr = fmt.Errorf("reading mfapi.in scheme list response: %w", err)
+			return
+		}
+		if resp.StatusCode != http.StatusOK {
+			mfapiSchemeListErr = fmt.Errorf("mfapi.in scheme list returned status %d: %s", resp.StatusCode, string(body))
+			return
+		}
+		var schemes []MfapiScheme
+		if err := json.Unmarshal(body, &schemes); err != nil {
+			mfapiSchemeListErr = fmt.Errorf("parsing mfapi.in scheme list: %w", err)
+			return
+		}
+		mfapiSchemeListData = schemes
+	})
+	return mfapiSchemeListData, mfapiSchemeListErr
+}
+
+// ResolveMfapiSchemeCode maps a fund's ISIN (this project's own asset
+// identifier) to mfapi.in's numeric scheme code, which is what its
+// per-scheme NAV-history endpoint actually requires - mfapi.in does
+// not support looking up by ISIN directly, only via a local scan of
+// the full list's isinGrowth/isinDivReinvestment fields (see
+// MfapiScheme's doc comment for the confirmed field names).
+func ResolveMfapiSchemeCode(isin string) (int, error) {
+	if isin == "" {
+		return 0, fmt.Errorf("isin cannot be empty")
+	}
+	schemes, err := fetchMfapiSchemeList()
+	if err != nil {
+		return 0, err
+	}
+	for _, s := range schemes {
+		if s.ISINGrowth == isin || s.ISINDivReinvestment == isin {
+			return s.SchemeCode, nil
+		}
+	}
+	return 0, fmt.Errorf("no mfapi.in scheme found for ISIN %s", isin)
+}
+
+// mfapiNavHistoryResponse mirrors GET https://api.mfapi.in/mf/{code} -
+// see MfapiScheme's doc comment for how this was confirmed. Dates come
+// back as "DD-MM-YYYY" strings (converted to this project's own
+// "YYYY-MM-DD" convention in FetchMfapiNavHistory below) and NAV as a
+// JSON string, not a number.
+type mfapiNavHistoryResponse struct {
+	Data []struct {
+		Date string `json:"date"`
+		Nav  string `json:"nav"`
+	} `json:"data"`
+}
+
+// FetchMfapiNavHistory fetches one fund's NAV history from mfapi.in by
+// ISIN, used as FetchTigzigNavHistory's fallback when TigZig errors -
+// see MfapiScheme's doc comment for why this is a genuinely
+// independent second source. since="" fetches the fund's entire
+// available history.
+//
+// mfapi.in's own documentation page shows a startDate/endDate query
+// example, but an independent third-party integration guide states
+// plainly that the API "returns the entire history... doesn't support
+// filtering of data by timestamp" - since that couldn't be resolved
+// with a live call from this sandbox (api.mfapi.in isn't reachable
+// here), this deliberately does NOT rely on server-side filtering: it
+// always fetches the full series and filters client-side against
+// `since`, which is correct either way that discrepancy resolves.
+func FetchMfapiNavHistory(isin string, since string) ([]TigzigNavPoint, error) {
+	code, err := ResolveMfapiSchemeCode(isin)
+	if err != nil {
+		return nil, err
+	}
+	url := fmt.Sprintf("https://api.mfapi.in/mf/%d", code)
+	resp, err := http.Get(url)
+	if err != nil {
+		return nil, fmt.Errorf("mfapi.in nav history request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading mfapi.in nav history response: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("mfapi.in nav history returned status %d for ISIN %s (scheme %d): %s", resp.StatusCode, isin, code, string(body))
+	}
+
+	points, err := ParseMfapiNavHistory(body, since)
+	if err != nil {
+		return nil, fmt.Errorf("parsing mfapi.in nav history for ISIN %s: %w", isin, err)
+	}
+	if since == "" && len(points) == 0 {
+		return nil, fmt.Errorf("no NAV history found on mfapi.in for ISIN %s", isin)
+	}
+	return points, nil
+}
+
+// ParseMfapiNavHistory is split out from FetchMfapiNavHistory so the
+// parsing/date-conversion/filtering logic has a real test against a
+// fixture, independent of the live network call this sandbox can't
+// make to api.mfapi.in - same reasoning as ParseYahooDirectChart and
+// ParseFrankfurterTimeSeries elsewhere in this file. A malformed row
+// (bad date, non-numeric NAV) is skipped, not treated as a fatal
+// error, since one bad row shouldn't lose an entire fund's history.
+func ParseMfapiNavHistory(body []byte, since string) ([]TigzigNavPoint, error) {
+	var parsed mfapiNavHistoryResponse
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		return nil, err
+	}
+	points := make([]TigzigNavPoint, 0, len(parsed.Data))
+	for _, row := range parsed.Data {
+		t, err := time.Parse("02-01-2006", row.Date)
+		if err != nil {
+			continue
+		}
+		date := t.Format("2006-01-02")
+		if since != "" && date < since {
+			continue
+		}
+		nav, err := strconv.ParseFloat(row.Nav, 64)
+		if err != nil {
+			continue
+		}
+		points = append(points, TigzigNavPoint{Date: date, Nav: nav})
+	}
+	sort.Slice(points, func(i, j int) bool { return points[i].Date < points[j].Date })
+	return points, nil
 }
