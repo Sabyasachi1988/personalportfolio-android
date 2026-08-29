@@ -28,6 +28,22 @@ class BenchmarksActivity : AppCompatActivity() {
         "Nifty Smallcap 250" to "NIFTYSMLCAP250.NS"
     )
 
+    /**
+     * TRI (Total Return, dividends reinvested) versions of the same
+     * indices - the genuinely correct benchmark for a fund comparison,
+     * since every real fund factsheet benchmarks against the TRI
+     * variant, not the plain price index above. See
+     * store.Benchmark.NiftyTRIIndexName's Go doc comment for the
+     * source and its confirmed canonical spellings - these are NOT
+     * Yahoo tickers, they're NSE Indices' own internal index names.
+     */
+    private val knownTRIIndices = listOf(
+        "Nifty 50 TRI" to "NIFTY 50",
+        "Nifty 500 TRI" to "NIFTY 500",
+        "Nifty Midcap 150 TRI" to "NIFTY MIDCAP 150",
+        "Nifty Smallcap 250 TRI" to "NIFTY SMALLCAP 250"
+    )
+
     private val gson = Gson()
     private lateinit var quickAddGroup: ChipGroup
     private lateinit var recyclerView: RecyclerView
@@ -92,12 +108,38 @@ class BenchmarksActivity : AppCompatActivity() {
             chip.setOnClickListener { addBenchmark(name, ticker) }
             quickAddGroup.addView(chip)
         }
+        val existingTRINames = existing.map { it.niftyTRIIndexName }.toSet()
+        for ((name, triIndexName) in knownTRIIndices) {
+            if (triIndexName in existingTRINames) continue
+            val chip = Chip(this)
+            chip.text = name
+            chip.isClickable = true
+            chip.setOnClickListener { addTRIBenchmark(name, triIndexName) }
+            quickAddGroup.addView(chip)
+        }
     }
 
     private fun addBenchmark(name: String, ticker: String) {
         val portfolioPath = PortfolioStorage.filePath(this)
         val portfolioJson = PortfolioLoadCache.load(portfolioPath)
         val afterAdd = Bridge.addBenchmark(portfolioJson, name, ticker)
+        if (isBridgeError(afterAdd)) {
+            Toast.makeText(this, "Failed to add: $afterAdd", Toast.LENGTH_LONG).show()
+            return
+        }
+        val saveResult = Bridge.savePortfolio(portfolioPath, afterAdd)
+        if (isBridgeError(saveResult)) {
+            Toast.makeText(this, "Failed to save: $saveResult", Toast.LENGTH_LONG).show()
+            return
+        }
+        Toast.makeText(this, "Added $name - tap Refresh to fetch its history", Toast.LENGTH_SHORT).show()
+        reload()
+    }
+
+    private fun addTRIBenchmark(name: String, niftyTRIIndexName: String) {
+        val portfolioPath = PortfolioStorage.filePath(this)
+        val portfolioJson = PortfolioLoadCache.load(portfolioPath)
+        val afterAdd = Bridge.addTRIBenchmark(portfolioJson, name, niftyTRIIndexName)
         if (isBridgeError(afterAdd)) {
             Toast.makeText(this, "Failed to add: $afterAdd", Toast.LENGTH_LONG).show()
             return
@@ -142,7 +184,7 @@ class BenchmarksActivity : AppCompatActivity() {
         rowHolder.refreshButton.isEnabled = true
         if (isBridgeError(afterFetch)) {
             Toast.makeText(this, "Failed to fetch history: $afterFetch", Toast.LENGTH_LONG).show()
-            rowHolder.status.text = benchmark.yahooTicker
+            rowHolder.status.text = benchmark.niftyTRIIndexName.ifEmpty { benchmark.yahooTicker }
             return
         }
         val saveResult = Bridge.savePortfolio(portfolioPath, afterFetch)
