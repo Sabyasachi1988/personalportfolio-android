@@ -98,6 +98,32 @@
 
     </HorizontalScrollView>
 
+    <!-- Custom years input alongside the fixed presets above - same as
+         ReturnsDetailActivity's own chart. -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+
+        <EditText
+            android:id="@+id/comparisonChartWindowYears"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="wrap_content"
+            android:hint="Custom window, years (e.g. 4.5)"
+            android:inputType="numberDecimal" />
+
+        <TextView
+            android:id="@+id/comparisonChartWindowYearsShow"
+            style="@style/ActionChip"
+            android:layout_width="wrap_content"
+            android:layout_marginStart="8dp"
+            android:text="Show" />
+
+    </LinearLayout>
+
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
