@@ -326,6 +326,87 @@ func TestFindAssetByISIN(t *testing.T) {
 	}
 }
 
+func TestAddTrackedFund_IsNotOwnedAndFindableByISIN(t *testing.T) {
+	p := &Portfolio{}
+	a := p.AddTrackedFund("Some Fund I Don't Own Yet", "INF999X01234")
+	if a.IsOwned() {
+		t.Errorf("a freshly-added tracked fund reports IsOwned() = true, want false")
+	}
+	if a.AccountID != "" {
+		t.Errorf("AccountID = %q, want empty for a tracked fund", a.AccountID)
+	}
+	found, ok := p.FindTrackedFundByISIN("INF999X01234")
+	if !ok || found.ID != a.ID {
+		t.Errorf("FindTrackedFundByISIN did not find the fund just added: found=%+v ok=%v", found, ok)
+	}
+}
+
+func TestFindTrackedFundByISIN_NeverMatchesAnOwnedAsset(t *testing.T) {
+	p := &Portfolio{Assets: []Asset{
+		{ID: "owned1", AccountID: "acct1", ISIN: "INF999X01234", Name: "Owned Version"},
+	}}
+	if _, ok := p.FindTrackedFundByISIN("INF999X01234"); ok {
+		t.Error("FindTrackedFundByISIN matched an owned Asset - it must only ever match tracked (unowned) entries")
+	}
+}
+
+func TestPromoteTrackedFund_SetsAccountIDKeepsSameID(t *testing.T) {
+	p := &Portfolio{}
+	tracked := p.AddTrackedFund("Fund I'm About To Buy", "INF999X01234")
+
+	ok := p.PromoteTrackedFund(tracked.ID, "acct1")
+	if !ok {
+		t.Fatal("PromoteTrackedFund returned false, want true")
+	}
+	promoted, found := p.FindAssetByISIN("INF999X01234")
+	if !found {
+		t.Fatal("promoted asset not found by ISIN afterward")
+	}
+	if promoted.ID != tracked.ID {
+		t.Errorf("promoted.ID = %q, want %q - the SAME Asset ID must be kept (that's the whole point: existing price history carries over)", promoted.ID, tracked.ID)
+	}
+	if !promoted.IsOwned() || promoted.AccountID != "acct1" {
+		t.Errorf("promoted asset = %+v, want AccountID=acct1 and IsOwned()=true", promoted)
+	}
+}
+
+func TestPromoteTrackedFund_RefusesAnAlreadyOwnedAsset(t *testing.T) {
+	p := &Portfolio{Assets: []Asset{
+		{ID: "owned1", AccountID: "acct1", ISIN: "INF999X01234"},
+	}}
+	if ok := p.PromoteTrackedFund("owned1", "acct2"); ok {
+		t.Error("PromoteTrackedFund succeeded against an already-owned Asset - it must refuse, never reassign a real holding's ownership")
+	}
+	// Ownership must be UNCHANGED, not partially applied.
+	a, _ := p.FindAssetByISIN("INF999X01234")
+	if a.AccountID != "acct1" {
+		t.Errorf("AccountID changed to %q despite the refusal - want it untouched (acct1)", a.AccountID)
+	}
+}
+
+func TestRemoveTrackedFund_RefusesAnOwnedAsset(t *testing.T) {
+	p := &Portfolio{Assets: []Asset{
+		{ID: "owned1", AccountID: "acct1", ISIN: "INF999X01234"},
+	}}
+	if ok := p.RemoveTrackedFund("owned1"); ok {
+		t.Error("RemoveTrackedFund succeeded against an owned Asset - it must refuse, never delete a real holding via this path")
+	}
+	if len(p.Assets) != 1 {
+		t.Errorf("asset was removed despite the refusal - want it untouched")
+	}
+}
+
+func TestRemoveTrackedFund_RemovesAnUnownedAsset(t *testing.T) {
+	p := &Portfolio{}
+	tracked := p.AddTrackedFund("Fund To Remove", "INF999X01234")
+	if ok := p.RemoveTrackedFund(tracked.ID); !ok {
+		t.Fatal("RemoveTrackedFund returned false, want true")
+	}
+	if len(p.Assets) != 0 {
+		t.Errorf("expected the tracked fund to be removed, got %d assets remaining", len(p.Assets))
+	}
+}
+
 func TestCapComposition_SetThenGetReturnsLatest(t *testing.T) {
 	p := &Portfolio{}
 	if _, ok := p.GetCapComposition("ast1"); ok {
