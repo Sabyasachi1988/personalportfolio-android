@@ -252,5 +252,57 @@ class ComparisonActivity : AppCompatActivity() {
         pickButton.text = "${overlaySeries.size} picked"
         chart.setSeries(overlaySeries)
         chart.setLockBaseDate(lockSwitch.isChecked)
+        setUpRangePresets()
+    }
+
+    // 3M/6M/1Y/2Y/3Y/Max quick-jump shortcuts, same as
+    // ReturnsDetailActivity's own chart - see that class's own doc
+    // comment for the reasoning (identical here: computes a start date
+    // some fixed offset before the union's LAST date and sets the
+    // chart's window to [that date, last date]). Rebuilt on every
+    // loadChart() call since the union date bounds can change when the
+    // selected series change.
+    private fun setUpRangePresets() {
+        val bounds = currentUnionDateBounds ?: return
+        val (firstDate, lastDate) = bounds
+        val container = findViewById<LinearLayout>(R.id.comparisonRangePresets)
+        container.removeAllViews()
+        val presets = listOf("3M" to 3, "6M" to 6, "1Y" to 12, "2Y" to 24, "3Y" to 36)
+        presets.forEach { (label, monthsBack) ->
+            container.addView(buildPresetChip(label) {
+                chart.setWindowByDates(dateMonthsBefore(lastDate, monthsBack), lastDate)
+            })
+        }
+        container.addView(buildPresetChip("Max") {
+            chart.setWindowByDates(firstDate, lastDate)
+        })
+    }
+
+    private fun buildPresetChip(label: String, onClick: () -> Unit): TextView {
+        val chip = TextView(this, null, 0, R.style.ActionChip)
+        chip.text = label
+        chip.layoutParams = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
+        ).apply { marginEnd = dpToPx(8) }
+        chip.setOnClickListener { onClick() }
+        return chip
+    }
+
+    private fun dpToPx(dp: Int): Int = (dp * resources.displayMetrics.density).toInt()
+
+    // storedDate is "yyyy-MM-dd" - same stored-date convention used
+    // throughout this app. Falls back to storedDate itself if parsing
+    // ever fails, so a preset tap degrades to "show everything from the
+    // start" rather than crashing.
+    private fun dateMonthsBefore(storedDate: String, months: Int): String {
+        val fmt = java.text.SimpleDateFormat("yyyy-MM-dd", Locale.US)
+        return try {
+            val cal = java.util.Calendar.getInstance()
+            cal.time = fmt.parse(storedDate) ?: return storedDate
+            cal.add(java.util.Calendar.MONTH, -months)
+            fmt.format(cal.time)
+        } catch (e: Exception) {
+            storedDate
+        }
     }
 }
