@@ -263,3 +263,23 @@ func TestDefaultBenchmarkTicker_MatchesKnownSegments(t *testing.T) {
 		}
 	}
 }
+
+func TestDefaultBenchmarkTRIName_MatchesKnownSegments(t *testing.T) {
+	cases := []struct {
+		fundName string
+		want     string
+	}{
+		{"HDFC Nifty 50 Index Fund", "NIFTY 50"},
+		{"Motilal Oswal Midcap Fund", "NIFTY MIDCAP 150"},
+		{"SBI Small Cap Fund", "NIFTY SMALLCAP 250"},
+		{"Parag Parikh Flexi Cap Fund", "NIFTY 500"},
+		{"ICICI Prudential Gold ETF", ""},
+		{"Some Completely Unrecognized Fund", ""},
+	}
+	for _, c := range cases {
+		got := DefaultBenchmarkTRIName(c.fundName)
+		if got != c.want {
+			t.Errorf("DefaultBenchmarkTRIName(%q) = %q, want %q", c.fundName, got, c.want)
+		}
+	}
+}
