@@ -842,7 +842,11 @@ func FetchNiftyIndicesTRI(index string, since string) ([]TigzigNavPoint, error) 
 
 	points, err := ParseNiftyIndicesTRI(respBody, since)
 	if err != nil {
-		return nil, fmt.Errorf("parsing niftyindices TRI response for %q: %w", index, err)
+		snippet := string(respBody)
+		if len(snippet) > 300 {
+			snippet = snippet[:300]
+		}
+		return nil, fmt.Errorf("parsing niftyindices TRI response for %q: %w (raw body: %s)", index, err, snippet)
 	}
 	if since == "" && len(points) == 0 {
 		return nil, fmt.Errorf("no TRI history found for index %q - check the canonical name spelling", index)
