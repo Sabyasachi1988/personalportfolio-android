@@ -2,10 +2,12 @@ package priceapi
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/cookiejar"
 	neturl "net/url"
 	"sort"
 	"strconv"
@@ -810,6 +812,32 @@ func FetchNiftyIndicesTRI(index string, since string) ([]TigzigNavPoint, error) 
 	}
 	endDate := time.Now().UTC().Format("02-Jan-2006")
 
+	// CONFIRMED 2026-08-30 (not speculative): a cookie-less POST to this
+	// endpoint got rejected and returned the site's plain HTML page
+	// (starting "<!DOCTYPE html>...<title>") instead of the JSON
+	// envelope - i.e. Akamai's front-end bot protection tightened since
+	// this endpoint was first reverse-engineered on 2026-05-22, when no
+	// cookies were required. Bootstrapping a cookie jar via a real GET
+	// first is the standard fix for this class of failure. Give the
+	// bootstrap GET a short sub-timeout and ignore its own errors - if
+	// Akamai is hostile the HTML page can itself hang while the POST
+	// endpoint still answers, and if cookies turn out not to be the
+	// issue this bootstrap is a harmless no-op.
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		return nil, fmt.Errorf("building cookie jar for niftyindices TRI request: %w", err)
+	}
+	client := &http.Client{Jar: jar}
+	bootstrapCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if bootstrapReq, bErr := http.NewRequestWithContext(bootstrapCtx, http.MethodGet, "https://www.niftyindices.com/reports/historical-data", nil); bErr == nil {
+		bootstrapReq.Header.Set("User-Agent", "Mozilla/5.0 (compatible; PersonalPortfolioApp/1.0)")
+		if bootstrapResp, bErr := client.Do(bootstrapReq); bErr == nil {
+			io.Copy(io.Discard, bootstrapResp.Body)
+			bootstrapResp.Body.Close()
+		}
+	}
+
 	cinfo := fmt.Sprintf("{'name':'%s','startDate':'%s','endDate':'%s','indexName':'%s'}", index, startDate, endDate, index)
 	bodyBytes, err := json.Marshal(niftyTRIRequest{Cinfo: cinfo})
 	if err != nil {
@@ -826,7 +854,7 @@ func FetchNiftyIndicesTRI(index string, since string) ([]TigzigNavPoint, error) 
 	// See doc comment above - this is load-bearing, not cosmetic.
 	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; PersonalPortfolioApp/1.0)")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("niftyindices TRI request failed: %w", err)
 	}
@@ -846,7 +874,11 @@ func FetchNiftyIndicesTRI(index string, since string) ([]TigzigNavPoint, error) 
 		if len(snippet) > 300 {
 			snippet = snippet[:300]
 		}
-		return nil, fmt.Errorf("parsing niftyindices TRI response for %q: %w (raw body: %s)", index, err, snippet)
+		hint := ""
+		if bytes.HasPrefix(bytes.TrimSpace(respBody), []byte("<")) {
+			hint = " (NSE returned an HTML page instead of JSON - likely a bot-protection block; the cookie bootstrap should normally prevent this, so it recurring suggests Akamai has tightened further)"
+		}
+		return nil, fmt.Errorf("parsing niftyindices TRI response for %q: %w%s (raw body: %s)", index, err, hint, snippet)
 	}
 	if since == "" && len(points) == 0 {
 		return nil, fmt.Errorf("no TRI history found for index %q - check the canonical name spelling", index)
