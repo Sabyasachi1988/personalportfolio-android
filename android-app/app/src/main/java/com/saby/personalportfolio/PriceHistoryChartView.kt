@@ -4,6 +4,8 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Path
+import android.os.Handler
+import android.os.Looper
 import android.util.AttributeSet
 import android.view.GestureDetector
 import android.view.MotionEvent
@@ -50,6 +52,7 @@ class PriceHistoryChartView @JvmOverloads constructor(
         private const val MARKER_RADIUS_MIN_PX = 11f // smallest marker in a fund's own set (its smallest transaction) - never so small it disappears, even for a tiny top-up
         private const val MARKER_RADIUS_MAX_PX = 24f // largest marker (its biggest transaction) - see setMarkers' doc comment on relative sizing
         private const val MARKER_TAP_RADIUS_PAD_PX = 24f // touch tolerance ADDED on top of each marker's own drawn radius - a small dot is still a small target even when drawn bigger
+        private const val SELECTED_MARKER_HALO_PX = 10f // extra radius the selected-marker halo extends past the marker's own drawn radius
     }
 
     var onPointScrubbed: ((windowStartPoint: PricePoint, currentPoint: PricePoint) -> Unit)? = null
@@ -89,6 +92,28 @@ class PriceHistoryChartView @JvmOverloads constructor(
     // matching "hold ended" callback of its own, so this view has to
     // track that transition itself.
     private var isHoldingMarker = false
+
+    // Which marker (if any) is currently tapped/held - drawn larger with
+    // a distinct halo in onDraw below, so the exact dot a popup's details
+    // refer to is unambiguous even when several markers sit close
+    // together (a confirmed real complaint: "difficult to say which
+    // bubble does it refer to"). Cleared on the SAME timer as
+    // AutoDismissPopupView's own auto-dismiss (PopupDurationPreference)
+    // so the highlight disappears exactly when the popup does, without
+    // this view needing a callback from that popup to know when it
+    // closed.
+    private var selectedMarker: TransactionMarker? = null
+    private val selectionHandler = Handler(Looper.getMainLooper())
+    private val clearSelectionRunnable = Runnable { selectedMarker = null; invalidate() }
+
+    private fun selectMarker(marker: TransactionMarker, persistent: Boolean) {
+        selectedMarker = marker
+        selectionHandler.removeCallbacks(clearSelectionRunnable)
+        if (!persistent) {
+            selectionHandler.postDelayed(clearSelectionRunnable, PopupDurationPreference.durationMs(context))
+        }
+        invalidate()
+    }
 
     private val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
@@ -135,6 +160,22 @@ class PriceHistoryChartView @JvmOverloads constructor(
         style = Paint.Style.STROKE
         strokeWidth = 4f
         color = ContextCompat.getColor(context, R.color.colorOnSurface)
+    }
+    // Selected marker's own ring - thicker than the normal ring so it
+    // reads as "this one" even at a glance, same colorOnSurface base for
+    // theme contrast.
+    private val selectedMarkerRingPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 7f
+        color = ContextCompat.getColor(context, R.color.colorOnSurface)
+    }
+    // Soft translucent halo behind the selected marker - the actual
+    // visual separator when dots sit close together, since a thicker
+    // ring alone can still be hard to attribute at a glance.
+    private val selectedMarkerHaloPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+        color = ContextCompat.getColor(context, R.color.colorOnSurface)
+        alpha = 70
     }
     private val gridlinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
@@ -428,8 +469,14 @@ class PriceHistoryChartView @JvmOverloads constructor(
             val x = xFor(localIndex)
             val y = yFor(visible[localIndex].price)
             val paint = if (rm.marker.isBuy) buyMarkerPaint else sellMarkerPaint
+            val isSelected = rm.marker == selectedMarker
+            if (isSelected) {
+                // Halo drawn first (behind) so the dot itself still sits
+                // on top, unobscured - just visibly larger and ringed.
+                canvas.drawCircle(x, y, rm.radiusPx + SELECTED_MARKER_HALO_PX, selectedMarkerHaloPaint)
+            }
             canvas.drawCircle(x, y, rm.radiusPx, paint)
-            canvas.drawCircle(x, y, rm.radiusPx, markerRingPaint)
+            canvas.drawCircle(x, y, rm.radiusPx, if (isSelected) selectedMarkerRingPaint else markerRingPaint)
         }
     }
 
@@ -495,6 +542,7 @@ class PriceHistoryChartView @JvmOverloads constructor(
                 isPanning = false
                 if (isHoldingMarker) {
                     isHoldingMarker = false
+                    selectionHandler.postDelayed(clearSelectionRunnable, PopupDurationPreference.durationMs(context))
                     onMarkerHoldEnd?.invoke()
                 }
             }
@@ -585,6 +633,7 @@ class PriceHistoryChartView @JvmOverloads constructor(
         // GestureDetector's own tap-confirmation timing does.
         override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
             val hit = findMarkerNear(e.x, e.y) ?: return false
+            selectMarker(hit.marker, persistent = false)
             onMarkerTapped?.invoke(hit.marker, hit.x, hit.y)
             return true
         }
@@ -597,6 +646,7 @@ class PriceHistoryChartView @JvmOverloads constructor(
         override fun onLongPress(e: MotionEvent) {
             val hit = findMarkerNear(e.x, e.y) ?: return
             isHoldingMarker = true
+            selectMarker(hit.marker, persistent = true)
             onMarkerHoldStart?.invoke(hit.marker, hit.x, hit.y)
         }
     }
