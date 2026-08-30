@@ -1,77 +1,95 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<androidx.core.widget.NestedScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
-    android:padding="20dp">
+    android:fillViewport="true">
 
-    <TextView
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Manage Benchmarks"
-        android:textSize="20sp"
-        android:textStyle="bold" />
+        android:orientation="vertical"
+        android:padding="20dp">
 
-    <TextView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:textSize="13sp"
-        android:textColor="@color/colorNeutral"
-        android:text="Track market indices alongside your funds on the Returns screen. Tickers below are Yahoo Finance symbols, confirmed against live Yahoo Finance pages before being pre-filled here." />
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Manage Benchmarks"
+            android:textSize="20sp"
+            android:textStyle="bold" />
 
-    <TextView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="16dp"
-        android:textSize="13sp"
-        android:textStyle="bold"
-        android:text="Quick add" />
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:textSize="13sp"
+            android:textColor="@color/colorNeutral"
+            android:text="Track market indices alongside your funds on the Returns screen. Tickers below are Yahoo Finance symbols, confirmed against live Yahoo Finance pages before being pre-filled here." />
 
-    <com.google.android.material.chip.ChipGroup
-        android:id="@+id/benchmarksQuickAddGroup"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="6dp"
-        app:chipSpacingHorizontal="6dp"
-        xmlns:app="http://schemas.android.com/apk/res-auto" />
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:text="Quick add" />
 
-    <TextView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="18dp"
-        android:textSize="13sp"
-        android:textStyle="bold"
-        android:text="Add manually" />
+        <com.google.android.material.chip.ChipGroup
+            android:id="@+id/benchmarksQuickAddGroup"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            app:chipSpacingHorizontal="6dp"
+            xmlns:app="http://schemas.android.com/apk/res-auto" />
 
-    <EditText
-        android:id="@+id/benchmarksNameInput"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="6dp"
-        android:hint="Name, e.g. Nifty Auto"
-        android:inputType="text" />
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="18dp"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:text="Add manually" />
 
-    <EditText
-        android:id="@+id/benchmarksTickerInput"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:hint="Yahoo Finance ticker, e.g. ^CNXAUTO - verify on finance.yahoo.com first"
-        android:inputType="text" />
+        <EditText
+            android:id="@+id/benchmarksNameInput"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:hint="Name, e.g. Nifty Auto"
+            android:inputType="text" />
 
-    <Button
-        android:id="@+id/benchmarksAddButton"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:text="Add" />
+        <EditText
+            android:id="@+id/benchmarksTickerInput"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:hint="Yahoo Finance ticker, e.g. ^CNXAUTO - verify on finance.yahoo.com first"
+            android:inputType="text" />
 
-    <androidx.recyclerview.widget.RecyclerView
-        android:id="@+id/benchmarksRecyclerView"
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"
-        android:layout_marginTop="20dp" />
+        <Button
+            android:id="@+id/benchmarksAddButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="Add" />
 
-</LinearLayout>
+        <!-- wrap_content + nestedScrollingEnabled=false, NOT the old
+             0dp/layout_weight=1 - that made the WHOLE screen's layout
+             depend on however much vertical space the chips above
+             happened to leave over, which shrank toward zero once the
+             proxy-fund chips brought the quick-add section to 15
+             total chips (a confirmed real complaint: the tracked-
+             benchmark list ended up squeezed to almost no visible
+             height). This RecyclerView now sizes to its own content
+             and the OUTER NestedScrollView carries the page's actual
+             scrolling, so growing the quick-add section can never
+             starve the list below it of space again. -->
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/benchmarksRecyclerView"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:nestedScrollingEnabled="false" />
+
+    </LinearLayout>
+
+</androidx.core.widget.NestedScrollView>

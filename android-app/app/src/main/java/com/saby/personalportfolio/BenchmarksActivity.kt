@@ -10,6 +10,7 @@ import android.widget.LinearLayout
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.chip.Chip
@@ -252,9 +253,10 @@ class BenchmarksActivity : AppCompatActivity() {
      * Bridge.searchMfapiSchemes must be debounced and backgrounded).
      */
     private fun showProxyFundPicker(canonicalName: String, displayLabel: String, recommendedQuery: String) {
+        val density = resources.displayMetrics.density
+        val pad = (16 * density).toInt()
         val container = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            val pad = (16 * resources.displayMetrics.density).toInt()
             setPadding(pad, pad, pad, pad)
         }
         val searchInput = EditText(this).apply {
@@ -262,31 +264,63 @@ class BenchmarksActivity : AppCompatActivity() {
             setText(recommendedQuery)
             setSelection(text.length)
         }
+        val statusView = android.widget.TextView(this).apply {
+            textSize = 12f
+            setTextColor(ContextCompat.getColor(this@BenchmarksActivity, R.color.colorNeutral))
+            text = "Searching…"
+        }
+        // A FIXED height, NOT wrap_content - a confirmed real bug: a
+        // wrap_content RecyclerView inside an AlertDialog's custom view
+        // can end up stuck at zero height once its adapter is swapped
+        // in AFTER the dialog is already shown, since the dialog window
+        // doesn't reliably re-measure around it - the search results
+        // (and the only way to actually add anything, alongside the
+        // manual-ISIN fallback below) were invisible with no error and
+        // no indication anything had gone wrong. A bounded height has
+        // real space to render into from the start, adapter timing or
+        // not.
         val resultsView = RecyclerView(this).apply {
             layoutManager = LinearLayoutManager(this@BenchmarksActivity)
         }
+        val isinInput = EditText(this).apply {
+            hint = "Or paste ISIN directly"
+        }
+        val isinAddButton = android.widget.Button(this).apply { text = "Add by ISIN" }
+
         container.addView(searchInput)
+        container.addView(statusView, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+            topMargin = (4 * density).toInt()
+        })
         container.addView(
             resultsView,
-            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-                topMargin = (8 * resources.displayMetrics.density).toInt()
+            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, (240 * density).toInt()).apply {
+                topMargin = (4 * density).toInt()
             }
         )
+        container.addView(isinInput, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+            topMargin = (16 * density).toInt()
+        })
+        container.addView(isinAddButton, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+            topMargin = (6 * density).toInt()
+        })
 
+        val titleLabel = displayLabel.removeSuffix(" (index fund proxy)")
         val dialog = AlertDialog.Builder(this)
-            .setTitle("Add proxy fund for $displayLabel")
+            .setTitle("Add proxy fund for $titleLabel")
             .setView(container)
             .setNegativeButton("Cancel", null)
             .create()
 
         fun runProxySearch(query: String) {
             latestProxySearchQuery = query
+            statusView.text = "Searching…"
             Thread {
                 val resultJson = Bridge.searchMfapiSchemes(query)
                 mainHandler.post {
                     if (query != latestProxySearchQuery) return@post // stale - see runSearch's own doc comment in AdditionalFundsActivity
                     if (isBridgeError(resultJson)) {
                         resultsView.adapter = null
+                        statusView.text = "Search failed - paste an ISIN below instead"
                         return@post
                     }
                     val matchType = object : TypeToken<List<MfapiSchemeMatch>>() {}.type
@@ -294,6 +328,11 @@ class BenchmarksActivity : AppCompatActivity() {
                         gson.fromJson(resultJson, matchType) ?: emptyList()
                     } catch (e: Exception) {
                         emptyList()
+                    }
+                    statusView.text = if (matches.isEmpty()) {
+                        "No matches - try a shorter name, or paste an ISIN below"
+                    } else {
+                        "Tap a match to add it"
                     }
                     resultsView.adapter = MfapiSearchResultsAdapter(matches) { match ->
                         addProxyFundBenchmark(canonicalName, match.isin)
@@ -309,6 +348,7 @@ class BenchmarksActivity : AppCompatActivity() {
                 pendingProxySearchRunnable?.let { mainHandler.removeCallbacks(it) }
                 if (query.length < 3) {
                     resultsView.adapter = null
+                    statusView.text = "Enter at least 3 characters"
                     return
                 }
                 val runnable = Runnable { runProxySearch(query) }
@@ -318,6 +358,21 @@ class BenchmarksActivity : AppCompatActivity() {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
         })
+
+        // Manual-ISIN fallback - same reasoning as
+        // AdditionalFundsActivity's own ISIN box: search can come up
+        // empty (a fund not well-matched by name, or the initial
+        // recommendation's search failing outright) and this is the
+        // guaranteed way to still finish the add.
+        isinAddButton.setOnClickListener {
+            val isin = isinInput.text.toString().trim().uppercase()
+            if (isin.isEmpty()) {
+                isinInput.error = "Enter an ISIN"
+                return@setOnClickListener
+            }
+            addProxyFundBenchmark(canonicalName, isin)
+            dialog.dismiss()
+        }
 
         dialog.show()
         // Fire the initial search immediately for the pre-filled
