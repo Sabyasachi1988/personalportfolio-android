@@ -1,7 +1,10 @@
 package com.saby.personalportfolio
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.os.Bundle
 import android.widget.Toast
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -169,6 +172,27 @@ class BenchmarksActivity : AppCompatActivity() {
         reload()
     }
 
+    /**
+     * Shows the full error text in a scrollable, copyable dialog.
+     * A plain Toast ellipsizes anything past ~2 lines with no way to
+     * read or copy the rest, which made a real diagnosis (e.g. the raw
+     * response body FetchNiftyIndicesTRI now includes on parse
+     * failure) invisible on-device - see history.go's
+     * ParseNiftyIndicesTRI error wrapping.
+     */
+    private fun showErrorDialog(title: String, message: String) {
+        AlertDialog.Builder(this)
+            .setTitle(title)
+            .setMessage(message)
+            .setPositiveButton("OK", null)
+            .setNeutralButton("Copy") { _, _ ->
+                val clipboard = getSystemService(ClipboardManager::class.java)
+                clipboard?.setPrimaryClip(ClipData.newPlainText(title, message))
+                Toast.makeText(this, "Copied", Toast.LENGTH_SHORT).show()
+            }
+            .show()
+    }
+
     private fun refreshHistory(benchmark: Benchmark, rowHolder: BenchmarksAdapter.RowHolder) {
         rowHolder.refreshButton.isEnabled = false
         rowHolder.status.text = "Fetching…"
@@ -183,7 +207,7 @@ class BenchmarksActivity : AppCompatActivity() {
         val afterFetch = Bridge.updateBenchmarkHistory(portfolioJson, benchmark.id, "2000-01-01")
         rowHolder.refreshButton.isEnabled = true
         if (isBridgeError(afterFetch)) {
-            Toast.makeText(this, "Failed to fetch history: $afterFetch", Toast.LENGTH_LONG).show()
+            showErrorDialog("Failed to fetch history", afterFetch)
             rowHolder.status.text = benchmark.niftyTRIIndexName.ifEmpty { benchmark.yahooTicker }
             return
         }
