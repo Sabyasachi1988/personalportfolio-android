@@ -161,6 +161,20 @@ class PriceHistoryChartView @JvmOverloads constructor(
         strokeWidth = 4f
         color = ContextCompat.getColor(context, R.color.colorOnSurface)
     }
+    // Selected marker's own fill - a confirmed real complaint that ring
+    // + halo alone weren't clear enough; the DOT ITSELF now changes
+    // color when selected, which is unambiguous regardless of nearby
+    // markers' own colors. Reuses colorProgressionInvested rather than
+    // introducing a new color - that blue was deliberately chosen
+    // elsewhere in this app (see colors.xml's own comment) specifically
+    // because it has no hue overlap with colorGain/colorLoss/colorAmber
+    // in EITHER theme, which is exactly the property needed here: it
+    // must never collide with an unselected buy (amber) or sell (red)
+    // marker's own color.
+    private val selectedMarkerFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+        color = ContextCompat.getColor(context, R.color.colorProgressionInvested)
+    }
     // Selected marker's own ring - thicker than the normal ring so it
     // reads as "this one" even at a glance, same colorOnSurface base for
     // theme contrast.
@@ -174,7 +188,7 @@ class PriceHistoryChartView @JvmOverloads constructor(
     // ring alone can still be hard to attribute at a glance.
     private val selectedMarkerHaloPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL
-        color = ContextCompat.getColor(context, R.color.colorOnSurface)
+        color = ContextCompat.getColor(context, R.color.colorProgressionInvested)
         alpha = 70
     }
     private val gridlinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -468,8 +482,12 @@ class PriceHistoryChartView @JvmOverloads constructor(
             if (localIndex !in visible.indices) return@forEach
             val x = xFor(localIndex)
             val y = yFor(visible[localIndex].price)
-            val paint = if (rm.marker.isBuy) buyMarkerPaint else sellMarkerPaint
             val isSelected = rm.marker == selectedMarker
+            val paint = when {
+                isSelected -> selectedMarkerFillPaint
+                rm.marker.isBuy -> buyMarkerPaint
+                else -> sellMarkerPaint
+            }
             if (isSelected) {
                 // Halo drawn first (behind) so the dot itself still sits
                 // on top, unobscured - just visibly larger and ringed.

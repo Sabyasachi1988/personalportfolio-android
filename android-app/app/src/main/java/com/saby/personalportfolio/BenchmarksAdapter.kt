@@ -30,11 +30,14 @@ class BenchmarksAdapter(
     override fun onBindViewHolder(holder: RowHolder, position: Int) {
         val benchmark = benchmarks[position]
         holder.name.text = NicknameResolver.resolve(benchmark.name, benchmark.nickname)
-        // TRI benchmarks (see store.Benchmark.NiftyTRIIndexName's Go
-        // doc comment) have no yahooTicker at all - show the NSE
-        // Indices name instead so the row never displays a blank
-        // second line.
-        val sourceLabel = benchmark.niftyTRIIndexName.ifEmpty { benchmark.yahooTicker }
+        // A proxy-fund benchmark's real "source" is the standing-in
+        // fund's name (see store.Benchmark.ProxyFundISIN's Go doc
+        // comment) - checked first, same priority order as
+        // UpdateBenchmarkHistory. TRI benchmarks have no yahooTicker at
+        // all, so that's the next fallback rather than a blank line.
+        val sourceLabel = benchmark.proxyFundName.ifEmpty {
+            benchmark.niftyTRIIndexName.ifEmpty { benchmark.yahooTicker }
+        }
         holder.status.text = if (hasHistory(benchmark.id)) {
             sourceLabel
         } else {

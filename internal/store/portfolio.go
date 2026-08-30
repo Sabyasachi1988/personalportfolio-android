@@ -265,6 +265,37 @@ type Benchmark struct {
 	// working unchanged. Deliberately NOT omitempty, same
 	// Gson-unsafe-allocation reasoning as Asset.GroupLabel/Tags.
 	NiftyTRIIndexName string
+	// ProxyFundISIN, when set, means this benchmark's price series comes
+	// from a real INDEX FUND's own NAV history (via the same
+	// priceapi.FetchMfapiNavHistory path Additional Funds already uses),
+	// not niftyindices.com's undocumented, bot-protection-prone TRI
+	// scrape and not Yahoo's plain price index. A well-chosen index
+	// fund's NAV already reflects total return (dividends reinvested
+	// into the fund) net of a small, quantifiable tracking-error/expense
+	// drag - typically 0.1-0.3%/year for a good direct-plan fund - which
+	// is a real but bounded and known cost, unlike depending on an
+	// adversarial, undocumented scrape that can and did start failing
+	// outright. Every risk/return stat that's actually computed against
+	// a benchmark (Beta/Information Ratio/Capture/Alpha/Sharpe/Sortino/
+	// Standard Deviation - see finance.WindowToTrailingYears' doc
+	// comment) only needs the trailing 3 years of data, which any
+	// established index fund comfortably has - so a fund's shorter
+	// absolute history (a young index like Nifty Midcap 150/Smallcap 250
+	// only having funds since ~2020) is NOT a blocker the way it would
+	// be for an inception-to-date comparison. Checked ONE level before
+	// NiftyTRIIndexName in UpdateBenchmarkHistory (see that function's
+	// own comment) since a proxy fund, once chosen, is meant to be the
+	// person's deliberate, reliable choice - not a silent fallback.
+	// Deliberately NOT omitempty, same Gson-unsafe-allocation reasoning
+	// as Asset.GroupLabel/Tags/NiftyTRIIndexName above.
+	ProxyFundISIN string
+	// ProxyFundName - the resolved real fund name (via
+	// priceapi.ResolveMfapiSchemeName, same as Additional Funds'
+	// ISIN-add path), stored alongside ProxyFundISIN so DisplayName can
+	// show which actual fund is standing in for the index without a
+	// lookup on every render. Deliberately NOT omitempty, same reasoning
+	// as above.
+	ProxyFundName string
 	// Nickname - see Asset.Nickname's doc comment, same concept applied
 	// to a tracked index instead of a fund. Deliberately NOT omitempty,
 	// same reasoning.
@@ -272,11 +303,18 @@ type Benchmark struct {
 }
 
 // DisplayName - see Asset.DisplayName's doc comment, same concept.
+// A proxy-fund benchmark shows the tracked index name with the actual
+// standing-in fund named alongside it, so it's never ambiguous in the
+// UI that this series is an index-fund NAV, not the real index level.
 func (b Benchmark) DisplayName() string {
+	base := b.Name
 	if b.Nickname != "" {
-		return b.Nickname
+		base = b.Nickname
 	}
-	return b.Name
+	if b.ProxyFundISIN != "" && b.ProxyFundName != "" {
+		return base + " (via " + b.ProxyFundName + ")"
+	}
+	return base
 }
 
 // PriceRecord is a manually entered or fetched price point for an Asset.
@@ -978,6 +1016,16 @@ func (p *Portfolio) AddBenchmark(name, yahooTicker string) Benchmark {
 // one.
 func (p *Portfolio) AddTRIBenchmark(name, niftyTRIIndexName string) Benchmark {
 	b := Benchmark{ID: NewID("benchmark"), Name: name, NiftyTRIIndexName: niftyTRIIndexName}
+	p.Benchmarks = append(p.Benchmarks, b)
+	return b
+}
+
+// AddProxyFundBenchmark is AddBenchmark/AddTRIBenchmark's index-fund-proxy
+// counterpart - see Benchmark.ProxyFundISIN's own doc comment for why
+// this is a genuinely separate, reliable data source rather than a
+// fallback bolted onto the TRI scrape.
+func (p *Portfolio) AddProxyFundBenchmark(name, isin, proxyFundName string) Benchmark {
+	b := Benchmark{ID: NewID("benchmark"), Name: name, ProxyFundISIN: isin, ProxyFundName: proxyFundName}
 	p.Benchmarks = append(p.Benchmarks, b)
 	return b
 }

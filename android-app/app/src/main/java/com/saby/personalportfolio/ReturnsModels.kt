@@ -8,6 +8,8 @@ data class Benchmark(
     @SerializedName("Name") val name: String,
     @SerializedName("YahooTicker") val yahooTicker: String,
     @SerializedName("NiftyTRIIndexName") val niftyTRIIndexName: String = "",
+    @SerializedName("ProxyFundISIN") val proxyFundISIN: String = "",
+    @SerializedName("ProxyFundName") val proxyFundName: String = "",
     @SerializedName("Nickname") val nickname: String = ""
 )
 

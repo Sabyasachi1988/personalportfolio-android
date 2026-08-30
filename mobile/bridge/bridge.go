@@ -1705,6 +1705,36 @@ func AddTRIBenchmark(portfolioJSON string, name string, niftyTRIIndexName string
 	return string(out)
 }
 
+// AddProxyFundBenchmark is AddTRIBenchmark's index-fund-proxy
+// counterpart - see store.Benchmark.ProxyFundISIN's own doc comment.
+// Resolves the fund's real name from mfapi.in (same as
+// ResolveFundNameByISIN) so it's never stored as a bare ISIN.
+func AddProxyFundBenchmark(portfolioJSON string, name string, isin string) string {
+	var p store.Portfolio
+	if portfolioJSON != "" {
+		if err := json.Unmarshal([]byte(portfolioJSON), &p); err != nil {
+			return fmt.Sprintf(`{"error":%q}`, "invalid portfolio JSON: "+err.Error())
+		}
+	}
+	if name == "" {
+		return `{"error":"name cannot be empty"}`
+	}
+	isin = strings.TrimSpace(strings.ToUpper(isin))
+	if isin == "" {
+		return `{"error":"isin cannot be empty"}`
+	}
+	proxyFundName, err := priceapi.ResolveMfapiSchemeName(isin)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+	p.AddProxyFundBenchmark(name, isin, proxyFundName)
+	out, err := json.Marshal(p)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+	return string(out)
+}
+
 // AddTrackedFund adds an "Additional Fund" - a fund tracked purely for
 // comparison, not actually owned - see store.Asset.AccountID's own doc
 // comment. Rejects a duplicate ISIN already being tracked (an ISIN
@@ -1852,9 +1882,22 @@ func UpdateBenchmarkHistory(portfolioJSON string, benchmarkID string, since stri
 	// of Yahoo - see Benchmark.NiftyTRIIndexName's doc comment for why
 	// these are two entirely separate fetch paths rather than one
 	// trying to serve both series.
+	// Checked in this order deliberately: a proxy fund, once chosen, is
+	// the person's own reliable pick (see Benchmark.ProxyFundISIN's doc
+	// comment) so it takes priority; NiftyTRIIndexName's scrape is next;
+	// YahooTicker (plain price index, no TRI) is the last resort.
 	var points []priceapi.YahooPricePoint
 	var source string
-	if benchmark.NiftyTRIIndexName != "" {
+	if benchmark.ProxyFundISIN != "" {
+		navPoints, err := priceapi.FetchMfapiNavHistory(benchmark.ProxyFundISIN, since)
+		if err != nil {
+			return fmt.Sprintf(`{"error":%q}`, err.Error())
+		}
+		for _, pt := range navPoints {
+			points = append(points, priceapi.YahooPricePoint{Date: pt.Date, Price: pt.Nav})
+		}
+		source = "INDEX_FUND_PROXY_NAV"
+	} else if benchmark.NiftyTRIIndexName != "" {
 		triPoints, err := priceapi.FetchNiftyIndicesTRI(benchmark.NiftyTRIIndexName, since)
 		if err != nil {
 			return fmt.Sprintf(`{"error":%q}`, err.Error())
@@ -1875,6 +1918,9 @@ func UpdateBenchmarkHistory(portfolioJSON string, benchmarkID string, since stri
 		label := benchmark.YahooTicker
 		if benchmark.NiftyTRIIndexName != "" {
 			label = benchmark.NiftyTRIIndexName
+		}
+		if benchmark.ProxyFundISIN != "" {
+			label = benchmark.ProxyFundISIN
 		}
 		return fmt.Sprintf(`{"error":%q}`, "no price history found for "+label)
 	}
@@ -2147,6 +2193,23 @@ func UpdateAllHistory(portfolioJSON string) string {
 				since = incremental
 			}
 			o := historyOutcome{kind: "benchmark", label: b.DisplayName()}
+
+			// A proxy-fund benchmark fetches via the fund's own NAV
+			// history (mfapi.in, same proven path Additional Funds
+			// uses) - see Benchmark.ProxyFundISIN's own doc comment for
+			// why this is checked first, ahead of the TRI scrape.
+			if b.ProxyFundISIN != "" {
+				navPoints, err := priceapi.FetchMfapiNavHistory(b.ProxyFundISIN, since)
+				if err != nil {
+					o.err = err
+				} else {
+					for _, pt := range navPoints {
+						o.priceRecs = append(o.priceRecs, store.PriceRecord{AssetID: b.ID, Date: pt.Date, Price: pt.Nav, Source: "INDEX_FUND_PROXY_NAV"})
+					}
+				}
+				record(o)
+				return
+			}
 
 			// A TRI benchmark fetches via NSE Indices' own TRI endpoint
 			// instead of Yahoo, with NO Yahoo-direct fallback attempted
@@ -2804,11 +2867,29 @@ func ComputeFundMetrics(portfolioJSON string, seriesID string, benchmarkID strin
 		// added yet.
 		wantTRIName := finance.DefaultBenchmarkTRIName(fundName)
 		if wantTRIName != "" {
+			// Checked in two passes over the same benchmark list: a
+			// proxy-fund benchmark (Name holds the canonical NSE index
+			// name, e.g. "NIFTY 500" - see BenchmarksActivity.kt's
+			// proxyFundTargets doc comment for why it's stored that
+			// way) is preferred over a TRI-scrape benchmark for the
+			// SAME index, matching UpdateBenchmarkHistory's own
+			// priority order (a proxy fund is the person's deliberate,
+			// reliable choice). Only falls to the scrape-based match if
+			// no proxy for this segment has been added.
 			for _, b := range p.Benchmarks {
-				if b.NiftyTRIIndexName == wantTRIName {
+				if b.ProxyFundISIN != "" && b.Name == wantTRIName {
 					benchmarkID = b.ID
 					autoSelected = true
 					break
+				}
+			}
+			if benchmarkID == "" {
+				for _, b := range p.Benchmarks {
+					if b.NiftyTRIIndexName == wantTRIName {
+						benchmarkID = b.ID
+						autoSelected = true
+						break
+					}
 				}
 			}
 		}
