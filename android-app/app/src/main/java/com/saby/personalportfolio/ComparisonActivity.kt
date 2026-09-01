@@ -125,7 +125,7 @@ class ComparisonActivity : AppCompatActivity() {
         updateTabStyling()
         graphContainer.visibility = if (tab == Tab.GRAPH) View.VISIBLE else View.GONE
         tableContainer.visibility = if (tab == Tab.TABLE) View.VISIBLE else View.GONE
-        if (tab == Tab.TABLE) buildTable()
+        if (tab == Tab.TABLE) buildTable() else loadChart()
     }
 
     // Simple alpha-based active/inactive styling rather than a new
@@ -136,6 +136,38 @@ class ComparisonActivity : AppCompatActivity() {
     private fun updateTabStyling() {
         tabGraph.alpha = if (activeTab == Tab.GRAPH) 1.0f else 0.5f
         tabTable.alpha = if (activeTab == Tab.TABLE) 1.0f else 0.5f
+    }
+
+    /**
+     * Called whenever the picked set of funds/indices changes (only
+     * from the picker's "Done" button today). Confirmed real bug this
+     * fixes: previously, Done only refreshed whichever ONE tab
+     * (Graph/Table) happened to be active at that moment - the OTHER
+     * tab's OverlayChartView/table kept showing the OLD selection
+     * until the picker was reopened while THAT tab was active. The
+     * picker button's own "N picked" label had the same problem, since
+     * it was set inside loadChart() from overlaySeries.size rather
+     * than from the actual selection.
+     *
+     * pickButton.text is set from selectedSeriesIds.size directly -
+     * the actual picked count, not derived from whichever tab
+     * successfully rendered (which can legitimately be fewer, e.g. a
+     * picked fund with no overlapping history yet - that's a separate
+     * signal the empty-state message already covers, not something
+     * the picker label should silently reflect instead of the real
+     * selection).
+     */
+    private fun onSelectionChanged() {
+        pickButton.text = "${selectedSeriesIds.size} picked"
+        loadChart()
+        buildTable()
+        // Only the active tab's container is actually visible - see
+        // switchTab - so re-apply that visibility now, since both
+        // loadChart()/buildTable() above may have touched
+        // emptyState.visibility as a side effect of either one
+        // failing independently of the other.
+        graphContainer.visibility = if (activeTab == Tab.GRAPH) View.VISIBLE else View.GONE
+        tableContainer.visibility = if (activeTab == Tab.TABLE) View.VISIBLE else View.GONE
     }
 
     private fun isBridgeError(json: String): Boolean = json.trimStart().startsWith("{\"error\"")
@@ -176,6 +208,7 @@ class ComparisonActivity : AppCompatActivity() {
         if (selectedSeriesIds.isEmpty()) {
             rows.take(2).forEach { selectedSeriesIds.add(it.seriesId) }
         }
+        pickButton.text = "${selectedSeriesIds.size} picked"
         if (activeTab == Tab.TABLE) buildTable() else loadChart()
     }
 
@@ -238,7 +271,7 @@ class ComparisonActivity : AppCompatActivity() {
         AlertDialog.Builder(this)
             .setTitle("Pick funds/indices to compare")
             .setView(container)
-            .setPositiveButton("Done") { _, _ -> if (activeTab == Tab.TABLE) buildTable() else loadChart() }
+            .setPositiveButton("Done") { _, _ -> onSelectionChanged() }
             .setNegativeButton("Cancel", null)
             .show()
     }
@@ -285,7 +318,6 @@ class ComparisonActivity : AppCompatActivity() {
         currentUnionDateBounds = overlaySeries.flatMap { it.points }.let { pts ->
             if (pts.isEmpty()) null else pts.minOf { it.date } to pts.maxOf { it.date }
         }
-        pickButton.text = "${overlaySeries.size} picked"
         chart.setSeries(overlaySeries)
         chart.setLockBaseDate(lockSwitch.isChecked)
         setUpRangePresets()
