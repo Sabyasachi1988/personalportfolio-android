@@ -402,21 +402,28 @@ class ComparisonActivity : AppCompatActivity() {
         }
     }
 
-    // "(3-yr)" is appended to exactly the metrics that are actually
-    // windowed to trailing 3 years - NOT Max Drawdown (deliberately
-    // full-history, no confirmed 3-year convention exists for that one
-    // - see finance.WindowToTrailingYears' own doc comment), same
-    // labeling ReturnsDetailActivity's own metric cards use.
-    private val riskLabels = listOf(
-        "Beta (3-yr)", "Alpha (3-yr)", "Information Ratio (3-yr)", "Std. Deviation (3-yr)",
-        "Up Capture (3-yr)", "Down Capture (3-yr)", "Max Drawdown (full history)",
-        "Sharpe Ratio (3-yr)", "Sortino Ratio (3-yr)"
-    )
+    // Rolling range (min-max) rows removed per explicit request - only
+    // the median rolling figure is shown now. Rows are grouped ALL
+    // trailing first, then ALL rolling - previously alternated
+    // trailing/rolling/trailing/rolling per period, which read as
+    // switching back and forth rather than two coherent groups.
     private val returnLabels = listOf(
-        "Day", "1 Month", "1Y Trailing", "1Y Rolling (median)", "1Y Rolling (range)",
-        "3Y Trailing", "3Y Rolling (median)", "3Y Rolling (range)",
-        "5Y Trailing", "5Y Rolling (median)", "5Y Rolling (range)",
-        "10Y Trailing", "10Y Rolling (median)", "10Y Rolling (range)"
+        "Day", "1 Month", "1Y Trailing", "3Y Trailing", "5Y Trailing", "10Y Trailing",
+        "1Y Rolling", "3Y Rolling", "5Y Rolling", "10Y Rolling"
+    )
+
+    // "(3-yr)" is no longer repeated on every single row - it's the
+    // COMMON window for this whole section (mentioned once, in the
+    // section title itself - see buildTable's "Risk Parameters (3-yr)"
+    // call below) per explicit request that repeating it on every
+    // label was making them too long. Max Drawdown is the ONE
+    // exception to that common window (deliberately full-history, see
+    // finance.WindowToTrailingYears' own doc comment), so it's the
+    // only row that still carries its own explicit override.
+    private val riskLabels = listOf(
+        "Beta", "Alpha", "Information Ratio", "Std. Deviation",
+        "Up Capture", "Down Capture", "Max Drawdown (full history)",
+        "Sharpe Ratio", "Sortino Ratio"
     )
 
     // Fixed row heights, NOT wrap_content - this is the actual fix for
@@ -462,91 +469,102 @@ class ComparisonActivity : AppCompatActivity() {
                 selected = selected,
                 showBenchmarkSubHeader = false,
                 rowLabels = returnLabels,
-                cellFor = { row, rowIndex -> returnsCellText(row, rowIndex) }
+                cellFor = { row, rowIndex -> returnsCell(row, rowIndex) }
             )
         )
         tableSectionsRoot.addView(
             buildTableSection(
-                title = "Risk Parameters",
+                title = "Risk Parameters (3-yr)",
                 selected = selected,
                 showBenchmarkSubHeader = true,
                 rowLabels = riskLabels,
-                cellFor = { row, rowIndex -> riskCellText(metricsBySeriesId[row.seriesId], rowIndex) },
+                cellFor = { row, rowIndex -> riskCell(metricsBySeriesId[row.seriesId], rowIndex) },
                 metricsBySeriesId = metricsBySeriesId,
                 portfolioJson = portfolioJson
             )
         )
     }
 
-    private fun returnsCellText(row: ReturnsTableRow, rowIndex: Int): String = when (rowIndex) {
-        0 -> fmtPercent(row.day.hasData, row.day.percent)
-        1 -> fmtPercent(row.month.hasData, row.month.percent)
-        2 -> fmtPercent(row.oneYearTrailing.hasData, row.oneYearTrailing.percent)
-        3 -> fmtPercent(row.oneYearRolling.hasData, row.oneYearRolling.median)
-        4 -> fmtRange(row.oneYearRolling.hasData, row.oneYearRolling.min, row.oneYearRolling.max)
-        5 -> fmtPercent(row.threeYearTrailing.hasData, row.threeYearTrailing.percent)
-        6 -> fmtPercent(row.threeYearRolling.hasData, row.threeYearRolling.median)
-        7 -> fmtRange(row.threeYearRolling.hasData, row.threeYearRolling.min, row.threeYearRolling.max)
-        8 -> fmtPercent(row.fiveYearTrailing.hasData, row.fiveYearTrailing.percent)
-        9 -> fmtPercent(row.fiveYearRolling.hasData, row.fiveYearRolling.median)
-        10 -> fmtRange(row.fiveYearRolling.hasData, row.fiveYearRolling.min, row.fiveYearRolling.max)
-        11 -> fmtPercent(row.tenYearTrailing.hasData, row.tenYearTrailing.percent)
-        12 -> fmtPercent(row.tenYearRolling.hasData, row.tenYearRolling.median)
-        13 -> fmtRange(row.tenYearRolling.hasData, row.tenYearRolling.min, row.tenYearRolling.max)
-        else -> "—"
+    /** @return (display text, color resource id or null for the default neutral color) */
+    private fun returnsCell(row: ReturnsTableRow, rowIndex: Int): Pair<String, Int?> {
+        val tr = when (rowIndex) {
+            0 -> row.day; 1 -> row.month; 2 -> row.oneYearTrailing; 3 -> row.threeYearTrailing
+            4 -> row.fiveYearTrailing; 5 -> row.tenYearTrailing
+            else -> null
+        }
+        if (tr != null) return fmtPercent(tr.hasData, tr.percent) to gainLossColor(tr.hasData, tr.percent)
+        val rolling = when (rowIndex) {
+            6 -> row.oneYearRolling; 7 -> row.threeYearRolling; 8 -> row.fiveYearRolling; 9 -> row.tenYearRolling
+            else -> null
+        } ?: return "—" to null
+        return fmtPercent(rolling.hasData, rolling.median) to gainLossColor(rolling.hasData, rolling.median)
     }
 
-    private fun riskCellText(metrics: FundMetricsResult?, rowIndex: Int): String {
-        if (metrics == null) return "—"
+    /** @return (display text, color resource id or null for the default neutral color) */
+    private fun riskCell(metrics: FundMetricsResult?, rowIndex: Int): Pair<String, Int?> {
+        if (metrics == null) return "—" to null
         return when (rowIndex) {
-            0 -> fmtNumber(metrics.betaHasData, metrics.beta, 2)
-            1 -> fmtPercent(metrics.alphaHasData, metrics.alpha)
-            2 -> fmtNumber(metrics.infoRatioHasData, metrics.informationRatio, 2)
-            3 -> fmtPercent(metrics.stdDevHasData, metrics.standardDeviation)
-            4 -> fmtPercent(metrics.upCaptureHasData, metrics.upCapture)
-            5 -> fmtPercent(metrics.downCaptureHasData, metrics.downCapture)
-            6 -> fmtPercent(metrics.maxDrawdownHasData, metrics.maxDrawdown)
-            7 -> fmtNumber(metrics.sharpeHasData, metrics.sharpeRatio, 2)
-            8 -> fmtNumber(metrics.sortinoHasData, metrics.sortinoRatio, 2)
-            else -> "—"
+            0 -> fmtNumber(metrics.betaHasData, metrics.beta, 2) to null // Beta has no "good/bad" direction
+            1 -> fmtPercent(metrics.alphaHasData, metrics.alpha) to gainLossColor(metrics.alphaHasData, metrics.alpha)
+            2 -> fmtNumber(metrics.infoRatioHasData, metrics.informationRatio, 2) to gainLossColor(metrics.infoRatioHasData, metrics.informationRatio)
+            3 -> fmtPercent(metrics.stdDevHasData, metrics.standardDeviation) to null // Std Dev has no "good/bad" direction
+            4 -> fmtPercent(metrics.upCaptureHasData, metrics.upCapture) to gainLossColor(metrics.upCaptureHasData, metrics.upCapture - 100)
+            5 -> fmtPercent(metrics.downCaptureHasData, metrics.downCapture) to gainLossColor(metrics.downCaptureHasData, 100 - metrics.downCapture) // LOWER is better here, so the sign is inverted
+            6 -> fmtPercent(metrics.maxDrawdownHasData, metrics.maxDrawdown) to (if (metrics.maxDrawdownHasData) R.color.colorLoss else null) // always loss-tinted, same convention as ReturnsDetailActivity's own card
+            7 -> fmtNumber(metrics.sharpeHasData, metrics.sharpeRatio, 2) to gainLossColor(metrics.sharpeHasData, metrics.sharpeRatio)
+            8 -> fmtNumber(metrics.sortinoHasData, metrics.sortinoRatio, 2) to gainLossColor(metrics.sortinoHasData, metrics.sortinoRatio)
+            else -> "—" to null
         }
     }
 
+    private fun gainLossColor(hasData: Boolean, value: Double): Int? =
+        if (!hasData) null else if (value >= 0) R.color.colorGain else R.color.colorLoss
+
     /**
-     * One section = one card: title, then a frozen label column
+     * One section = one elevated MaterialCardView (matching the
+     * dashboard's own donut-card style - cardCornerRadius=16dp,
+     * cardElevation=3dp - rather than a flat solid-background
+     * LinearLayout, which read as dull against the rest of the app):
+     * an colorAmber-accented title, then a frozen label column
      * (outside any scroll view) alongside a HorizontalScrollView
      * holding one column per selected fund/index - the "professional
-     * table" pattern (frozen row headers, only the data scrolls),
-     * rather than the whole table including labels scrolling away
-     * together as before. Zebra-striped rows (colorSurface /
-     * colorSurfaceVariant, already the app's own alternating-surface
-     * colors) and right-aligned numeric cells, matching how any
-     * financial data table actually reads.
+     * table" pattern (frozen row headers, only the data scrolls).
+     * Each fund column's header is colored with the SAME palette
+     * color the Graph tab's line for that fund uses, and every
+     * value cell is colored green/red by what a favorable reading
+     * actually means for THAT metric (see riskCell's own per-row
+     * logic) - a flat, uncolored table of numbers was the main
+     * source of the "dull" impression; a financial table reads far
+     * more alive once gains/losses actually look like gains/losses.
      */
     private fun buildTableSection(
         title: String,
         selected: List<ReturnsTableRow>,
         showBenchmarkSubHeader: Boolean,
         rowLabels: List<String>,
-        cellFor: (ReturnsTableRow, Int) -> String,
+        cellFor: (ReturnsTableRow, Int) -> Pair<String, Int?>,
         metricsBySeriesId: Map<String, FundMetricsResult?> = emptyMap(),
         portfolioJson: String = ""
     ): View {
-        val card = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
+        val card = com.google.android.material.card.MaterialCardView(this).apply {
             layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
                 topMargin = dpToPx(16)
             }
-            setBackgroundColor(ContextCompat.getColor(this@ComparisonActivity, R.color.colorSurface))
-            val pad = dpToPx(8)
+            radius = dpToPx(16).toFloat()
+            cardElevation = dpToPx(3).toFloat()
+            setCardBackgroundColor(ContextCompat.getColor(this@ComparisonActivity, R.color.colorSurface))
+        }
+        val cardContent = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            val pad = dpToPx(10)
             setPadding(pad, pad, pad, pad)
         }
-        card.addView(TextView(this).apply {
+        cardContent.addView(TextView(this).apply {
             text = title
-            textSize = 14f
+            textSize = 15f
             setTypeface(typeface, Typeface.BOLD)
-            setTextColor(ContextCompat.getColor(this@ComparisonActivity, R.color.colorOnSurface))
-            setPadding(dpToPx(4), 0, dpToPx(4), dpToPx(8))
+            setTextColor(ContextCompat.getColor(this@ComparisonActivity, R.color.colorAmber))
+            setPadding(dpToPx(4), 0, dpToPx(4), dpToPx(10))
         })
 
         val row = LinearLayout(this).apply {
@@ -559,21 +577,22 @@ class ComparisonActivity : AppCompatActivity() {
         // fund columns scroll.
         val labelColumn = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            layoutParams = LinearLayout.LayoutParams(dpToPx(148), LinearLayout.LayoutParams.WRAP_CONTENT)
+            layoutParams = LinearLayout.LayoutParams(dpToPx(140), LinearLayout.LayoutParams.WRAP_CONTENT)
         }
         labelColumn.addView(fixedHeightCell("", headerRowHeightDp, isHeader = true, zebra = false))
         if (showBenchmarkSubHeader) {
             labelColumn.addView(fixedHeightCell("", dataRowHeightDp, isHeader = true, zebra = false))
         }
         rowLabels.forEachIndexed { i, label ->
-            labelColumn.addView(fixedHeightCell(label, dataRowHeightDp, zebra = i % 2 == 1, bold = false, gravity = android.view.Gravity.START or android.view.Gravity.CENTER_VERTICAL))
+            labelColumn.addView(fixedHeightCell(label, dataRowHeightDp, zebra = i % 2 == 1))
         }
         row.addView(labelColumn)
 
         val scrollValueColumns = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
         }
-        selected.forEach { seriesRow ->
+        selected.forEachIndexed { columnIndex, seriesRow ->
+            val fundColor = ContextCompat.getColor(this, paletteColorIds[columnIndex % paletteColorIds.size])
             val column = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
                 layoutParams = LinearLayout.LayoutParams(dpToPx(104), LinearLayout.LayoutParams.WRAP_CONTENT).apply {
@@ -583,17 +602,17 @@ class ComparisonActivity : AppCompatActivity() {
             column.addView(
                 fixedHeightCell(
                     FundNameFormatter.shorten(seriesRow.name).ifBlank { seriesRow.name },
-                    headerRowHeightDp, isHeader = true, bold = true, zebra = false
+                    headerRowHeightDp, isHeader = true, bold = true, zebra = false, explicitColor = fundColor
                 )
             )
             if (showBenchmarkSubHeader) {
                 val metrics = metricsBySeriesId[seriesRow.seriesId]
                 val benchmarkCell = fixedHeightCell(
                     if (seriesRow.isBenchmark) "" else (metrics?.benchmarkName?.takeIf { it.isNotBlank() }?.let { "vs $it" } ?: "vs (none)"),
-                    dataRowHeightDp, isHeader = true, zebra = false
+                    dataRowHeightDp, isHeader = true, zebra = false,
+                    explicitColor = if (seriesRow.isBenchmark) null else ContextCompat.getColor(this, R.color.colorPrimary)
                 )
                 if (!seriesRow.isBenchmark) {
-                    benchmarkCell.setTextColor(ContextCompat.getColor(this, R.color.colorPrimary))
                     benchmarkCell.setOnClickListener {
                         BenchmarkPicker.show(this@ComparisonActivity, seriesRow.seriesId, portfolioJson, metrics?.benchmarkId.orEmpty()) {
                             buildTable() // rebuild everything - simplest way to reflect the change and pick up the new benchmark's own name
@@ -603,10 +622,12 @@ class ComparisonActivity : AppCompatActivity() {
                 column.addView(benchmarkCell)
             }
             rowLabels.forEachIndexed { i, _ ->
+                val (text, colorRes) = cellFor(seriesRow, i)
                 column.addView(
                     fixedHeightCell(
-                        cellFor(seriesRow, i), dataRowHeightDp, zebra = i % 2 == 1,
-                        gravity = android.view.Gravity.END or android.view.Gravity.CENTER_VERTICAL
+                        text, dataRowHeightDp, zebra = i % 2 == 1,
+                        gravity = android.view.Gravity.END or android.view.Gravity.CENTER_VERTICAL,
+                        explicitColor = colorRes?.let { ContextCompat.getColor(this, it) }
                     )
                 )
             }
@@ -618,7 +639,8 @@ class ComparisonActivity : AppCompatActivity() {
             addView(scrollValueColumns)
         }
         row.addView(scrollView)
-        card.addView(row)
+        cardContent.addView(row)
+        card.addView(cardContent)
         return card
     }
 
@@ -628,6 +650,10 @@ class ComparisonActivity : AppCompatActivity() {
      * matters) - ellipsized to 2 lines rather than wrapping
      * indefinitely, so long fund/benchmark names never blow out the
      * fixed height they're constrained to.
+     *
+     * @param explicitColor overrides the default colorOnSurface text
+     *   color - used for gain/loss-tinted value cells and
+     *   palette-colored fund-name headers. Null keeps the default.
      */
     private fun fixedHeightCell(
         text: String,
@@ -635,12 +661,13 @@ class ComparisonActivity : AppCompatActivity() {
         isHeader: Boolean = false,
         bold: Boolean = false,
         zebra: Boolean = false,
-        gravity: Int = android.view.Gravity.START or android.view.Gravity.CENTER_VERTICAL
+        gravity: Int = android.view.Gravity.START or android.view.Gravity.CENTER_VERTICAL,
+        explicitColor: Int? = null
     ): TextView {
         return TextView(this).apply {
             this.text = text
-            textSize = if (isHeader) 12f else 12f
-            setTextColor(ContextCompat.getColor(this@ComparisonActivity, if (isHeader) R.color.colorOnSurface else R.color.colorOnSurface))
+            textSize = 12f
+            setTextColor(explicitColor ?: ContextCompat.getColor(this@ComparisonActivity, R.color.colorOnSurface))
             if (bold) setTypeface(typeface, Typeface.BOLD)
             maxLines = 2
             ellipsize = android.text.TextUtils.TruncateAt.END
@@ -656,7 +683,4 @@ class ComparisonActivity : AppCompatActivity() {
 
     private fun fmtNumber(hasData: Boolean, value: Double, decimals: Int): String =
         if (hasData) String.format(Locale.getDefault(), "%.${decimals}f", value) else "—"
-
-    private fun fmtRange(hasData: Boolean, min: Double, max: Double): String =
-        if (hasData) String.format(Locale.getDefault(), "%+.1f/%+.1f%%", min, max) else "—"
 }
