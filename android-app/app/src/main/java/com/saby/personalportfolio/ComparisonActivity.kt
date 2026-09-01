@@ -588,31 +588,26 @@ class ComparisonActivity : AppCompatActivity() {
 
         // Frozen label column - fixed width, NOT inside the
         // HorizontalScrollView below, so it stays put while only the
-        // fund columns scroll.
+        // fund columns scroll. Given its own solid colorSurfaceVariant
+        // background (not per-row zebra like the value columns) so the
+        // WHOLE column reads as one distinct panel - color contrast
+        // against the value area, rather than the earlier explicit
+        // divider line, which read as an abrupt/broken edge rather
+        // than an intentional design choice.
         val labelColumnWidthPx = dpToPx(96)
         val labelColumn = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             layoutParams = LinearLayout.LayoutParams(labelColumnWidthPx, LinearLayout.LayoutParams.WRAP_CONTENT)
+            setBackgroundColor(ContextCompat.getColor(this@ComparisonActivity, R.color.colorSurfaceVariant))
         }
         labelColumn.addView(fixedHeightCell("", headerRowHeightDp, isHeader = true, zebra = false))
         if (showBenchmarkSubHeader) {
             labelColumn.addView(fixedHeightCell("", dataRowHeightDp, isHeader = true, zebra = false))
         }
-        rowLabels.forEachIndexed { i, label ->
-            labelColumn.addView(fixedHeightCell(label, dataRowHeightDp, zebra = i % 2 == 1))
+        rowLabels.forEach { label ->
+            labelColumn.addView(fixedHeightCell(label, dataRowHeightDp, zebra = false))
         }
         row.addView(labelColumn)
-
-        // A visibly colored divider between the frozen label column and
-        // the scrolling fund columns - confirmed real complaint: with
-        // only a plain 2-4dp margin and no actual visual line, the
-        // boundary between "this stays put" and "this scrolls" faded
-        // into the surrounding zebra-striped background and was hard
-        // to see, especially once scrolled partway through 3+ funds.
-        row.addView(View(this).apply {
-            layoutParams = LinearLayout.LayoutParams(dpToPx(2), LinearLayout.LayoutParams.MATCH_PARENT)
-            setBackgroundColor(ContextCompat.getColor(this@ComparisonActivity, R.color.colorPrimary))
-        })
 
         // Adaptive fund-column width: fill the available width evenly
         // across however many funds are picked, UP UNTIL that would
@@ -626,7 +621,7 @@ class ComparisonActivity : AppCompatActivity() {
         // instead (compressed, scrollable), same as before.
         val minFundColumnWidthPx = dpToPx(92)
         val screenWidthPx = resources.displayMetrics.widthPixels
-        val chromeWidthPx = dpToPx(20 + 20 + 10 + 10) + labelColumnWidthPx + dpToPx(2) // root padding + card padding + divider
+        val chromeWidthPx = dpToPx(20 + 20 + 10 + 10) + labelColumnWidthPx // root padding + card padding
         val availableForColumnsPx = screenWidthPx - chromeWidthPx
         val fundColumnWidthPx = if (selected.isNotEmpty() && selected.size * minFundColumnWidthPx < availableForColumnsPx) {
             availableForColumnsPx / selected.size
