@@ -172,16 +172,12 @@
 
     </LinearLayout>
 
-    <!-- Quantitative side-by-side table - built dynamically in
-         ComparisonActivity.buildTable() from ComputeReturnsTable +
-         ComputeFundMetrics for the same selectedSeriesIds the graph
-         tab uses. One HorizontalScrollView holds the WHOLE table
-         (label column included) rather than a frozen-label-column
-         layout - simpler, and acceptable since the label column
-         scrolling out of view along with the rest is a minor cost
-         against the complexity of syncing two independent scroll
-         views. GONE by default - comparisonTabGraph/comparisonTabTable
-         toggle this against comparisonGraphContainer. -->
+    <!-- Quantitative side-by-side comparison - built dynamically in
+         ComparisonActivity as TWO separate sections (Returns, Risk
+         Parameters), each its own frozen-label-column + horizontally-
+         scrolling-value-columns table (TableSectionBuilder). GONE by
+         default - comparisonTabGraph/comparisonTabTable toggle this
+         against comparisonGraphContainer. -->
     <androidx.core.widget.NestedScrollView
         android:id="@+id/comparisonTableContainer"
         android:layout_width="match_parent"
@@ -189,18 +185,11 @@
         android:layout_weight="1"
         android:visibility="gone">
 
-        <HorizontalScrollView
+        <LinearLayout
+            android:id="@+id/comparisonTableSectionsRoot"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:scrollbars="none">
-
-            <LinearLayout
-                android:id="@+id/comparisonTableRoot"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal" />
-
-        </HorizontalScrollView>
+            android:orientation="vertical" />
 
     </androidx.core.widget.NestedScrollView>
 
