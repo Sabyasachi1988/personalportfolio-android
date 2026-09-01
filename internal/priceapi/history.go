@@ -550,40 +550,75 @@ type MfapiScheme struct {
 // mfapiSchemeList caches the ~37,000-row full scheme list for the
 // lifetime of the process - it changes rarely (only on new fund
 // launches) and re-fetching it per-fund on every UpdateAllHistory call
-// would be wasteful. sync.Once means concurrent callers (this list is
-// looked up from UpdateAllHistory's per-asset goroutines) share one
-// fetch instead of racing.
+// would be wasteful.
+//
+// CONFIRMED REAL BUG (fixed here): this used to be sync.Once, which
+// runs its function body exactly ONCE for the process's whole
+// lifetime regardless of whether it succeeded - so a single transient
+// network error (confirmed via screenshot: "read: software caused
+// connection abort", a TCP-level reset partway through this ~37,000-
+// row download, not anything wrong with the request itself) got
+// permanently cached as THE answer. Every mfapi.in-backed feature in
+// the app - search, ISIN resolve, proxy-fund add, Additional Funds'
+// own add - then failed identically on every subsequent attempt,
+// because none of them were actually retrying the network at all;
+// they were all reading the one poisoned result from the first
+// failure, until the app process was fully killed and restarted. A
+// mutex-guarded cache that only locks in a SUCCESSFUL result fixes
+// this: a failure is never cached, so the very next call (or the
+// retries below) tries the network fresh.
+//
+// Also adds: a real timeout (not http.DefaultClient's default of NONE
+// - a bad connection could otherwise hang indefinitely instead of
+// failing fast) and up to 3 attempts with a short backoff, since a
+// multi-MB download over a real mobile/wifi connection failing once
+// isn't unusual and a same-session retry alone resolves most of these
+// without the person needing to do anything.
 var (
-	mfapiSchemeListOnce sync.Once
+	mfapiSchemeListMu   sync.Mutex
 	mfapiSchemeListData []MfapiScheme
-	mfapiSchemeListErr  error
 )
 
 func fetchMfapiSchemeList() ([]MfapiScheme, error) {
-	mfapiSchemeListOnce.Do(func() {
-		resp, err := http.Get("https://api.mfapi.in/mf")
-		if err != nil {
-			mfapiSchemeListErr = fmt.Errorf("mfapi.in scheme list request failed: %w", err)
-			return
+	mfapiSchemeListMu.Lock()
+	defer mfapiSchemeListMu.Unlock()
+	if mfapiSchemeListData != nil {
+		return mfapiSchemeListData, nil
+	}
+	client := &http.Client{Timeout: 30 * time.Second}
+	var lastErr error
+	for attempt := 1; attempt <= 3; attempt++ {
+		schemes, err := fetchMfapiSchemeListOnce(client)
+		if err == nil {
+			mfapiSchemeListData = schemes
+			return schemes, nil
 		}
-		defer resp.Body.Close()
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			mfapiSchemeListErr = fmt.Errorf("reading mfapi.in scheme list response: %w", err)
-			return
+		lastErr = err
+		if attempt < 3 {
+			time.Sleep(time.Duration(attempt) * time.Second)
 		}
-		if resp.StatusCode != http.StatusOK {
-			mfapiSchemeListErr = fmt.Errorf("mfapi.in scheme list returned status %d: %s", resp.StatusCode, string(body))
-			return
-		}
-		var schemes []MfapiScheme
-		if err := json.Unmarshal(body, &schemes); err != nil {
-			mfapiSchemeListErr = fmt.Errorf("parsing mfapi.in scheme list: %w", err)
-			return
-		}
-		mfapiSchemeListData = schemes
-	})
-	return mfapiSchemeListData, mfapiSchemeListErr
+	}
+	return nil, fmt.Errorf("mfapi.in scheme list request failed after 3 attempts: %w", lastErr)
+}
+
+func fetchMfapiSchemeListOnce(client *http.Client) ([]MfapiScheme, error) {
+	resp, err := client.Get("https://api.mfapi.in/mf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading response: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("status %d: %s", resp.StatusCode, string(body))
+	}
+	var schemes []MfapiScheme
+	if err := json.Unmarshal(body, &schemes); err != nil {
+		return nil, fmt.Errorf("parsing response: %w", err)
+	}
+	return schemes, nil
 }
 
 // ResolveMfapiSchemeCode maps a fund's ISIN (this project's own asset
