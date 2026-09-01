@@ -29,7 +29,14 @@ class AdditionalFundsAdapter(
 
     override fun onBindViewHolder(holder: RowHolder, position: Int) {
         val fund = funds[position]
-        holder.name.text = FundNameFormatter.shorten(fund.name).ifBlank { fund.name }
+        // Confirmed real gap: every other screen (Holdings, Returns,
+        // Compare, fund detail) resolves a set nickname per
+        // NicknameResolver's own doc comment - this list was reading
+        // the raw default name only, so a fund the person had already
+        // nicknamed in Manage Names still showed its original name
+        // here.
+        val displayName = NicknameResolver.resolve(fund.name, fund.nickname)
+        holder.name.text = displayName
         holder.status.text = if (hasHistory(fund.id)) {
             fund.isin
         } else {

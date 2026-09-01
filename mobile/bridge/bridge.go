@@ -1617,6 +1617,25 @@ func UpdateHistoricalNav(portfolioJSON string, assetID string, isin string) stri
 	}
 	p.UpsertPrices(records)
 
+	// Self-heal a stale "Name == ISIN" entry - a confirmed real
+	// leftover from the sync.Once scheme-list cache permanently
+	// poisoning on a single transient network failure (fixed in
+	// fetchMfapiSchemeList): a fund added by ISIN back when that bug
+	// was live had its name-resolve silently fail and fall back to
+	// storing the bare ISIN as Name. Retried here, best-effort, on
+	// every successful Refresh - now that resolution actually retries
+	// instead of staying permanently broken, this quietly repairs the
+	// name without requiring a separate "fix name" action anywhere.
+	// Never fails the NAV update above if this doesn't succeed.
+	for i, a := range p.Assets {
+		if a.ID == assetID && strings.EqualFold(a.Name, a.ISIN) {
+			if resolvedName, err := priceapi.ResolveMfapiSchemeName(a.ISIN); err == nil && resolvedName != "" {
+				p.Assets[i].Name = resolvedName
+			}
+			break
+		}
+	}
+
 	out, err := json.Marshal(p)
 	if err != nil {
 		return fmt.Sprintf(`{"error":%q}`, err.Error())

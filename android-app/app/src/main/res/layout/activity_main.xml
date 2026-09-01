@@ -96,7 +96,23 @@
                      scrolling anywhere, leaving one card's donut fully
                      visible and its neighbor half-cut-off, which read
                      as the donuts being "offset" from each other rather
-                     than cleanly aligned for comparison. -->
+                     than cleanly aligned for comparison.
+
+                     CONFIRMED REAL BUG (fixed): each card's inner
+                     LinearLayout used gravity="center" to vertically
+                     center its title+donut+legend as ONE block within
+                     the fixed 300dp card height. Since each card's
+                     legend has a different number of rows (Market Cap:
+                     4 segments; Indian vs. International: fewer), the
+                     total block height differed per card, so centering
+                     pushed the DONUT ITSELF to a different vertical
+                     position on each card - visually "offset" when
+                     swiping between them, exactly the effect it was
+                     meant to avoid. Now gravity="top|center_horizontal"
+                     on all three: title+donut sit at the same fixed Y
+                     offset on every card regardless of legend length;
+                     only the legend's own varying height extends
+                     further down below that fixed point. -->
                 <com.saby.personalportfolio.SnappingHorizontalScrollView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -120,7 +136,7 @@
                                 android:layout_width="match_parent"
                                 android:layout_height="match_parent"
                                 android:orientation="vertical"
-                                android:gravity="center"
+                                android:gravity="top|center_horizontal"
                                 android:padding="16dp">
 
                                 <TextView
@@ -160,7 +176,7 @@
                                 android:layout_width="match_parent"
                                 android:layout_height="match_parent"
                                 android:orientation="vertical"
-                                android:gravity="center"
+                                android:gravity="top|center_horizontal"
                                 android:padding="16dp">
 
                                 <TextView
@@ -200,7 +216,7 @@
                                 android:layout_width="match_parent"
                                 android:layout_height="match_parent"
                                 android:orientation="vertical"
-                                android:gravity="center"
+                                android:gravity="top|center_horizontal"
                                 android:padding="16dp">
 
                                 <TextView
