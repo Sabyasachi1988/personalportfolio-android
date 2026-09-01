@@ -568,16 +568,28 @@ type MfapiScheme struct {
 // this: a failure is never cached, so the very next call (or the
 // retries below) tries the network fresh.
 //
-// Also adds: a real timeout (not http.DefaultClient's default of NONE
-// - a bad connection could otherwise hang indefinitely instead of
-// failing fast) and up to 3 attempts with a short backoff, since a
-// multi-MB download over a real mobile/wifi connection failing once
-// isn't unusual and a same-session retry alone resolves most of these
-// without the person needing to do anything.
+// CONFIRMED REAL FOLLOW-UP PROBLEM (also fixed here): the fix above,
+// on its own, meant a GENUINELY DOWN mfapi.in (confirmed via
+// screenshot: a live 502 Bad Gateway from their own nginx front end,
+// not a bug on this app's side) got the FULL retry cost - 3 attempts,
+// each up to 30s, plus backoff sleeps between them - re-paid on EVERY
+// single Refresh tap, since no failure was cached at all anymore.
+// That's what made a single fund's refresh take 30-60+ seconds. The
+// fix isn't reverting to permanent caching (that's the original bug) -
+// it's a SHORT cooldown: a failure is remembered for
+// mfapiSchemeListFailureCooldown and returned immediately without
+// hitting the network again, but expires quickly enough that mfapi.in
+// recovering is still noticed on the next attempt after that. Also
+// tightened the retry timing itself (shorter per-attempt timeout and
+// backoff) so even a fresh, uncached attempt fails faster than before.
 var (
-	mfapiSchemeListMu   sync.Mutex
-	mfapiSchemeListData []MfapiScheme
+	mfapiSchemeListMu       sync.Mutex
+	mfapiSchemeListData     []MfapiScheme
+	mfapiSchemeListFailedAt time.Time
+	mfapiSchemeListLastErr  error
 )
+
+const mfapiSchemeListFailureCooldown = 45 * time.Second
 
 func fetchMfapiSchemeList() ([]MfapiScheme, error) {
 	mfapiSchemeListMu.Lock()
@@ -585,20 +597,27 @@ func fetchMfapiSchemeList() ([]MfapiScheme, error) {
 	if mfapiSchemeListData != nil {
 		return mfapiSchemeListData, nil
 	}
-	client := &http.Client{Timeout: 30 * time.Second}
+	if !mfapiSchemeListFailedAt.IsZero() && time.Since(mfapiSchemeListFailedAt) < mfapiSchemeListFailureCooldown {
+		return nil, fmt.Errorf("mfapi.in still unavailable (retried %s ago): %w", time.Since(mfapiSchemeListFailedAt).Round(time.Second), mfapiSchemeListLastErr)
+	}
+	client := &http.Client{Timeout: 10 * time.Second}
 	var lastErr error
 	for attempt := 1; attempt <= 3; attempt++ {
 		schemes, err := fetchMfapiSchemeListOnce(client)
 		if err == nil {
 			mfapiSchemeListData = schemes
+			mfapiSchemeListFailedAt = time.Time{}
+			mfapiSchemeListLastErr = nil
 			return schemes, nil
 		}
 		lastErr = err
 		if attempt < 3 {
-			time.Sleep(time.Duration(attempt) * time.Second)
+			time.Sleep(500 * time.Millisecond)
 		}
 	}
-	return nil, fmt.Errorf("mfapi.in scheme list request failed after 3 attempts: %w", lastErr)
+	mfapiSchemeListFailedAt = time.Now()
+	mfapiSchemeListLastErr = fmt.Errorf("mfapi.in scheme list request failed after 3 attempts: %w", lastErr)
+	return nil, mfapiSchemeListLastErr
 }
 
 func fetchMfapiSchemeListOnce(client *http.Client) ([]MfapiScheme, error) {
