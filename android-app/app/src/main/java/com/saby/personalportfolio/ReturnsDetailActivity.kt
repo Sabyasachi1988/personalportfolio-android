@@ -339,16 +339,23 @@ class ReturnsDetailActivity : AppCompatActivity() {
         // 5, so each card's threshold is spelled out at its own call
         // site rather than one blanket "value >= 0" rule that would
         // color Down Capture backwards.
+        // "(3-yr)" is appended to every card EXCEPT Max Drawdown - see
+        // finance.WindowToTrailingYears' own doc comment: Beta/Info
+        // Ratio/Capture/Alpha/Sharpe/Sortino/Std Dev are ALL windowed
+        // to the trailing 3 years, but Max Drawdown is deliberately
+        // left on full history (no confirmed 3-year convention exists
+        // for that one industry-wide). Labeling it "(3-yr)" alongside
+        // the others would misstate what it's actually measuring.
         val cards = listOf(
-            MetricCardSpec("Beta", m.beta, m.betaHasData, decimals = 2, suffix = "", colorRes = R.color.colorOnSurface),
-            MetricCardSpec("Alpha", m.alpha, m.alphaHasData, decimals = 2, suffix = "%", colorRes = if (m.alpha >= 0) R.color.colorGain else R.color.colorLoss),
-            MetricCardSpec("Information Ratio", m.informationRatio, m.infoRatioHasData, decimals = 2, suffix = "", colorRes = if (m.informationRatio >= 0) R.color.colorGain else R.color.colorLoss),
-            MetricCardSpec("Std. Deviation", m.standardDeviation, m.stdDevHasData, decimals = 2, suffix = "%", colorRes = R.color.colorOnSurface),
-            MetricCardSpec("Up Capture", m.upCapture, m.upCaptureHasData, decimals = 2, suffix = "%", colorRes = if (m.upCapture >= 100) R.color.colorGain else R.color.colorLoss),
-            MetricCardSpec("Down Capture", m.downCapture, m.downCaptureHasData, decimals = 2, suffix = "%", colorRes = if (m.downCapture <= 100) R.color.colorGain else R.color.colorLoss),
-            MetricCardSpec("Max Drawdown", m.maxDrawdown, m.maxDrawdownHasData, decimals = 2, suffix = "%", colorRes = R.color.colorLoss),
-            MetricCardSpec("Sharpe Ratio", m.sharpeRatio, m.sharpeHasData, decimals = 2, suffix = "", colorRes = if (m.sharpeRatio >= 0) R.color.colorGain else R.color.colorLoss),
-            MetricCardSpec("Sortino Ratio", m.sortinoRatio, m.sortinoHasData, decimals = 2, suffix = "", colorRes = if (m.sortinoRatio >= 0) R.color.colorGain else R.color.colorLoss)
+            MetricCardSpec("Beta (3-yr)", m.beta, m.betaHasData, decimals = 2, suffix = "", colorRes = R.color.colorOnSurface),
+            MetricCardSpec("Alpha (3-yr)", m.alpha, m.alphaHasData, decimals = 2, suffix = "%", colorRes = if (m.alpha >= 0) R.color.colorGain else R.color.colorLoss),
+            MetricCardSpec("Information Ratio (3-yr)", m.informationRatio, m.infoRatioHasData, decimals = 2, suffix = "", colorRes = if (m.informationRatio >= 0) R.color.colorGain else R.color.colorLoss),
+            MetricCardSpec("Std. Deviation (3-yr)", m.standardDeviation, m.stdDevHasData, decimals = 2, suffix = "%", colorRes = R.color.colorOnSurface),
+            MetricCardSpec("Up Capture (3-yr)", m.upCapture, m.upCaptureHasData, decimals = 2, suffix = "%", colorRes = if (m.upCapture >= 100) R.color.colorGain else R.color.colorLoss),
+            MetricCardSpec("Down Capture (3-yr)", m.downCapture, m.downCaptureHasData, decimals = 2, suffix = "%", colorRes = if (m.downCapture <= 100) R.color.colorGain else R.color.colorLoss),
+            MetricCardSpec("Max Drawdown (full history)", m.maxDrawdown, m.maxDrawdownHasData, decimals = 2, suffix = "%", colorRes = R.color.colorLoss),
+            MetricCardSpec("Sharpe Ratio (3-yr)", m.sharpeRatio, m.sharpeHasData, decimals = 2, suffix = "", colorRes = if (m.sharpeRatio >= 0) R.color.colorGain else R.color.colorLoss),
+            MetricCardSpec("Sortino Ratio (3-yr)", m.sortinoRatio, m.sortinoHasData, decimals = 2, suffix = "", colorRes = if (m.sortinoRatio >= 0) R.color.colorGain else R.color.colorLoss)
         )
         buildMetricCardGrid(cards)
     }
@@ -450,110 +457,26 @@ class ReturnsDetailActivity : AppCompatActivity() {
      * by using plain array indices, never a custom/negative ID.
      */
     private fun showBenchmarkPicker() {
-        val snapshot: PortfolioBenchmarksSnapshot = try {
-            gson.fromJson(portfolioJson, PortfolioBenchmarksSnapshot::class.java)
-        } catch (e: Exception) {
-            null
-        } ?: PortfolioBenchmarksSnapshot(emptyList(), emptyList())
-        val benchmarks = snapshot.benchmarks ?: emptyList()
-
-        // Tracked funds flagged "usable as benchmark" (toggled from
-        // Manage Names) that aren't already added as a Benchmark -
-        // picking one here creates the underlying Benchmark on the
-        // spot (AddBenchmarkFromAsset - a local copy of data already
-        // fetched for this fund, no network call), same mechanism as
-        // BenchmarksActivity's own "Add from tracked funds" chip. This
-        // is what makes "choose a benchmark from my normal funds too,
-        // not just ones already added as a benchmark" work directly
-        // from here - see Asset.UsableAsBenchmark's Go doc comment.
-        val existingProxyISINs = benchmarks.filter { it.proxyFundISIN.isNotEmpty() }.map { it.proxyFundISIN }.toSet()
-        val nameListJson = Bridge.computeNameList(portfolioJson)
-        val trackedFunds: List<NameListEntry> = if (!isBridgeError(nameListJson)) {
-            val entryType = object : TypeToken<List<NameListEntry>>() {}.type
-            try {
-                gson.fromJson<List<NameListEntry>>(nameListJson, entryType)
-                    ?.filter { !it.isBenchmark && it.usableAsBenchmark && it.isin.isNotBlank() && it.isin !in existingProxyISINs && it.seriesId != seriesId }
-                    ?: emptyList()
-            } catch (e: Exception) {
-                emptyList()
-            }
-        } else {
-            emptyList()
+        BenchmarkPicker.show(this, seriesId, portfolioJson, selectedBenchmarkId) { updatedPortfolioJson ->
+            portfolioJson = updatedPortfolioJson
+            selectedBenchmarkId = readPreferredBenchmarkId(portfolioJson, seriesId)
+            loadMetrics()
         }
-        if (benchmarks.isEmpty() && trackedFunds.isEmpty()) return
-
-        val trackedLabels = trackedFunds.map { "[Fund] " + NicknameResolver.resolve(it.name, it.nickname) }
-        val labels = (listOf("Auto-pick (recommended)") + benchmarks.map { it.name } + trackedLabels).toTypedArray()
-        val currentIndex = if (selectedBenchmarkId.isEmpty()) {
-            0
-        } else {
-            benchmarks.indexOfFirst { it.id == selectedBenchmarkId }.let { if (it < 0) 0 else it + 1 }
-        }
-        AlertDialog.Builder(this)
-            .setTitle("Compare against")
-            .setSingleChoiceItems(labels, currentIndex) { dialog, which ->
-                dialog.dismiss()
-                when {
-                    which == 0 -> {
-                        selectedBenchmarkId = ""
-                        persistPreferredBenchmark("")
-                        loadMetrics()
-                    }
-                    which - 1 < benchmarks.size -> {
-                        val chosenId = benchmarks[which - 1].id
-                        selectedBenchmarkId = chosenId
-                        persistPreferredBenchmark(chosenId)
-                        loadMetrics()
-                    }
-                    else -> addBenchmarkFromAssetAndSelect(trackedFunds[which - 1 - benchmarks.size])
-                }
-            }
-            .setNegativeButton("Cancel", null)
-            .show()
     }
 
     /**
-     * Persists the manual benchmark choice (Asset.PreferredBenchmarkID
-     * on the Go side) so it's remembered the next time this fund's
-     * detail screen is opened - the plain in-memory selectedBenchmarkId
-     * alone only lasted for this one visit. An empty benchmarkId clears
-     * the override, reverting to pure name-based auto-select.
+     * Reads Asset.PreferredBenchmarkID straight out of the portfolio
+     * JSON for this fund - needed after [BenchmarkPicker] persists a
+     * choice, so selectedBenchmarkId reflects what was ACTUALLY saved
+     * (including "" for auto-pick) rather than assuming the picker's
+     * own bookkeeping matches this Activity's.
      */
-    private fun persistPreferredBenchmark(benchmarkId: String) {
-        val portfolioPath = PortfolioStorage.filePath(this)
-        val afterSet = Bridge.setPreferredBenchmark(portfolioJson, seriesId, benchmarkId)
-        if (isBridgeError(afterSet)) return
-        val saveResult = Bridge.savePortfolio(portfolioPath, afterSet)
-        if (isBridgeError(saveResult)) return
-        portfolioJson = afterSet
-    }
-
-    /**
-     * Turns a picked "tracked fund" option into an actual Benchmark
-     * (AddBenchmarkFromAsset - local copy, no network) then selects and
-     * persists it, same as any other manual pick above.
-     */
-    private fun addBenchmarkFromAssetAndSelect(entry: NameListEntry) {
-        val portfolioPath = PortfolioStorage.filePath(this)
-        val afterAdd = Bridge.addBenchmarkFromAsset(portfolioJson, entry.seriesId)
-        if (isBridgeError(afterAdd)) {
-            Toast.makeText(this, "Failed to add: $afterAdd", Toast.LENGTH_LONG).show()
-            return
-        }
-        val updatedSnapshot: PortfolioBenchmarksSnapshot = try {
-            gson.fromJson(afterAdd, PortfolioBenchmarksSnapshot::class.java)
+    private fun readPreferredBenchmarkId(portfolioJson: String, seriesId: String): String {
+        return try {
+            val snapshot = gson.fromJson(portfolioJson, AssetPreferredBenchmarkSnapshot::class.java)
+            snapshot.assets?.firstOrNull { it.id == seriesId }?.preferredBenchmarkId.orEmpty()
         } catch (e: Exception) {
-            null
-        } ?: return
-        val newBenchmark = updatedSnapshot.benchmarks.orEmpty().lastOrNull { it.proxyFundISIN == entry.isin } ?: return
-        val saveResult = Bridge.savePortfolio(portfolioPath, afterAdd)
-        if (isBridgeError(saveResult)) {
-            Toast.makeText(this, "Failed to save: $saveResult", Toast.LENGTH_LONG).show()
-            return
+            ""
         }
-        portfolioJson = afterAdd
-        selectedBenchmarkId = newBenchmark.id
-        persistPreferredBenchmark(newBenchmark.id)
-        loadMetrics()
     }
 }

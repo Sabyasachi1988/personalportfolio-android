@@ -27,6 +27,44 @@
 
     </LinearLayout>
 
+    <!-- Graph (existing overlay chart) vs Table (new quantitative
+         side-by-side comparison) - same two-button toggle pattern as
+         ProgressionActivity's own daily/weekly toggle. Only one
+         container below is visible at a time; both read from the SAME
+         selectedSeriesIds selection made via comparisonPickButton
+         above, so switching tabs never requires re-picking funds. -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
+        android:orientation="horizontal">
+
+        <TextView
+            android:id="@+id/comparisonTabGraph"
+            style="@style/ActionChip"
+            android:layout_width="wrap_content"
+            android:layout_marginEnd="8dp"
+            android:text="Graph" />
+
+        <TextView
+            android:id="@+id/comparisonTabTable"
+            style="@style/ActionChip"
+            android:layout_width="wrap_content"
+            android:text="Table" />
+
+    </LinearLayout>
+
+    <!-- comparisonGraphContainer wraps ALL the existing graph UI
+         unchanged - this whole block used to be directly in the
+         root layout; nothing inside it changed, it is just now
+         toggleable as a unit alongside the new table container. -->
+    <LinearLayout
+        android:id="@+id/comparisonGraphContainer"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:orientation="vertical">
+
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -131,6 +169,40 @@
         android:text="Pinch to zoom, drag to pan, double-tap to reset. Unlocked: zooming re-bases every line to 100 at the new visible start."
         android:textSize="11sp"
         android:textColor="@color/colorNeutral" />
+
+    </LinearLayout>
+
+    <!-- Quantitative side-by-side table - built dynamically in
+         ComparisonActivity.buildTable() from ComputeReturnsTable +
+         ComputeFundMetrics for the same selectedSeriesIds the graph
+         tab uses. One HorizontalScrollView holds the WHOLE table
+         (label column included) rather than a frozen-label-column
+         layout - simpler, and acceptable since the label column
+         scrolling out of view along with the rest is a minor cost
+         against the complexity of syncing two independent scroll
+         views. GONE by default - comparisonTabGraph/comparisonTabTable
+         toggle this against comparisonGraphContainer. -->
+    <androidx.core.widget.NestedScrollView
+        android:id="@+id/comparisonTableContainer"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:visibility="gone">
+
+        <HorizontalScrollView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:scrollbars="none">
+
+            <LinearLayout
+                android:id="@+id/comparisonTableRoot"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal" />
+
+        </HorizontalScrollView>
+
+    </androidx.core.widget.NestedScrollView>
 
     <TextView
         android:id="@+id/comparisonEmptyState"

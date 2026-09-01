@@ -30,6 +30,14 @@ class ComparisonActivity : AppCompatActivity() {
     private lateinit var chartScrubber: ChartRangeScrubberView
     private lateinit var scrubbedView: TextView
     private lateinit var emptyState: TextView
+    private lateinit var tabGraph: TextView
+    private lateinit var tabTable: TextView
+    private lateinit var graphContainer: View
+    private lateinit var tableContainer: View
+    private lateinit var tableRoot: LinearLayout
+    private var activeTab: Tab = Tab.GRAPH
+
+    private enum class Tab { GRAPH, TABLE }
 
     private var rows: List<ReturnsTableRow> = emptyList()
     private val selectedSeriesIds = linkedSetOf<String>()
@@ -56,6 +64,15 @@ class ComparisonActivity : AppCompatActivity() {
         chartScrubber = findViewById(R.id.comparisonChartScrubber)
         scrubbedView = findViewById(R.id.comparisonScrubbed)
         emptyState = findViewById(R.id.comparisonEmptyState)
+        tabGraph = findViewById(R.id.comparisonTabGraph)
+        tabTable = findViewById(R.id.comparisonTabTable)
+        graphContainer = findViewById(R.id.comparisonGraphContainer)
+        tableContainer = findViewById(R.id.comparisonTableContainer)
+        tableRoot = findViewById(R.id.comparisonTableRoot)
+
+        tabGraph.setOnClickListener { switchTab(Tab.GRAPH) }
+        tabTable.setOnClickListener { switchTab(Tab.TABLE) }
+        updateTabStyling()
 
         pickButton.setOnClickListener { showPicker() }
         lockSwitch.setOnCheckedChangeListener { _, checked -> chart.setLockBaseDate(checked) }
@@ -102,6 +119,24 @@ class ComparisonActivity : AppCompatActivity() {
         return builder
     }
 
+    private fun switchTab(tab: Tab) {
+        activeTab = tab
+        updateTabStyling()
+        graphContainer.visibility = if (tab == Tab.GRAPH) View.VISIBLE else View.GONE
+        tableContainer.visibility = if (tab == Tab.TABLE) View.VISIBLE else View.GONE
+        if (tab == Tab.TABLE) buildTable()
+    }
+
+    // Simple alpha-based active/inactive styling rather than a new
+    // style resource - ActionChip has no built-in "selected" variant,
+    // and a full TabLayout (like ProgressionActivity's own daily/
+    // weekly toggle) would need restructuring this screen's layout for
+    // a cosmetic difference only.
+    private fun updateTabStyling() {
+        tabGraph.alpha = if (activeTab == Tab.GRAPH) 1.0f else 0.5f
+        tabTable.alpha = if (activeTab == Tab.TABLE) 1.0f else 0.5f
+    }
+
     private fun isBridgeError(json: String): Boolean = json.trimStart().startsWith("{\"error\"")
 
     private fun formatDisplayDate(stored: String): String = try {
@@ -140,7 +175,7 @@ class ComparisonActivity : AppCompatActivity() {
         if (selectedSeriesIds.isEmpty()) {
             rows.take(2).forEach { selectedSeriesIds.add(it.seriesId) }
         }
-        loadChart()
+        if (activeTab == Tab.TABLE) buildTable() else loadChart()
     }
 
     private fun showEmpty(message: String) {
@@ -202,7 +237,7 @@ class ComparisonActivity : AppCompatActivity() {
         AlertDialog.Builder(this)
             .setTitle("Pick funds/indices to compare")
             .setView(container)
-            .setPositiveButton("Done") { _, _ -> loadChart() }
+            .setPositiveButton("Done") { _, _ -> if (activeTab == Tab.TABLE) buildTable() else loadChart() }
             .setNegativeButton("Cancel", null)
             .show()
     }
@@ -333,4 +368,169 @@ class ComparisonActivity : AppCompatActivity() {
             storedDate
         }
     }
+
+    /**
+     * Row labels for the quantitative table, in display order. Shared
+     * between the fixed label column and every series column, so the
+     * two stay in lockstep by construction rather than by convention -
+     * a mismatch here would silently misalign every value in the
+     * table.
+     *
+     * "(3-yr)" is appended to exactly the metrics that are actually
+     * windowed to trailing 3 years - NOT Max Drawdown (deliberately
+     * full-history, no confirmed 3-year convention exists for that
+     * one - see finance.WindowToTrailingYears' own doc comment), same
+     * labeling ReturnsDetailActivity's own metric cards use.
+     */
+    private val riskLabels = listOf(
+        "Beta (3-yr)", "Alpha (3-yr)", "Information Ratio (3-yr)", "Std. Deviation (3-yr)",
+        "Up Capture (3-yr)", "Down Capture (3-yr)", "Max Drawdown (full history)",
+        "Sharpe Ratio (3-yr)", "Sortino Ratio (3-yr)"
+    )
+    private val returnLabels = listOf(
+        "Day", "1 Month", "1Y Trailing", "1Y Rolling (median)", "1Y Rolling (min-max)",
+        "3Y Trailing", "3Y Rolling (median)", "3Y Rolling (min-max)",
+        "5Y Trailing", "5Y Rolling (median)", "5Y Rolling (min-max)",
+        "10Y Trailing", "10Y Rolling (median)", "10Y Rolling (min-max)"
+    )
+
+    /**
+     * Builds the whole quantitative comparison table fresh - called on
+     * switching to the Table tab, after the fund picker, and after a
+     * per-fund benchmark change (which needs the WHOLE table rebuilt
+     * since Bridge.computeFundMetrics is per-series, called once per
+     * column here).
+     */
+    private fun buildTable() {
+        tableRoot.removeAllViews()
+        val selected = rows.filter { selectedSeriesIds.contains(it.seriesId) }
+        if (selected.size < 1) {
+            showEmpty("Pick at least 1 fund/index to compare.")
+            return
+        }
+        emptyState.visibility = View.GONE
+
+        val portfolioPath = PortfolioStorage.filePath(this)
+        val portfolioJson = PortfolioLoadCache.load(portfolioPath)
+
+        tableRoot.addView(buildLabelColumn())
+        selected.forEach { row ->
+            val metrics: FundMetricsResult? = if (row.isBenchmark) {
+                null // risk parameters compare a FUND against a benchmark - meaningless for a benchmark comparing against itself
+            } else {
+                val resultJson = Bridge.computeFundMetrics(portfolioJson, row.seriesId, "")
+                if (isBridgeError(resultJson)) null else try {
+                    gson.fromJson(resultJson, FundMetricsResult::class.java)
+                } catch (e: Exception) {
+                    null
+                }
+            }
+            tableRoot.addView(buildSeriesColumn(row, metrics, portfolioJson))
+        }
+    }
+
+    private fun buildLabelColumn(): LinearLayout {
+        val column = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(dpToPx(150), LinearLayout.LayoutParams.WRAP_CONTENT)
+        }
+        column.addView(tableCell("", isHeader = true, bold = true)) // aligns with each column's name header
+        column.addView(tableCell("", isHeader = true)) // aligns with each column's "Benchmark: X" sub-header
+        column.addView(tableSectionLabel("Trailing & Rolling Returns"))
+        returnLabels.forEach { column.addView(tableCell(it)) }
+        column.addView(tableSectionLabel("Risk Parameters"))
+        riskLabels.forEach { column.addView(tableCell(it)) }
+        return column
+    }
+
+    private fun buildSeriesColumn(row: ReturnsTableRow, metrics: FundMetricsResult?, portfolioJson: String): LinearLayout {
+        val column = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(dpToPx(110), LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                marginStart = dpToPx(4)
+            }
+        }
+        column.addView(tableCell(FundNameFormatter.shorten(row.name).ifBlank { row.name }, isHeader = true, bold = true))
+
+        val benchmarkLine = tableCell(
+            if (row.isBenchmark) "" else (metrics?.benchmarkName?.takeIf { it.isNotBlank() }?.let { "vs $it" } ?: "vs (none)"),
+            isHeader = true
+        )
+        if (!row.isBenchmark) {
+            benchmarkLine.setTextColor(ContextCompat.getColor(this, R.color.colorPrimary))
+            benchmarkLine.setOnClickListener {
+                BenchmarkPicker.show(this@ComparisonActivity, row.seriesId, portfolioJson, metrics?.benchmarkId.orEmpty()) {
+                    buildTable() // rebuild the whole table, not just this column - simplest way to reflect the change and pick up the new benchmark's own name
+                }
+            }
+        }
+        column.addView(benchmarkLine)
+
+        column.addView(tableSectionLabel("")) // aligns with the label column's "Trailing & Rolling Returns" section header
+        column.addView(tableCell(fmtPercent(row.day.hasData, row.day.percent)))
+        column.addView(tableCell(fmtPercent(row.month.hasData, row.month.percent)))
+        column.addView(tableCell(fmtPercent(row.oneYearTrailing.hasData, row.oneYearTrailing.percent)))
+        column.addView(tableCell(fmtPercent(row.oneYearRolling.hasData, row.oneYearRolling.median)))
+        column.addView(tableCell(fmtRange(row.oneYearRolling.hasData, row.oneYearRolling.min, row.oneYearRolling.max)))
+        column.addView(tableCell(fmtPercent(row.threeYearTrailing.hasData, row.threeYearTrailing.percent)))
+        column.addView(tableCell(fmtPercent(row.threeYearRolling.hasData, row.threeYearRolling.median)))
+        column.addView(tableCell(fmtRange(row.threeYearRolling.hasData, row.threeYearRolling.min, row.threeYearRolling.max)))
+        column.addView(tableCell(fmtPercent(row.fiveYearTrailing.hasData, row.fiveYearTrailing.percent)))
+        column.addView(tableCell(fmtPercent(row.fiveYearRolling.hasData, row.fiveYearRolling.median)))
+        column.addView(tableCell(fmtRange(row.fiveYearRolling.hasData, row.fiveYearRolling.min, row.fiveYearRolling.max)))
+        column.addView(tableCell(fmtPercent(row.tenYearTrailing.hasData, row.tenYearTrailing.percent)))
+        column.addView(tableCell(fmtPercent(row.tenYearRolling.hasData, row.tenYearRolling.median)))
+        column.addView(tableCell(fmtRange(row.tenYearRolling.hasData, row.tenYearRolling.min, row.tenYearRolling.max)))
+
+        column.addView(tableSectionLabel("")) // aligns with the label column's "Risk Parameters" section header
+        if (metrics == null) {
+            // A benchmark column, or a fund whose risk metrics failed to
+            // load - fill every risk row with "-" so the column still
+            // has exactly as many rows as every other column (buildTable's
+            // own doc comment: alignment depends on this).
+            repeat(riskLabels.size) { column.addView(tableCell("—")) }
+        } else {
+            column.addView(tableCell(fmtNumber(metrics.betaHasData, metrics.beta, 2)))
+            column.addView(tableCell(fmtPercent(metrics.alphaHasData, metrics.alpha)))
+            column.addView(tableCell(fmtNumber(metrics.infoRatioHasData, metrics.informationRatio, 2)))
+            column.addView(tableCell(fmtPercent(metrics.stdDevHasData, metrics.standardDeviation)))
+            column.addView(tableCell(fmtPercent(metrics.upCaptureHasData, metrics.upCapture)))
+            column.addView(tableCell(fmtPercent(metrics.downCaptureHasData, metrics.downCapture)))
+            column.addView(tableCell(fmtPercent(metrics.maxDrawdownHasData, metrics.maxDrawdown)))
+            column.addView(tableCell(fmtNumber(metrics.sharpeHasData, metrics.sharpeRatio, 2)))
+            column.addView(tableCell(fmtNumber(metrics.sortinoHasData, metrics.sortinoRatio, 2)))
+        }
+        return column
+    }
+
+    private fun tableCell(text: String, isHeader: Boolean = false, bold: Boolean = false): TextView {
+        return TextView(this).apply {
+            this.text = text
+            textSize = if (isHeader) 12f else 12f
+            setTextColor(ContextCompat.getColor(this@ComparisonActivity, R.color.colorOnSurface))
+            if (bold) setTypeface(typeface, Typeface.BOLD)
+            maxLines = 2
+            val vPad = dpToPx(6)
+            setPadding(dpToPx(4), vPad, dpToPx(4), vPad)
+        }
+    }
+
+    private fun tableSectionLabel(text: String): TextView {
+        return TextView(this).apply {
+            this.text = text
+            textSize = 11f
+            setTypeface(typeface, Typeface.BOLD)
+            setTextColor(ContextCompat.getColor(this@ComparisonActivity, R.color.colorNeutral))
+            setPadding(dpToPx(4), dpToPx(10), dpToPx(4), dpToPx(2))
+        }
+    }
+
+    private fun fmtPercent(hasData: Boolean, value: Double): String =
+        if (hasData) String.format(Locale.getDefault(), "%+.2f%%", value) else "—"
+
+    private fun fmtNumber(hasData: Boolean, value: Double, decimals: Int): String =
+        if (hasData) String.format(Locale.getDefault(), "%.${decimals}f", value) else "—"
+
+    private fun fmtRange(hasData: Boolean, min: Double, max: Double): String =
+        if (hasData) String.format(Locale.getDefault(), "%+.1f to %+.1f%%", min, max) else "—"
 }
