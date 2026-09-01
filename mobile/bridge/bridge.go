@@ -186,6 +186,14 @@ type NameListEntry struct {
 	Name        string // the real/default name - NEVER the nickname, so the edit screen always shows what it's overriding
 	Nickname    string
 	IsBenchmark bool
+	// UsableAsBenchmark mirrors Asset.UsableAsBenchmark - always false
+	// for a benchmark entry itself (see that field's own doc comment;
+	// the toggle only makes sense on a fund).
+	UsableAsBenchmark bool
+	// ISIN - needed so the Manage Names screen can grey out/explain the
+	// toggle for a fund with no ISIN (AddBenchmarkFromAsset requires
+	// one). Empty for a benchmark entry.
+	ISIN string
 }
 
 // ComputeNameList powers the Manage Names screen - see NameListEntry's
@@ -199,7 +207,7 @@ func ComputeNameList(portfolioJSON string) string {
 	}
 	entries := make([]NameListEntry, 0, len(p.Assets)+len(p.Benchmarks))
 	for _, a := range p.Assets {
-		entries = append(entries, NameListEntry{SeriesID: a.ID, Name: a.Name, Nickname: a.Nickname, IsBenchmark: false})
+		entries = append(entries, NameListEntry{SeriesID: a.ID, Name: a.Name, Nickname: a.Nickname, IsBenchmark: false, UsableAsBenchmark: a.UsableAsBenchmark, ISIN: a.ISIN})
 	}
 	for _, b := range p.Benchmarks {
 		entries = append(entries, NameListEntry{SeriesID: b.ID, Name: b.Name, Nickname: b.Nickname, IsBenchmark: true})
@@ -230,7 +238,83 @@ func SetNickname(portfolioJSON string, seriesID string, nickname string) string 
 	return string(out)
 }
 
-// DashboardHolding is a MINIMAL, bridge-package-local stand-in for
+// SetUsableAsBenchmark toggles Asset.UsableAsBenchmark - see that
+// field's own doc comment.
+func SetUsableAsBenchmark(portfolioJSON string, assetID string, usable bool) string {
+	var p store.Portfolio
+	if portfolioJSON != "" {
+		if err := json.Unmarshal([]byte(portfolioJSON), &p); err != nil {
+			return fmt.Sprintf(`{"error":%q}`, "invalid portfolio JSON: "+err.Error())
+		}
+	}
+	found := false
+	for i, a := range p.Assets {
+		if a.ID == assetID {
+			p.Assets[i].UsableAsBenchmark = usable
+			found = true
+			break
+		}
+	}
+	if !found {
+		return fmt.Sprintf(`{"error":%q}`, "no asset found with ID "+assetID)
+	}
+	out, err := json.Marshal(p)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+	return string(out)
+}
+
+// AddBenchmarkFromAsset - see store.Portfolio.AddBenchmarkFromAsset's
+// own doc comment for why this exists (a benchmark with immediate,
+// zero-network-call history, reusing an already-tracked fund's own
+// data).
+func AddBenchmarkFromAsset(portfolioJSON string, assetID string) string {
+	var p store.Portfolio
+	if portfolioJSON != "" {
+		if err := json.Unmarshal([]byte(portfolioJSON), &p); err != nil {
+			return fmt.Sprintf(`{"error":%q}`, "invalid portfolio JSON: "+err.Error())
+		}
+	}
+	if _, err := p.AddBenchmarkFromAsset(assetID); err != nil {
+		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+	out, err := json.Marshal(p)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+	return string(out)
+}
+
+// SetPreferredBenchmark sets or clears Asset.PreferredBenchmarkID -
+// see that field's own doc comment. Pass an empty benchmarkID to
+// clear the override and go back to auto-select.
+func SetPreferredBenchmark(portfolioJSON string, assetID string, benchmarkID string) string {
+	var p store.Portfolio
+	if portfolioJSON != "" {
+		if err := json.Unmarshal([]byte(portfolioJSON), &p); err != nil {
+			return fmt.Sprintf(`{"error":%q}`, "invalid portfolio JSON: "+err.Error())
+		}
+	}
+	found := false
+	for i, a := range p.Assets {
+		if a.ID == assetID {
+			p.Assets[i].PreferredBenchmarkID = benchmarkID
+			found = true
+			break
+		}
+	}
+	if !found {
+		return fmt.Sprintf(`{"error":%q}`, "no asset found with ID "+assetID)
+	}
+	out, err := json.Marshal(p)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+	return string(out)
+}
+
+
 // finance.Holding, carrying only the 3 fields MainActivity's Dashboard
 // actually uses (HasPrice/NetInvested/CurrentValue - it also needs a
 // plain count and an empty check, both of which are just len() on the
@@ -2824,10 +2908,12 @@ func ComputeFundMetrics(portfolioJSON string, seriesID string, benchmarkID strin
 	}
 
 	var fundName string
+	var preferredBenchmarkID string
 	found := false
 	for _, a := range p.Assets {
 		if a.ID == seriesID {
 			fundName = a.Name
+			preferredBenchmarkID = a.PreferredBenchmarkID
 			found = true
 			break
 		}
@@ -2857,6 +2943,23 @@ func ComputeFundMetrics(portfolioJSON string, seriesID string, benchmarkID strin
 	windowedFundSeries := finance.WindowToTrailingYears(fundSeries, 3)
 
 	autoSelected := false
+	if benchmarkID == "" && preferredBenchmarkID != "" {
+		// The person's own persisted manual choice (Manage Names or a
+		// fund detail screen's benchmark picker - see
+		// Asset.PreferredBenchmarkID's own doc comment) - takes
+		// priority over name-based auto-select, but an explicit
+		// benchmarkID param (a one-off override for THIS call only)
+		// still wins over even this. Only used if that benchmark
+		// still actually exists - a deleted benchmark's stale ID
+		// falls through to ordinary auto-select below rather than
+		// erroring out.
+		for _, b := range p.Benchmarks {
+			if b.ID == preferredBenchmarkID {
+				benchmarkID = b.ID
+				break
+			}
+		}
+	}
 	if benchmarkID == "" {
 		// TRI is tried FIRST - a fund's real factsheet always
 		// benchmarks against the TRI variant (see

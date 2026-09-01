@@ -6,6 +6,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import com.google.gson.Gson
@@ -455,9 +456,34 @@ class ReturnsDetailActivity : AppCompatActivity() {
             null
         } ?: PortfolioBenchmarksSnapshot(emptyList(), emptyList())
         val benchmarks = snapshot.benchmarks ?: emptyList()
-        if (benchmarks.isEmpty()) return
 
-        val labels = (listOf("Auto-pick (recommended)") + benchmarks.map { it.name }).toTypedArray()
+        // Tracked funds flagged "usable as benchmark" (toggled from
+        // Manage Names) that aren't already added as a Benchmark -
+        // picking one here creates the underlying Benchmark on the
+        // spot (AddBenchmarkFromAsset - a local copy of data already
+        // fetched for this fund, no network call), same mechanism as
+        // BenchmarksActivity's own "Add from tracked funds" chip. This
+        // is what makes "choose a benchmark from my normal funds too,
+        // not just ones already added as a benchmark" work directly
+        // from here - see Asset.UsableAsBenchmark's Go doc comment.
+        val existingProxyISINs = benchmarks.filter { it.proxyFundISIN.isNotEmpty() }.map { it.proxyFundISIN }.toSet()
+        val nameListJson = Bridge.computeNameList(portfolioJson)
+        val trackedFunds: List<NameListEntry> = if (!isBridgeError(nameListJson)) {
+            val entryType = object : TypeToken<List<NameListEntry>>() {}.type
+            try {
+                gson.fromJson<List<NameListEntry>>(nameListJson, entryType)
+                    ?.filter { !it.isBenchmark && it.usableAsBenchmark && it.isin.isNotBlank() && it.isin !in existingProxyISINs && it.seriesId != seriesId }
+                    ?: emptyList()
+            } catch (e: Exception) {
+                emptyList()
+            }
+        } else {
+            emptyList()
+        }
+        if (benchmarks.isEmpty() && trackedFunds.isEmpty()) return
+
+        val trackedLabels = trackedFunds.map { "[Fund] " + NicknameResolver.resolve(it.name, it.nickname) }
+        val labels = (listOf("Auto-pick (recommended)") + benchmarks.map { it.name } + trackedLabels).toTypedArray()
         val currentIndex = if (selectedBenchmarkId.isEmpty()) {
             0
         } else {
@@ -466,11 +492,68 @@ class ReturnsDetailActivity : AppCompatActivity() {
         AlertDialog.Builder(this)
             .setTitle("Compare against")
             .setSingleChoiceItems(labels, currentIndex) { dialog, which ->
-                selectedBenchmarkId = if (which == 0) "" else benchmarks[which - 1].id
-                loadMetrics()
                 dialog.dismiss()
+                when {
+                    which == 0 -> {
+                        selectedBenchmarkId = ""
+                        persistPreferredBenchmark("")
+                        loadMetrics()
+                    }
+                    which - 1 < benchmarks.size -> {
+                        val chosenId = benchmarks[which - 1].id
+                        selectedBenchmarkId = chosenId
+                        persistPreferredBenchmark(chosenId)
+                        loadMetrics()
+                    }
+                    else -> addBenchmarkFromAssetAndSelect(trackedFunds[which - 1 - benchmarks.size])
+                }
             }
             .setNegativeButton("Cancel", null)
             .show()
+    }
+
+    /**
+     * Persists the manual benchmark choice (Asset.PreferredBenchmarkID
+     * on the Go side) so it's remembered the next time this fund's
+     * detail screen is opened - the plain in-memory selectedBenchmarkId
+     * alone only lasted for this one visit. An empty benchmarkId clears
+     * the override, reverting to pure name-based auto-select.
+     */
+    private fun persistPreferredBenchmark(benchmarkId: String) {
+        val portfolioPath = PortfolioStorage.filePath(this)
+        val afterSet = Bridge.setPreferredBenchmark(portfolioJson, seriesId, benchmarkId)
+        if (isBridgeError(afterSet)) return
+        val saveResult = Bridge.savePortfolio(portfolioPath, afterSet)
+        if (isBridgeError(saveResult)) return
+        portfolioJson = afterSet
+    }
+
+    /**
+     * Turns a picked "tracked fund" option into an actual Benchmark
+     * (AddBenchmarkFromAsset - local copy, no network) then selects and
+     * persists it, same as any other manual pick above.
+     */
+    private fun addBenchmarkFromAssetAndSelect(entry: NameListEntry) {
+        val portfolioPath = PortfolioStorage.filePath(this)
+        val afterAdd = Bridge.addBenchmarkFromAsset(portfolioJson, entry.seriesId)
+        if (isBridgeError(afterAdd)) {
+            Toast.makeText(this, "Failed to add: $afterAdd", Toast.LENGTH_LONG).show()
+            return
+        }
+        val updatedSnapshot: PortfolioBenchmarksSnapshot = try {
+            gson.fromJson(afterAdd, PortfolioBenchmarksSnapshot::class.java)
+        } catch (e: Exception) {
+            null
+        } ?: return
+        val newBenchmark = updatedSnapshot.benchmarks.orEmpty().lastOrNull { it.proxyFundISIN == entry.isin } ?: return
+        val saveResult = Bridge.savePortfolio(portfolioPath, afterAdd)
+        if (isBridgeError(saveResult)) {
+            Toast.makeText(this, "Failed to save: $saveResult", Toast.LENGTH_LONG).show()
+            return
+        }
+        portfolioJson = afterAdd
+        selectedBenchmarkId = newBenchmark.id
+        persistPreferredBenchmark(newBenchmark.id)
+        loadMetrics()
     }
 }

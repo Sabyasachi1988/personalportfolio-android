@@ -7,5 +7,7 @@ data class NameListEntry(
     @SerializedName("SeriesID") val seriesId: String,
     @SerializedName("Name") val name: String,
     @SerializedName("Nickname") val nickname: String = "",
-    @SerializedName("IsBenchmark") val isBenchmark: Boolean = false
+    @SerializedName("IsBenchmark") val isBenchmark: Boolean = false,
+    @SerializedName("UsableAsBenchmark") val usableAsBenchmark: Boolean = false,
+    @SerializedName("ISIN") val isin: String = ""
 )

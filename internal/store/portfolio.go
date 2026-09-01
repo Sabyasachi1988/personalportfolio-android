@@ -138,6 +138,32 @@ type Asset struct {
 	// Deliberately NOT omitempty - same Gson-unsafe-allocation reasoning
 	// as GroupLabel/Tags/PrimaryTag above.
 	Nickname string
+	// UsableAsBenchmark marks a normally-tracked fund (regular holding
+	// OR an Additional Fund - either kind of Asset) as eligible to be
+	// picked as a benchmark elsewhere (Manage Benchmarks' "Add from
+	// tracked funds", and a fund detail screen's manual benchmark
+	// picker). Replaces the earlier approach of a SEPARATE
+	// search-and-resolve dialog for "proxy fund" benchmarks - that
+	// dialog's own network resolve (a full mfapi.in scheme-list fetch,
+	// same underlying call as adding a normal fund) was a confirmed
+	// real source of slowness/instability, entirely redundant once the
+	// fund is already tracked normally with its ISIN and NAV history
+	// already known locally. See AddBenchmarkFromAsset's doc comment
+	// for how a flagged asset becomes a benchmark with NO new network
+	// call at all. Deliberately NOT omitempty, same reasoning as
+	// Nickname above.
+	UsableAsBenchmark bool
+	// PreferredBenchmarkID, when set, overrides ComputeFundMetrics'
+	// auto-select (finance.DefaultBenchmarkTRIName's name-based
+	// matching, which only recognizes the 4 known Nifty fund segments)
+	// with the person's own explicit choice - persisted so it survives
+	// between sessions, unlike passing an explicit benchmarkID that
+	// only applies to one ComputeFundMetrics call. Empty means "no
+	// override, use auto-select" - see ComputeFundMetrics' own doc
+	// comment for the exact priority order against an explicitly
+	// passed benchmarkID. Deliberately NOT omitempty, same reasoning as
+	// Nickname above.
+	PreferredBenchmarkID string
 	// AssetClassOverride lets the person manually correct
 	// EffectiveAssetClass's result for this one fund - e.g. a Nifty
 	// Next 50 fund-of-fund, which AMFI buckets under its generic
@@ -1028,6 +1054,40 @@ func (p *Portfolio) AddProxyFundBenchmark(name, isin, proxyFundName string) Benc
 	b := Benchmark{ID: NewID("benchmark"), Name: name, ProxyFundISIN: isin, ProxyFundName: proxyFundName}
 	p.Benchmarks = append(p.Benchmarks, b)
 	return b
+}
+
+// AddBenchmarkFromAsset creates a benchmark from an already-tracked
+// Asset (see Asset.UsableAsBenchmark's own doc comment for why this
+// exists) - copies its ISIN, resolved name, AND its EXISTING
+// PriceRecords into the new Benchmark's own series, so the new
+// benchmark has usable history immediately with NO network call at
+// all, unlike AddProxyFundBenchmark which always fetches fresh. A
+// later manual Refresh on this benchmark still works normally
+// (UpdateBenchmarkHistory's ProxyFundISIN path), it just isn't
+// required to make the benchmark useful right away.
+func (p *Portfolio) AddBenchmarkFromAsset(assetID string) (Benchmark, error) {
+	var source Asset
+	found := false
+	for _, a := range p.Assets {
+		if a.ID == assetID {
+			source = a
+			found = true
+			break
+		}
+	}
+	if !found {
+		return Benchmark{}, fmt.Errorf("no asset found with ID %s", assetID)
+	}
+	if source.ISIN == "" {
+		return Benchmark{}, fmt.Errorf("asset %s has no ISIN - cannot use as a benchmark", source.DisplayName())
+	}
+	b := Benchmark{ID: NewID("benchmark"), Name: source.DisplayName(), ProxyFundISIN: source.ISIN, ProxyFundName: source.Name}
+	p.Benchmarks = append(p.Benchmarks, b)
+	for _, rec := range p.PriceSeries(assetID) {
+		p.Prices = append(p.Prices, PriceRecord{AssetID: b.ID, Date: rec.Date, Price: rec.Price, Source: rec.Source})
+	}
+	p.invalidatePriceIndex() // PriceSeries above lazily built the index off the OLD Prices slice - force a rebuild so the new benchmark's copied records are actually findable on the next PriceSeries/PriceAsOf call, not silently missing until some other code path happens to invalidate it first.
+	return b, nil
 }
 
 // RemoveBenchmark removes a tracked index by ID. Deliberately does NOT

@@ -107,7 +107,7 @@ class ManageNamesActivity : AppCompatActivity() {
         } else {
             emptyState.visibility = View.GONE
             recyclerView.visibility = View.VISIBLE
-            recyclerView.adapter = ManageNamesAdapter(filtered) { entry -> showRenameDialog(entry) }
+            recyclerView.adapter = ManageNamesAdapter(filtered, { entry -> showRenameDialog(entry) }, { entry, usable -> toggleUsableAsBenchmark(entry, usable) })
         }
     }
 
@@ -128,6 +128,24 @@ class ManageNamesActivity : AppCompatActivity() {
             .setNegativeButton("Cancel", null)
             .create()
         dialog.show()
+    }
+
+    private fun toggleUsableAsBenchmark(entry: NameListEntry, usable: Boolean) {
+        val portfolioPath = PortfolioStorage.filePath(this)
+        val portfolioJson = PortfolioLoadCache.load(portfolioPath)
+        val afterSet = Bridge.setUsableAsBenchmark(portfolioJson, entry.seriesId, usable)
+        if (isBridgeError(afterSet)) {
+            Toast.makeText(this, "Failed to save: $afterSet", Toast.LENGTH_LONG).show()
+            loadEntries() // revert the checkbox to the actual saved state
+            return
+        }
+        val saveResult = Bridge.savePortfolio(portfolioPath, afterSet)
+        if (isBridgeError(saveResult)) {
+            Toast.makeText(this, "Failed to save: $saveResult", Toast.LENGTH_LONG).show()
+            loadEntries()
+            return
+        }
+        loadEntries()
     }
 
     private fun saveNickname(entry: NameListEntry, nickname: String) {
