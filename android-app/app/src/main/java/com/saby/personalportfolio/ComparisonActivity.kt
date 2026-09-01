@@ -418,11 +418,15 @@ class ComparisonActivity : AppCompatActivity() {
     // call below) per explicit request that repeating it on every
     // label was making them too long. Max Drawdown is the ONE
     // exception to that common window (deliberately full-history, see
-    // finance.WindowToTrailingYears' own doc comment), so it's the
-    // only row that still carries its own explicit override.
+    // finance.WindowToTrailingYears' own doc comment) - flagged with a
+    // "*" here rather than spelling out "(full history)" inline, since
+    // the label column narrowed to 96dp (see buildTableSection's own
+    // doc comment) risks silently 2-line-clipping a label that long;
+    // the actual explanation is a footnote under the section title
+    // instead (buildTable's riskFootnote).
     private val riskLabels = listOf(
         "Beta", "Alpha", "Information Ratio", "Std. Deviation",
-        "Up Capture", "Down Capture", "Max Drawdown (full history)",
+        "Up Capture", "Down Capture", "Max Drawdown*",
         "Sharpe Ratio", "Sortino Ratio"
     )
 
@@ -437,7 +441,7 @@ class ComparisonActivity : AppCompatActivity() {
     // fund column alike - so alignment is guaranteed by construction,
     // not by hoping text lengths happen to match.
     private val headerRowHeightDp = 52
-    private val dataRowHeightDp = 36
+    private val dataRowHeightDp = 40
 
     private fun buildTable() {
         tableSectionsRoot.removeAllViews()
@@ -480,7 +484,8 @@ class ComparisonActivity : AppCompatActivity() {
                 rowLabels = riskLabels,
                 cellFor = { row, rowIndex -> riskCell(metricsBySeriesId[row.seriesId], rowIndex) },
                 metricsBySeriesId = metricsBySeriesId,
-                portfolioJson = portfolioJson
+                portfolioJson = portfolioJson,
+                footnote = "* Max Drawdown is full-history, not 3-yr"
             )
         )
     }
@@ -544,7 +549,8 @@ class ComparisonActivity : AppCompatActivity() {
         rowLabels: List<String>,
         cellFor: (ReturnsTableRow, Int) -> Pair<String, Int?>,
         metricsBySeriesId: Map<String, FundMetricsResult?> = emptyMap(),
-        portfolioJson: String = ""
+        portfolioJson: String = "",
+        footnote: String? = null
     ): View {
         val card = com.google.android.material.card.MaterialCardView(this).apply {
             layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
@@ -564,8 +570,16 @@ class ComparisonActivity : AppCompatActivity() {
             textSize = 15f
             setTypeface(typeface, Typeface.BOLD)
             setTextColor(ContextCompat.getColor(this@ComparisonActivity, R.color.colorAmber))
-            setPadding(dpToPx(4), 0, dpToPx(4), dpToPx(10))
+            setPadding(dpToPx(4), 0, dpToPx(4), if (footnote == null) dpToPx(10) else 0)
         })
+        if (footnote != null) {
+            cardContent.addView(TextView(this).apply {
+                text = footnote
+                textSize = 10f
+                setTextColor(ContextCompat.getColor(this@ComparisonActivity, R.color.colorNeutral))
+                setPadding(dpToPx(4), 0, dpToPx(4), dpToPx(10))
+            })
+        }
 
         val row = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -577,7 +591,7 @@ class ComparisonActivity : AppCompatActivity() {
         // fund columns scroll.
         val labelColumn = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            layoutParams = LinearLayout.LayoutParams(dpToPx(140), LinearLayout.LayoutParams.WRAP_CONTENT)
+            layoutParams = LinearLayout.LayoutParams(dpToPx(96), LinearLayout.LayoutParams.WRAP_CONTENT)
         }
         labelColumn.addView(fixedHeightCell("", headerRowHeightDp, isHeader = true, zebra = false))
         if (showBenchmarkSubHeader) {
@@ -595,7 +609,7 @@ class ComparisonActivity : AppCompatActivity() {
             val fundColor = ContextCompat.getColor(this, paletteColorIds[columnIndex % paletteColorIds.size])
             val column = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
-                layoutParams = LinearLayout.LayoutParams(dpToPx(104), LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                layoutParams = LinearLayout.LayoutParams(dpToPx(92), LinearLayout.LayoutParams.WRAP_CONTENT).apply {
                     marginStart = dpToPx(2)
                 }
             }
