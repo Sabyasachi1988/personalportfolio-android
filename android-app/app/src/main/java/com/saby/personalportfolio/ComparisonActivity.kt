@@ -73,6 +73,7 @@ class ComparisonActivity : AppCompatActivity() {
 
         tabGraph.setOnClickListener { switchTab(Tab.GRAPH) }
         tabTable.setOnClickListener { switchTab(Tab.TABLE) }
+        findViewById<View>(R.id.comparisonCustomizeButton).setOnClickListener { showMetricPicker() }
         updateTabStyling()
 
         pickButton.setOnClickListener { showPicker() }
@@ -402,34 +403,6 @@ class ComparisonActivity : AppCompatActivity() {
         }
     }
 
-    // Rolling range (min-max) rows removed per explicit request - only
-    // the median rolling figure is shown now. Rows are grouped ALL
-    // trailing first, then ALL rolling - previously alternated
-    // trailing/rolling/trailing/rolling per period, which read as
-    // switching back and forth rather than two coherent groups.
-    private val returnLabels = listOf(
-        "Day", "1 Month", "1Y Trailing", "3Y Trailing", "5Y Trailing", "10Y Trailing",
-        "1Y Rolling", "3Y Rolling", "5Y Rolling", "10Y Rolling"
-    )
-
-    // "(3-yr)" is no longer repeated on every single row - it's the
-    // COMMON window for this whole section (mentioned once, in the
-    // section title itself - see buildTable's "Risk Parameters (3-yr)"
-    // call below) per explicit request that repeating it on every
-    // label was making them too long. Max Drawdown is the ONE
-    // exception to that common window (deliberately full-history, see
-    // finance.WindowToTrailingYears' own doc comment) - flagged with a
-    // "*" here rather than spelling out "(full history)" inline, since
-    // the label column narrowed to 96dp (see buildTableSection's own
-    // doc comment) risks silently 2-line-clipping a label that long;
-    // the actual explanation is a footnote under the section title
-    // instead (buildTable's riskFootnote).
-    private val riskLabels = listOf(
-        "Beta", "Alpha", "Information Ratio", "Std. Deviation",
-        "Up Capture", "Down Capture", "Max Drawdown*",
-        "Sharpe Ratio", "Sortino Ratio"
-    )
-
     // Fixed row heights, NOT wrap_content - this is the actual fix for
     // a confirmed real bug: with every column an independent
     // wrap_content LinearLayout, a fund name or benchmark name that
@@ -467,63 +440,119 @@ class ComparisonActivity : AppCompatActivity() {
             }
         }
 
-        tableSectionsRoot.addView(
-            buildTableSection(
-                title = "Trailing & Rolling Returns",
-                selected = selected,
-                showBenchmarkSubHeader = false,
-                rowLabels = returnLabels,
-                cellFor = { row, rowIndex -> returnsCell(row, rowIndex) }
+        // Which rows to show - the person's own persisted pick (see
+        // CompareMetricPreference's own doc comment for why this
+        // exists: a confirmed real ask to choose from the FULL
+        // available set, including the rolling range rows not shown by
+        // default, and have that choice stick across app restarts
+        // rather than resetting every time). Order stays canonical
+        // (CompareMetricCatalog.ALL's own order) regardless of the
+        // order the person happened to check things in.
+        val selectedMetricIds = CompareMetricPreference.getSelectedIds(this)
+        val returnMetrics = CompareMetricCatalog.ALL.filter { it.section == CompareMetricCatalog.Section.RETURNS && selectedMetricIds.contains(it.id) }
+        val riskMetrics = CompareMetricCatalog.ALL.filter { it.section == CompareMetricCatalog.Section.RISK && selectedMetricIds.contains(it.id) }
+
+        if (returnMetrics.isNotEmpty()) {
+            tableSectionsRoot.addView(
+                buildTableSection(
+                    title = "Trailing & Rolling Returns",
+                    selected = selected,
+                    showBenchmarkSubHeader = false,
+                    rowLabels = returnMetrics.map { it.label },
+                    cellFor = { row, i -> returnsCell(row, returnMetrics[i].id) }
+                )
             )
-        )
-        tableSectionsRoot.addView(
-            buildTableSection(
-                title = "Risk Parameters (3-yr)",
-                selected = selected,
-                showBenchmarkSubHeader = true,
-                rowLabels = riskLabels,
-                cellFor = { row, rowIndex -> riskCell(metricsBySeriesId[row.seriesId], rowIndex) },
-                metricsBySeriesId = metricsBySeriesId,
-                portfolioJson = portfolioJson,
-                footnote = "* Max Drawdown is full-history, not 3-yr"
+        }
+        if (riskMetrics.isNotEmpty()) {
+            tableSectionsRoot.addView(
+                buildTableSection(
+                    title = "Risk Parameters (3-yr)",
+                    selected = selected,
+                    showBenchmarkSubHeader = true,
+                    rowLabels = riskMetrics.map { it.label },
+                    cellFor = { row, i -> riskCell(metricsBySeriesId[row.seriesId], riskMetrics[i].id) },
+                    metricsBySeriesId = metricsBySeriesId,
+                    portfolioJson = portfolioJson,
+                    footnote = if (riskMetrics.any { it.id == "max_drawdown" }) "* Max Drawdown is full-history, not 3-yr" else null
+                )
             )
-        )
+        }
+        if (returnMetrics.isEmpty() && riskMetrics.isEmpty()) {
+            showEmpty("No metrics selected - tap Customize to pick some.")
+        }
     }
 
     /** @return (display text, color resource id or null for the default neutral color) */
-    private fun returnsCell(row: ReturnsTableRow, rowIndex: Int): Pair<String, Int?> {
-        val tr = when (rowIndex) {
-            0 -> row.day; 1 -> row.month; 2 -> row.oneYearTrailing; 3 -> row.threeYearTrailing
-            4 -> row.fiveYearTrailing; 5 -> row.tenYearTrailing
+    private fun returnsCell(row: ReturnsTableRow, metricId: String): Pair<String, Int?> {
+        val trailing = when (metricId) {
+            "day" -> row.day
+            "month" -> row.month
+            "y1_trailing" -> row.oneYearTrailing
+            "y3_trailing" -> row.threeYearTrailing
+            "y5_trailing" -> row.fiveYearTrailing
+            "y10_trailing" -> row.tenYearTrailing
             else -> null
         }
-        if (tr != null) return fmtPercent(tr.hasData, tr.percent) to gainLossColor(tr.hasData, tr.percent)
-        val rolling = when (rowIndex) {
-            6 -> row.oneYearRolling; 7 -> row.threeYearRolling; 8 -> row.fiveYearRolling; 9 -> row.tenYearRolling
+        if (trailing != null) return fmtPercent(trailing.hasData, trailing.percent) to gainLossColor(trailing.hasData, trailing.percent)
+        val rolling = when (metricId) {
+            "y1_rolling", "y1_range" -> row.oneYearRolling
+            "y3_rolling", "y3_range" -> row.threeYearRolling
+            "y5_rolling", "y5_range" -> row.fiveYearRolling
+            "y10_rolling", "y10_range" -> row.tenYearRolling
             else -> null
         } ?: return "—" to null
-        return fmtPercent(rolling.hasData, rolling.median) to gainLossColor(rolling.hasData, rolling.median)
+        return if (metricId.endsWith("_range")) {
+            fmtRange(rolling.hasData, rolling.min, rolling.max) to null // a range has no single "good/bad" color
+        } else {
+            fmtPercent(rolling.hasData, rolling.median) to gainLossColor(rolling.hasData, rolling.median)
+        }
     }
 
     /** @return (display text, color resource id or null for the default neutral color) */
-    private fun riskCell(metrics: FundMetricsResult?, rowIndex: Int): Pair<String, Int?> {
+    private fun riskCell(metrics: FundMetricsResult?, metricId: String): Pair<String, Int?> {
         if (metrics == null) return "—" to null
-        return when (rowIndex) {
-            0 -> fmtNumber(metrics.betaHasData, metrics.beta, 2) to null // Beta has no "good/bad" direction
-            1 -> fmtPercent(metrics.alphaHasData, metrics.alpha) to gainLossColor(metrics.alphaHasData, metrics.alpha)
-            2 -> fmtNumber(metrics.infoRatioHasData, metrics.informationRatio, 2) to gainLossColor(metrics.infoRatioHasData, metrics.informationRatio)
-            3 -> fmtPercent(metrics.stdDevHasData, metrics.standardDeviation) to null // Std Dev has no "good/bad" direction
-            4 -> fmtPercent(metrics.upCaptureHasData, metrics.upCapture) to gainLossColor(metrics.upCaptureHasData, metrics.upCapture - 100)
-            5 -> fmtPercent(metrics.downCaptureHasData, metrics.downCapture) to gainLossColor(metrics.downCaptureHasData, 100 - metrics.downCapture) // LOWER is better here, so the sign is inverted
-            6 -> fmtPercent(metrics.maxDrawdownHasData, metrics.maxDrawdown) to (if (metrics.maxDrawdownHasData) R.color.colorLoss else null) // always loss-tinted, same convention as ReturnsDetailActivity's own card
-            7 -> fmtNumber(metrics.sharpeHasData, metrics.sharpeRatio, 2) to gainLossColor(metrics.sharpeHasData, metrics.sharpeRatio)
-            8 -> fmtNumber(metrics.sortinoHasData, metrics.sortinoRatio, 2) to gainLossColor(metrics.sortinoHasData, metrics.sortinoRatio)
+        return when (metricId) {
+            "beta" -> fmtNumber(metrics.betaHasData, metrics.beta, 2) to null // Beta has no "good/bad" direction
+            "alpha" -> fmtPercent(metrics.alphaHasData, metrics.alpha) to gainLossColor(metrics.alphaHasData, metrics.alpha)
+            "info_ratio" -> fmtNumber(metrics.infoRatioHasData, metrics.informationRatio, 2) to gainLossColor(metrics.infoRatioHasData, metrics.informationRatio)
+            "std_dev" -> fmtPercent(metrics.stdDevHasData, metrics.standardDeviation) to null // Std Dev has no "good/bad" direction
+            "up_capture" -> fmtPercent(metrics.upCaptureHasData, metrics.upCapture) to gainLossColor(metrics.upCaptureHasData, metrics.upCapture - 100)
+            "down_capture" -> fmtPercent(metrics.downCaptureHasData, metrics.downCapture) to gainLossColor(metrics.downCaptureHasData, 100 - metrics.downCapture) // LOWER is better here, so the sign is inverted
+            "max_drawdown" -> fmtPercent(metrics.maxDrawdownHasData, metrics.maxDrawdown) to (if (metrics.maxDrawdownHasData) R.color.colorLoss else null) // always loss-tinted, same convention as ReturnsDetailActivity's own card
+            "sharpe" -> fmtNumber(metrics.sharpeHasData, metrics.sharpeRatio, 2) to gainLossColor(metrics.sharpeHasData, metrics.sharpeRatio)
+            "sortino" -> fmtNumber(metrics.sortinoHasData, metrics.sortinoRatio, 2) to gainLossColor(metrics.sortinoHasData, metrics.sortinoRatio)
             else -> "—" to null
         }
     }
 
     private fun gainLossColor(hasData: Boolean, value: Double): Int? =
         if (!hasData) null else if (value >= 0) R.color.colorGain else R.color.colorLoss
+
+    /**
+     * Multi-select picker over the full CompareMetricCatalog - a flat
+     * checklist in catalog order (Returns metrics first, then Risk),
+     * same pattern as the fund/index picker above. Persists
+     * immediately on Done and rebuilds the table - no separate
+     * "Apply" step.
+     */
+    private fun showMetricPicker() {
+        val currentIds = CompareMetricPreference.getSelectedIds(this).toMutableSet()
+        val items = CompareMetricCatalog.ALL
+        val labels = items.map { it.label }.toTypedArray()
+        val checked = items.map { currentIds.contains(it.id) }.toBooleanArray()
+        AlertDialog.Builder(this)
+            .setTitle("Choose what to compare")
+            .setMultiChoiceItems(labels, checked) { _, which, isChecked ->
+                val id = items[which].id
+                if (isChecked) currentIds.add(id) else currentIds.remove(id)
+            }
+            .setPositiveButton("Done") { _, _ ->
+                CompareMetricPreference.setSelectedIds(this, currentIds)
+                if (activeTab == Tab.TABLE) buildTable()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
 
     /**
      * One section = one elevated MaterialCardView (matching the
@@ -726,4 +755,7 @@ class ComparisonActivity : AppCompatActivity() {
 
     private fun fmtNumber(hasData: Boolean, value: Double, decimals: Int): String =
         if (hasData) String.format(Locale.getDefault(), "%.${decimals}f", value) else "—"
+
+    private fun fmtRange(hasData: Boolean, min: Double, max: Double): String =
+        if (hasData) String.format(Locale.getDefault(), "%+.1f/%+.1f%%", min, max) else "—"
 }

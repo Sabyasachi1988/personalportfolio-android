@@ -169,7 +169,20 @@ class HoldingsActivity : AppCompatActivity() {
         // Refresh the member list every time this screen becomes visible
         // (in particular after a new CAS import may have added a new
         // member), then show holdings for whichever filter is selected.
+        //
+        // CONFIRMED REAL BUG (fixed here): loadMemberSpinner ends by
+        // calling showHoldingsForSelectedMember, which assigns a FRESH
+        // adapter - a new adapter has no memory of the RecyclerView's
+        // prior scroll offset, so returning here after scrolling down
+        // to a fund and opening its detail chart always snapped back
+        // to the top. Scoped to ONLY this onResume path, not every
+        // call to loadMemberSpinner/showHoldingsForSelectedMember
+        // elsewhere (changing the member filter or the group-by toggle
+        // should still reset to top - the list content itself
+        // genuinely changes there, unlike simply resuming this screen).
+        val state = recyclerView.layoutManager?.onSaveInstanceState()
         loadMemberSpinner()
+        state?.let { recyclerView.layoutManager?.onRestoreInstanceState(it) }
     }
 
     private fun isBridgeError(json: String): Boolean = json.trimStart().startsWith("{\"error\"")

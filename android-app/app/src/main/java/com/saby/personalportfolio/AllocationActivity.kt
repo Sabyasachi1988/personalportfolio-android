@@ -147,10 +147,27 @@ class AllocationActivity : AppCompatActivity() {
         // Recomputes every time this screen becomes visible, so coming
         // back from editing any composition or any target all reflect
         // immediately.
-        loadAndShowMarketCapSection()
-        loadAndShowEquityOriginSection()
-        loadAndShowPortfolioClassSection()
-        loadAndShowTagsSection()
+        //
+        // CONFIRMED REAL BUG (fixed here): each loadAndShowXSection()
+        // below assigns a FRESH adapter instance on every resume - a
+        // new adapter has no memory of the RecyclerView's prior scroll
+        // offset, so returning here after drilling into a fund several
+        // rows down (e.g. its detail chart) always snapped back to the
+        // top instead of holding position. withPreservedScroll saves
+        // each RecyclerView's LayoutManager state (not tied to a
+        // specific adapter instance) immediately before its reload and
+        // restores it right after, so a same-ish item list keeps its
+        // scroll position across the adapter swap.
+        withPreservedScroll(recyclerView) { loadAndShowMarketCapSection() }
+        withPreservedScroll(recyclerViewOrigin) { loadAndShowEquityOriginSection() }
+        withPreservedScroll(recyclerViewClass) { loadAndShowPortfolioClassSection() }
+        withPreservedScroll(recyclerViewTags) { loadAndShowTagsSection() }
+    }
+
+    private fun withPreservedScroll(recyclerView: RecyclerView, reload: () -> Unit) {
+        val state = recyclerView.layoutManager?.onSaveInstanceState()
+        reload()
+        state?.let { recyclerView.layoutManager?.onRestoreInstanceState(it) }
     }
 
     private fun openMarketCapExpanded() {
