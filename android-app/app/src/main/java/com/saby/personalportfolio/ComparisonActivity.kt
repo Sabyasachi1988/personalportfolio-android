@@ -589,9 +589,10 @@ class ComparisonActivity : AppCompatActivity() {
         // Frozen label column - fixed width, NOT inside the
         // HorizontalScrollView below, so it stays put while only the
         // fund columns scroll.
+        val labelColumnWidthPx = dpToPx(96)
         val labelColumn = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            layoutParams = LinearLayout.LayoutParams(dpToPx(96), LinearLayout.LayoutParams.WRAP_CONTENT)
+            layoutParams = LinearLayout.LayoutParams(labelColumnWidthPx, LinearLayout.LayoutParams.WRAP_CONTENT)
         }
         labelColumn.addView(fixedHeightCell("", headerRowHeightDp, isHeader = true, zebra = false))
         if (showBenchmarkSubHeader) {
@@ -602,6 +603,37 @@ class ComparisonActivity : AppCompatActivity() {
         }
         row.addView(labelColumn)
 
+        // A visibly colored divider between the frozen label column and
+        // the scrolling fund columns - confirmed real complaint: with
+        // only a plain 2-4dp margin and no actual visual line, the
+        // boundary between "this stays put" and "this scrolls" faded
+        // into the surrounding zebra-striped background and was hard
+        // to see, especially once scrolled partway through 3+ funds.
+        row.addView(View(this).apply {
+            layoutParams = LinearLayout.LayoutParams(dpToPx(2), LinearLayout.LayoutParams.MATCH_PARENT)
+            setBackgroundColor(ContextCompat.getColor(this@ComparisonActivity, R.color.colorPrimary))
+        })
+
+        // Adaptive fund-column width: fill the available width evenly
+        // across however many funds are picked, UP UNTIL that would
+        // squeeze columns below the comfortable minimum - confirmed
+        // real complaint: with only 2 funds picked, the fixed-width
+        // columns left a visible dead strip of empty space on the
+        // right, looking "left-tilted" and unbalanced, while more than
+        // 2 funds looked fine simply because they happened to fill the
+        // width by coincidence. Below the minimum-width threshold, the
+        // usual fixed-width + HorizontalScrollView behavior takes over
+        // instead (compressed, scrollable), same as before.
+        val minFundColumnWidthPx = dpToPx(92)
+        val screenWidthPx = resources.displayMetrics.widthPixels
+        val chromeWidthPx = dpToPx(20 + 20 + 10 + 10) + labelColumnWidthPx + dpToPx(2) // root padding + card padding + divider
+        val availableForColumnsPx = screenWidthPx - chromeWidthPx
+        val fundColumnWidthPx = if (selected.isNotEmpty() && selected.size * minFundColumnWidthPx < availableForColumnsPx) {
+            availableForColumnsPx / selected.size
+        } else {
+            minFundColumnWidthPx
+        }
+
         val scrollValueColumns = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
         }
@@ -609,14 +641,15 @@ class ComparisonActivity : AppCompatActivity() {
             val fundColor = ContextCompat.getColor(this, paletteColorIds[columnIndex % paletteColorIds.size])
             val column = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
-                layoutParams = LinearLayout.LayoutParams(dpToPx(92), LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                layoutParams = LinearLayout.LayoutParams(fundColumnWidthPx, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
                     marginStart = dpToPx(2)
                 }
             }
             column.addView(
                 fixedHeightCell(
                     FundNameFormatter.shorten(seriesRow.name).ifBlank { seriesRow.name },
-                    headerRowHeightDp, isHeader = true, bold = true, zebra = false, explicitColor = fundColor
+                    headerRowHeightDp, isHeader = true, bold = true, zebra = false, explicitColor = fundColor,
+                    gravity = android.view.Gravity.END or android.view.Gravity.CENTER_VERTICAL
                 )
             )
             if (showBenchmarkSubHeader) {
@@ -624,7 +657,8 @@ class ComparisonActivity : AppCompatActivity() {
                 val benchmarkCell = fixedHeightCell(
                     if (seriesRow.isBenchmark) "" else (metrics?.benchmarkName?.takeIf { it.isNotBlank() }?.let { "vs $it" } ?: "vs (none)"),
                     dataRowHeightDp, isHeader = true, zebra = false,
-                    explicitColor = if (seriesRow.isBenchmark) null else ContextCompat.getColor(this, R.color.colorPrimary)
+                    explicitColor = if (seriesRow.isBenchmark) null else ContextCompat.getColor(this, R.color.colorPrimary),
+                    gravity = android.view.Gravity.END or android.view.Gravity.CENTER_VERTICAL
                 )
                 if (!seriesRow.isBenchmark) {
                     benchmarkCell.setOnClickListener {
