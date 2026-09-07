@@ -235,26 +235,7 @@ class BenchmarksActivity : AppCompatActivity() {
         reload()
     }
 
-    /**
-     * Shows the full error text in a scrollable, copyable dialog.
-     * A plain Toast ellipsizes anything past ~2 lines with no way to
-     * read or copy the rest, which made a real diagnosis (e.g. the raw
-     * response body FetchNiftyIndicesTRI now includes on parse
-     * failure) invisible on-device - see history.go's
-     * ParseNiftyIndicesTRI error wrapping.
-     */
-    private fun showErrorDialog(title: String, message: String) {
-        AlertDialog.Builder(this)
-            .setTitle(title)
-            .setMessage(message)
-            .setPositiveButton("OK", null)
-            .setNeutralButton("Copy") { _, _ ->
-                val clipboard = getSystemService(ClipboardManager::class.java)
-                clipboard?.setPrimaryClip(ClipData.newPlainText(title, message))
-                Toast.makeText(this, "Copied", Toast.LENGTH_SHORT).show()
-            }
-            .show()
-    }
+    private fun showErrorDialog(title: String, message: String) = ErrorDialog.show(this, title, message)
 
     private fun refreshHistory(benchmark: Benchmark, rowHolder: BenchmarksAdapter.RowHolder) {
         rowHolder.refreshButton.isEnabled = false

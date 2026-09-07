@@ -424,7 +424,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun failRefresh(message: String) {
         refreshButton.isEnabled = true
-        Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+        ErrorDialog.show(this, "Refresh failed", message)
     }
 }
 

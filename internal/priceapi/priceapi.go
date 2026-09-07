@@ -127,19 +127,47 @@ func dashToEmpty(s string) string {
 const amfiURL = "https://www.amfiindia.com/spages/NAVAll.txt"
 
 // FetchAmfiNav downloads and parses the current AMFI NAV file.
+//
+// Retries up to 3 times with a short backoff - this endpoint had NO
+// resilience at all before (a single client.Get with no retry), the
+// same gap fetchMfapiSchemeList had before ITS fix: a person tapping
+// the dashboard's Refresh button and hitting one ordinary transient
+// network blip got an outright failure with no recovery, even though
+// the very next attempt often would have succeeded. Not adding a
+// negative-cache cooldown here the way fetchMfapiSchemeList has -
+// this is a person-initiated, infrequent tap (not something hammered
+// automatically on every keystroke or every screen resume), so
+// there's no real risk of repeatedly hammering a down server the way
+// that fix was guarding against.
 func FetchAmfiNav() ([]NavRecord, error) {
 	client := &http.Client{Timeout: 20 * time.Second}
+	var lastErr error
+	for attempt := 1; attempt <= 3; attempt++ {
+		records, err := fetchAmfiNavOnce(client)
+		if err == nil {
+			return records, nil
+		}
+		lastErr = err
+		if attempt < 3 {
+			time.Sleep(500 * time.Millisecond)
+		}
+	}
+	return nil, fmt.Errorf("fetching AMFI NAV file after 3 attempts: %w", lastErr)
+}
+
+func fetchAmfiNavOnce(client *http.Client) ([]NavRecord, error) {
 	resp, err := client.Get(amfiURL)
 	if err != nil {
-		return nil, fmt.Errorf("fetching AMFI NAV file: %w", err)
+		return nil, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("AMFI NAV file: unexpected status %d", resp.StatusCode)
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("unexpected status %d: %s", resp.StatusCode, string(body))
 	}
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("reading AMFI NAV file: %w", err)
+		return nil, fmt.Errorf("reading response: %w", err)
 	}
 	records, _, err := ParseAmfiText(string(body))
 	if err != nil {

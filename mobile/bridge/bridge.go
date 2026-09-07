@@ -724,7 +724,14 @@ func RefreshAmfiPrices(portfolioJSON string) string {
 
 	records, err := priceapi.FetchAmfiNav()
 	if err != nil {
-		return fmt.Sprintf(`{"error":%q}`, "fetching AMFI NAV file: "+err.Error())
+		// FetchAmfiNav's own error already says "fetching AMFI NAV
+		// file: ..." - confirmed real bug: re-wrapping with the
+		// identical prefix here produced a visibly doubled message
+		// ("fetching AMFI NAV file: fetching AMFI NAV file: ..."),
+		// which also pushed the actual root cause further into the
+		// string, more likely to get truncated by whatever UI
+		// displays this.
+		return fmt.Sprintf(`{"error":%q}`, err.Error())
 	}
 
 	matched := applyAmfiRecords(&p, records)
