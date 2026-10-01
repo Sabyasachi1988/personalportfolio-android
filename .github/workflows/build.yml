@@ -8,6 +8,7 @@ on:
 permissions:
   contents: read
   issues: write
+  actions: write   # lets the last step delete older stored APKs
 
 jobs:
   build:
@@ -143,8 +144,26 @@ jobs:
             -d @/tmp/cert_issue.json
 
       - name: Upload the APK
+        id: upload_apk
         if: steps.gradle_build.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: PersonalPortfolio-test-apk
           path: android-app/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 1
+
+      # Keeps Actions storage to ONE stored APK (the one just uploaded) no
+      # matter how many builds run in a day - the free plan only includes
+      # 0.5 GB of artifact storage. Runs only after a successful upload, so
+      # a failed build never removes the last good APK.
+      - name: Delete older stored APKs (keep only this build's)
+        if: steps.upload_apk.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          KEEP_ID: ${{ steps.upload_apk.outputs.artifact-id }}
+        run: |
+          gh api --paginate "repos/${{ github.repository }}/actions/artifacts?per_page=100" \
+            --jq ".artifacts[] | select(.expired == false and .id != $KEEP_ID) | .id" \
+          | while read id; do
+              gh api -X DELETE "repos/${{ github.repository }}/actions/artifacts/$id" && echo "deleted $id"
+            done
