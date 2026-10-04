@@ -50,6 +50,18 @@ class ProgressionActivity : AppCompatActivity() {
     // top of a window that has already moved on.
     private var dailyFetchInFlight = false
 
+    // Window summary card: recomputed from the already-loaded points, at most
+    // once every summaryDelayMillis while the chart is being dragged (the
+    // card has several TextViews, and re-laying them out on every touch
+    // frame would itself cause the lag the chart just got rid of).
+    private val summaryDelayMillis = 70L
+    private var summaryUpdatePending = false
+    private var cachedSeriesRef: List<ProgressionPoint>? = null
+    private var cachedDays = IntArray(0)
+    private var cachedInvested = DoubleArray(0)
+    private var cachedValue = DoubleArray(0)
+    private lateinit var tradesToggle: TextView
+
     private lateinit var memberTab: TextView
     private lateinit var axisTab: TextView
     private lateinit var currencyTab: TextView
@@ -205,8 +217,18 @@ class ProgressionActivity : AppCompatActivity() {
         }
         chart.onWindowChanged = { startDate, endDate, spanDays ->
             onChartWindowChanged(startDate, endDate, spanDays)
+            scheduleWindowSummary()
         }
         resetZoomButton.setOnClickListener { resetToWeeklyView() }
+        tradesToggle = findViewById(R.id.progressionTradesToggle)
+        val prefs = getSharedPreferences("progression_prefs", MODE_PRIVATE)
+        chart.showTrades = prefs.getBoolean("show_trades", false)
+        renderTradesToggle()
+        tradesToggle.setOnClickListener {
+            chart.showTrades = !chart.showTrades
+            prefs.edit().putBoolean("show_trades", chart.showTrades).apply()
+            renderTradesToggle()
+        }
         // Zoom presets + custom months. Always measured back from the most
         // recent point of the weekly spine, so it works the same whether the
         // chart is currently on weekly or daily-detail data.
@@ -403,6 +425,7 @@ class ProgressionActivity : AppCompatActivity() {
             selectedCurrencyIndex = item.itemId
             currencyTab.text = DisplayCurrency.entries[selectedCurrencyIndex].label
             updateDetailCard(seekBar.progress)
+            scheduleWindowSummary()
             true
         }
         popup.show()
@@ -833,6 +856,110 @@ class ProgressionActivity : AppCompatActivity() {
                 }
             }
         }
+    }
+
+    private fun renderTradesToggle() {
+        val on = chart.showTrades
+        val label = if (on) "Trades: On   ● buy   ● sell" else "Trades: Off"
+        val text = android.text.SpannableString(label)
+        if (on) {
+            val amber = androidx.core.content.ContextCompat.getColor(this, R.color.colorAmber)
+            val red = androidx.core.content.ContextCompat.getColor(this, R.color.colorLoss)
+            val firstDot = label.indexOf('●')
+            val secondDot = label.lastIndexOf('●')
+            text.setSpan(android.text.style.ForegroundColorSpan(amber), firstDot, firstDot + 1, 0)
+            text.setSpan(android.text.style.ForegroundColorSpan(red), secondDot, secondDot + 1, 0)
+        }
+        tradesToggle.text = text
+    }
+
+    private fun scheduleWindowSummary() {
+        if (summaryUpdatePending) return
+        summaryUpdatePending = true
+        mainThread.postDelayed({
+            summaryUpdatePending = false
+            updateWindowSummary()
+        }, summaryDelayMillis)
+    }
+
+    private fun updateWindowSummary() {
+        val card = findViewById<View>(R.id.progressionWindowCard)
+        val window = chart.currentWindowIndices()
+        if (window == null || points.size < 2) {
+            card.visibility = View.GONE
+            return
+        }
+        // Rebuild the parallel arrays only when the dataset itself changed.
+        if (cachedSeriesRef !== points) {
+            cachedSeriesRef = points
+            cachedDays = IntArray(points.size) { WindowMath.dayNumber(points[it].date) ?: 0 }
+            cachedInvested = DoubleArray(points.size) { points[it].invested }
+            cachedValue = DoubleArray(points.size) { points[it].value }
+        }
+        val (from, to) = window
+        val summary = WindowMath.compute(cachedDays, cachedInvested, cachedValue, from, to)
+        if (summary == null) {
+            card.visibility = View.GONE
+            return
+        }
+        card.visibility = View.VISIBLE
+
+        val display = DisplayCurrency.entries[selectedCurrencyIndex.coerceIn(0, DisplayCurrency.entries.size - 1)]
+        val startPoint = points[from]
+        val endPoint = points[to]
+        fun conv(amount: Double, p: ProgressionPoint) = ProgressionCurrency.convert(amount, display, currentAxis, p)
+
+        // Amounts are shown in the chosen currency, each point converted at
+        // ITS OWN date's rate (same rule as the detail card). Percentages are
+        // always computed on the rupee series, so they do not depend on it.
+        val startValue = conv(summary.startValue, startPoint)
+        val endValue = conv(summary.endValue, endPoint)
+        val netStart = conv(startPoint.invested, startPoint).amount
+        val netEnd = conv(endPoint.invested, endPoint).amount
+        val gainStart = conv(startPoint.gain, startPoint).amount
+        val gainEnd = conv(endPoint.gain, endPoint).amount
+        val currencyCode = endValue.currencyCode
+
+        val fmtDate = SimpleDateFormat("d MMM yyyy", Locale.US)
+        val isoFmt = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+        val startLabel = try { fmtDate.format(isoFmt.parse(startPoint.date)!!) } catch (e: Exception) { startPoint.date }
+        val endLabel = try { fmtDate.format(isoFmt.parse(endPoint.date)!!) } catch (e: Exception) { endPoint.date }
+        findViewById<TextView>(R.id.windowSummaryTitle).text =
+            "$startLabel → $endLabel  ·  ${spanLabel(summary.spanDays)}"
+
+        val gainView = findViewById<TextView>(R.id.windowSummaryGain)
+        if (gainStart != null && gainEnd != null) {
+            val gainConverted = ConvertedAmount(gainEnd - gainStart, currencyCode)
+            val pct = summary.returnPct
+            gainView.text = ProgressionCurrency.formatSigned(gainConverted) +
+                if (pct != null) String.format(Locale.US, "  (%+.2f%%)", pct) else ""
+            gainView.setTextColor(androidx.core.content.ContextCompat.getColor(
+                this, if (gainEnd - gainStart >= 0) R.color.colorGain else R.color.colorLoss))
+        } else {
+            gainView.text = "— (no FX rate for this period yet)"
+            gainView.setTextColor(androidx.core.content.ContextCompat.getColor(this, R.color.colorNeutral))
+        }
+
+        findViewById<TextView>(R.id.windowSummaryValues).text =
+            ProgressionCurrency.format(startValue) + "  →  " + ProgressionCurrency.format(endValue)
+
+        findViewById<TextView>(R.id.windowSummaryNetInvested).text =
+            if (netStart != null && netEnd != null) {
+                ProgressionCurrency.formatSigned(ConvertedAmount(netEnd - netStart, currencyCode))
+            } else "—"
+
+        findViewById<TextView>(R.id.windowSummaryDrawdown).text =
+            summary.maxDrawdownPct?.let { String.format(Locale.US, "%.1f%%", it) } ?: "—"
+
+        findViewById<TextView>(R.id.windowSummaryXirr).text =
+            summary.xirrPct?.let { String.format(Locale.US, "%.1f%%", it) }
+                ?: if (summary.spanDays < WindowMath.MIN_XIRR_SPAN_DAYS) "needs 1 yr+" else "—"
+    }
+
+    private fun spanLabel(days: Int): String = when {
+        days < 60 -> "$days days"
+        days < 730 -> String.format(Locale.US, "%.0f months", days / 30.44)
+        else -> String.format(Locale.US, "%.1f years", days / 365.25)
     }
 
     /** Zooms to the most recent [months] months. Starts from the weekly spine so the range is always measured from the latest data point. */

@@ -90,6 +90,21 @@ class ProgressionChartView @JvmOverloads constructor(
     private var points: List<ProgressionPoint> = emptyList()
     private var scrubbedIndex: Int = -1
 
+    /**
+     * Draws a dot on the Invested line wherever money was added (amber) or
+     * taken out (red), sized so its AREA is proportional to the amount. Off
+     * by default - on a long SIP history they crowd the line - and the host
+     * Activity owns the toggle. Derived from the step in Invested between
+     * consecutive points, so on weekly data one dot is that week's net flow.
+     */
+    var showTrades: Boolean = false
+        set(value) {
+            if (field != value) { field = value; invalidate() }
+        }
+    // Largest single step in Invested across ALL loaded points (not just the
+    // visible ones), so a dot does not change size as the window is panned.
+    private var maxFlowAbs: Double = 0.0
+
     // Visible window into `points`, both inclusive. Defaults to the full
     // range; pinch-zoom narrows it, double-tap or resetZoom() restores it.
     private var windowStart: Int = 0
@@ -193,6 +208,12 @@ class ProgressionChartView @JvmOverloads constructor(
      */
     fun setPoints(newPoints: List<ProgressionPoint>, preserveWindowDates: Pair<String, String>? = null) {
         points = newPoints
+        var maxFlow = 0.0
+        for (i in points.indices) {
+            val prevInvested = if (i == 0) 0.0 else points[i - 1].invested
+            maxFlow = maxOf(maxFlow, kotlin.math.abs(points[i].invested - prevInvested))
+        }
+        maxFlowAbs = maxFlow
         if (preserveWindowDates != null && points.isNotEmpty()) {
             val (targetStart, targetEnd) = preserveWindowDates
             windowStart = points.indexOfFirst { it.date >= targetStart }.let { if (it < 0) 0 else it }
@@ -321,6 +342,10 @@ class ProgressionChartView @JvmOverloads constructor(
         }
         callback(startDate, endDate, spanDays)
     }
+
+    /** The visible window as (first index, last index) into the loaded points, or null when there is no data. */
+    fun currentWindowIndices(): Pair<Int, Int>? =
+        if (points.isEmpty()) null else windowStart to windowEnd
 
     /** The visible window's (start, end) dates, or null when there is no data. */
     fun currentWindow(): Pair<String, String>? {
@@ -458,6 +483,8 @@ class ProgressionChartView @JvmOverloads constructor(
         valuePaint.color = gainColor
         canvas.drawPath(gainPath, valuePaint)
 
+        if (showTrades) drawTradeDots(canvas, minV, maxV)
+
         drawAxisLabels(canvas)
 
         if (scrubbedIndex in windowStart..windowEnd) {
@@ -469,6 +496,39 @@ class ProgressionChartView @JvmOverloads constructor(
             canvas.drawCircle(x, yForValue(p.invested.toFloat(), minV, maxV), 4f * density, scrubDotPaint)
             scrubDotPaint.color = colorForGain(p.gain)
             canvas.drawCircle(x, yForValue(p.value.toFloat(), minV, maxV), 5.5f * density, scrubDotPaint)
+        }
+    }
+
+    private val buyDotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+        color = ContextCompat.getColor(context, R.color.colorAmber)
+    }
+    private val sellDotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+        color = lossColor
+    }
+    private val tradeRingPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 1.5f * density
+        color = ContextCompat.getColor(context, R.color.colorOnSurface)
+        alpha = 160
+    }
+
+    /** See [showTrades]. Dot area is proportional to the size of the step in Invested. */
+    private fun drawTradeDots(canvas: Canvas, minV: Float, maxV: Float) {
+        if (maxFlowAbs <= 0.0) return
+        val maxRadius = 9f * density
+        val minRadius = 3f * density
+        for (i in windowStart..windowEnd) {
+            val prevInvested = if (i == 0) 0.0 else points[i - 1].invested
+            val flow = points[i].invested - prevInvested
+            if (kotlin.math.abs(flow) < 0.5) continue
+            val radius = (maxRadius * kotlin.math.sqrt(kotlin.math.abs(flow) / maxFlowAbs)).toFloat()
+                .coerceIn(minRadius, maxRadius)
+            val x = xForIndex(i)
+            val y = yForValue(points[i].invested.toFloat(), minV, maxV)
+            canvas.drawCircle(x, y, radius, if (flow > 0) buyDotPaint else sellDotPaint)
+            canvas.drawCircle(x, y, radius, tradeRingPaint)
         }
     }
 
