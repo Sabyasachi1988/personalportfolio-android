@@ -205,7 +205,7 @@ class ProgressionActivity : AppCompatActivity() {
             updateDetailCard(index)
         }
         chart.onZoomChanged = { zoomed ->
-            resetZoomButton.visibility = if (zoomed || inDailyMode) View.VISIBLE else View.GONE
+            resetZoomButton.alpha = if (zoomed || inDailyMode) 1f else 0.45f
         }
         chart.onZoomOutBeyondBounds = {
             // Only meaningful while showing a bounded daily-zoom window -
@@ -239,19 +239,7 @@ class ProgressionActivity : AppCompatActivity() {
         for ((id, months) in zoomChips) {
             findViewById<TextView>(id).setOnClickListener { zoomToMonths(months) }
         }
-        val zoomMonthsInput = findViewById<android.widget.EditText>(R.id.progressionZoomMonthsInput)
-        val applyCustomZoom = {
-            val months = zoomMonthsInput.text.toString().trim().toIntOrNull()
-            if (months == null || months < 1) {
-                Toast.makeText(this, "Enter a whole number of months (1 or more)", Toast.LENGTH_SHORT).show()
-            } else {
-                zoomToMonths(months)
-                (getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager)
-                    .hideSoftInputFromWindow(zoomMonthsInput.windowToken, 0)
-            }
-        }
-        findViewById<TextView>(R.id.progressionZoomCustomGo).setOnClickListener { applyCustomZoom() }
-        zoomMonthsInput.setOnEditorActionListener { _, _, _ -> applyCustomZoom(); true }
+        findViewById<TextView>(R.id.progressionZoomCustom).setOnClickListener { showCustomZoomDialog() }
         seekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(bar: SeekBar?, progress: Int, fromUser: Boolean) {
                 if (fromUser && !syncingScrub) {
@@ -829,7 +817,7 @@ class ProgressionActivity : AppCompatActivity() {
                         // see ProgressionChartView.setPoints' doc comment
                         // for the "snapping back out" bug this fixes.
                         chart.setPoints(dailyPoints, requestedStartDate to requestedEndDate)
-                        resetZoomButton.visibility = View.VISIBLE
+                        resetZoomButton.alpha = 1f
                         statusText.text = when {
                             groupLabel != null -> "Daily detail for $groupLabel (combined)"
                             tag != null -> "Daily detail for tag: $tag (combined)"
@@ -856,6 +844,36 @@ class ProgressionActivity : AppCompatActivity() {
                 }
             }
         }
+    }
+
+    /** "Custom" chip: ask for any whole number of months and zoom to that. */
+    private fun showCustomZoomDialog() {
+        val input = android.widget.EditText(this).apply {
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER
+            hint = "e.g. 18"
+            setSingleLine()
+            filters = arrayOf(android.text.InputFilter.LengthFilter(3))
+        }
+        val holder = android.widget.FrameLayout(this).apply {
+            val pad = (20 * resources.displayMetrics.density).toInt()
+            setPadding(pad, pad / 2, pad, 0)
+            addView(input)
+        }
+        val dialog = android.app.AlertDialog.Builder(this)
+            .setTitle("Show the last how many months?")
+            .setView(holder)
+            .setPositiveButton("Zoom") { _, _ ->
+                val months = input.text.toString().trim().toIntOrNull()
+                if (months == null || months < 1) {
+                    Toast.makeText(this, "Enter a whole number of months (1 or more)", Toast.LENGTH_SHORT).show()
+                } else {
+                    zoomToMonths(months)
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .create()
+        dialog.window?.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE)
+        dialog.show()
     }
 
     private fun renderTradesToggle() {
@@ -912,7 +930,6 @@ class ProgressionActivity : AppCompatActivity() {
         // Amounts are shown in the chosen currency, each point converted at
         // ITS OWN date's rate (same rule as the detail card). Percentages are
         // always computed on the rupee series, so they do not depend on it.
-        val startValue = conv(summary.startValue, startPoint)
         val endValue = conv(summary.endValue, endPoint)
         val netStart = conv(startPoint.invested, startPoint).amount
         val netEnd = conv(endPoint.invested, endPoint).amount
@@ -920,12 +937,12 @@ class ProgressionActivity : AppCompatActivity() {
         val gainEnd = conv(endPoint.gain, endPoint).amount
         val currencyCode = endValue.currencyCode
 
-        val fmtDate = SimpleDateFormat("d MMM yyyy", Locale.US)
+        val fmtDate = SimpleDateFormat("d MMM ''yy", Locale.US)
         val isoFmt = SimpleDateFormat("yyyy-MM-dd", Locale.US)
         val startLabel = try { fmtDate.format(isoFmt.parse(startPoint.date)!!) } catch (e: Exception) { startPoint.date }
         val endLabel = try { fmtDate.format(isoFmt.parse(endPoint.date)!!) } catch (e: Exception) { endPoint.date }
         findViewById<TextView>(R.id.windowSummaryTitle).text =
-            "$startLabel → $endLabel  ·  ${spanLabel(summary.spanDays)}"
+            "Market gain  ·  $startLabel → $endLabel  ·  ${spanLabel(summary.spanDays)}"
 
         val gainView = findViewById<TextView>(R.id.windowSummaryGain)
         if (gainStart != null && gainEnd != null) {
@@ -939,9 +956,6 @@ class ProgressionActivity : AppCompatActivity() {
             gainView.text = "— (no FX rate for this period yet)"
             gainView.setTextColor(androidx.core.content.ContextCompat.getColor(this, R.color.colorNeutral))
         }
-
-        findViewById<TextView>(R.id.windowSummaryValues).text =
-            ProgressionCurrency.format(startValue) + "  →  " + ProgressionCurrency.format(endValue)
 
         findViewById<TextView>(R.id.windowSummaryNetInvested).text =
             if (netStart != null && netEnd != null) {
@@ -957,9 +971,9 @@ class ProgressionActivity : AppCompatActivity() {
     }
 
     private fun spanLabel(days: Int): String = when {
-        days < 60 -> "$days days"
-        days < 730 -> String.format(Locale.US, "%.0f months", days / 30.44)
-        else -> String.format(Locale.US, "%.1f years", days / 365.25)
+        days < 60 -> "$days d"
+        days < 730 -> String.format(Locale.US, "%.0f mo", days / 30.44)
+        else -> String.format(Locale.US, "%.1f yr", days / 365.25)
     }
 
     /** Zooms to the most recent [months] months. Starts from the weekly spine so the range is always measured from the latest data point. */

@@ -59,7 +59,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:padding="20dp">
+            android:padding="16dp">
 
             <!-- Three compact dropdown "tabs" side by side, replacing
                  three stacked full-width Spinners - each shows its
@@ -104,19 +104,22 @@
                 android:textSize="13sp"
                 android:textColor="@color/colorNeutral" />
 
-            <!-- Point-in-time detail card, driven by the scrubber below -->
+            <!-- Compact point-in-time card (same child ids as the shared
+                 include_stats_card, which is still used by other screens).
+                 About 40% shorter, so the chart and its controls fit on the
+                 first screen without scrolling. -->
             <include
                 android:id="@+id/progressionStatsCard"
-                layout="@layout/include_stats_card"
+                layout="@layout/include_progression_stats_compact"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="12dp" />
+                android:layout_marginTop="8dp" />
 
-            <!-- Legend -->
+            <!-- Legend + Trades toggle -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="20dp"
+                android:layout_marginTop="12dp"
                 android:orientation="horizontal"
                 android:gravity="center_vertical">
 
@@ -135,7 +138,7 @@
                 <View
                     android:layout_width="16dp"
                     android:layout_height="4dp"
-                    android:layout_marginStart="20dp"
+                    android:layout_marginStart="16dp"
                     android:background="@color/colorGain" />
 
                 <TextView
@@ -145,108 +148,124 @@
                     android:text="Value"
                     android:textSize="12sp" />
 
+                <View
+                    android:layout_width="0dp"
+                    android:layout_height="0dp"
+                    android:layout_weight="1" />
+
                 <TextView
                     android:id="@+id/progressionTradesToggle"
                     style="@style/ActionChip"
                     android:layout_width="wrap_content"
-                    android:layout_marginStart="14dp"
                     android:paddingTop="4dp"
                     android:paddingBottom="4dp"
                     android:textSize="12sp" />
 
-                <TextView
-                    android:id="@+id/progressionResetZoomButton"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:gravity="end"
-                    android:text="Reset zoom ↺"
-                    android:textSize="12sp"
-                    android:textStyle="bold"
-                    android:textColor="?attr/colorPrimary"
-                    android:padding="4dp"
-                    android:visibility="gone"
-                    android:background="?attr/selectableItemBackground" />
-
             </LinearLayout>
 
-            <!-- Zoom presets: jump straight to the most recent N months,
-                 then drag the chart to scroll through time. The box takes any
-                 whole number of months. -->
-            <HorizontalScrollView
+            <!-- Range chips. "All" is the old Reset zoom, now an ordinary
+                 chip instead of a fourth item squeezed into the legend row. -->
+            <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="10dp"
-                android:scrollbars="none">
+                android:layout_marginTop="8dp"
+                android:orientation="horizontal">
 
-                <LinearLayout
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical">
+                <TextView
+                    android:id="@+id/progressionResetZoomButton"
+                    style="@style/ActionChip"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_marginEnd="4dp"
+                    android:paddingStart="0dp"
+                    android:paddingEnd="0dp"
+                    android:textSize="12sp"
+                    android:text="All" />
 
-                    <TextView
-                        android:id="@+id/progressionZoom1M"
-                        style="@style/ActionChip"
-                        android:layout_width="wrap_content"
-                        android:layout_marginEnd="6dp"
-                        android:text="1M" />
+                <TextView
+                    android:id="@+id/progressionZoom1M"
+                    style="@style/ActionChip"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_marginEnd="4dp"
+                    android:paddingStart="0dp"
+                    android:paddingEnd="0dp"
+                    android:textSize="12sp"
+                    android:text="1M" />
 
-                    <TextView
-                        android:id="@+id/progressionZoom3M"
-                        style="@style/ActionChip"
-                        android:layout_width="wrap_content"
-                        android:layout_marginEnd="6dp"
-                        android:text="3M" />
+                <TextView
+                    android:id="@+id/progressionZoom3M"
+                    style="@style/ActionChip"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_marginEnd="4dp"
+                    android:paddingStart="0dp"
+                    android:paddingEnd="0dp"
+                    android:textSize="12sp"
+                    android:text="3M" />
 
-                    <TextView
-                        android:id="@+id/progressionZoom6M"
-                        style="@style/ActionChip"
-                        android:layout_width="wrap_content"
-                        android:layout_marginEnd="6dp"
-                        android:text="6M" />
+                <TextView
+                    android:id="@+id/progressionZoom6M"
+                    style="@style/ActionChip"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_marginEnd="4dp"
+                    android:paddingStart="0dp"
+                    android:paddingEnd="0dp"
+                    android:textSize="12sp"
+                    android:text="6M" />
 
-                    <TextView
-                        android:id="@+id/progressionZoom1Y"
-                        style="@style/ActionChip"
-                        android:layout_width="wrap_content"
-                        android:layout_marginEnd="6dp"
-                        android:text="1Y" />
+                <TextView
+                    android:id="@+id/progressionZoom1Y"
+                    style="@style/ActionChip"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_marginEnd="4dp"
+                    android:paddingStart="0dp"
+                    android:paddingEnd="0dp"
+                    android:textSize="12sp"
+                    android:text="1Y" />
 
-                    <TextView
-                        android:id="@+id/progressionZoom2Y"
-                        style="@style/ActionChip"
-                        android:layout_width="wrap_content"
-                        android:layout_marginEnd="6dp"
-                        android:text="2Y" />
+                <TextView
+                    android:id="@+id/progressionZoom2Y"
+                    style="@style/ActionChip"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_marginEnd="4dp"
+                    android:paddingStart="0dp"
+                    android:paddingEnd="0dp"
+                    android:textSize="12sp"
+                    android:text="2Y" />
 
-                    <EditText
-                        android:id="@+id/progressionZoomMonthsInput"
-                        android:layout_width="64dp"
-                        android:layout_height="wrap_content"
-                        android:layout_marginStart="6dp"
-                        android:hint="months"
-                        android:textSize="13sp"
-                        android:inputType="number"
-                        android:maxLength="3"
-                        android:imeOptions="actionGo"
-                        android:singleLine="true" />
+                <TextView
+                    android:id="@+id/progressionZoomCustom"
+                    style="@style/ActionChip"
+                    android:layout_width="0dp"
+                    android:layout_weight="1.7"
+                    android:layout_marginEnd="0dp"
+                    android:paddingStart="0dp"
+                    android:paddingEnd="0dp"
+                    android:textSize="12sp"
+                    android:text="Custom" />
 
-                    <TextView
-                        android:id="@+id/progressionZoomCustomGo"
-                        style="@style/ActionChip"
-                        android:layout_width="wrap_content"
-                        android:layout_marginStart="6dp"
-                        android:text="Zoom" />
-
-                </LinearLayout>
-            </HorizontalScrollView>
+            </LinearLayout>
 
             <com.saby.personalportfolio.ProgressionChartView
                 android:id="@+id/progressionChart"
                 android:layout_width="match_parent"
-                android:layout_height="230dp"
-                android:layout_marginTop="10dp" />
+                android:layout_height="210dp"
+                android:layout_marginTop="8dp" />
+
+            <!-- Slider mirrors the chart's own drag-scrub. -->
+            <SeekBar
+                android:id="@+id/progressionSeekBar"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingTop="6dp"
+                android:paddingBottom="6dp"
+                android:progressDrawable="@drawable/progression_seekbar_track"
+                android:thumb="@drawable/progression_seekbar_thumb"
+                android:splitTrack="false" />
 
             <!-- What happened inside the stretch currently on screen.
                  Updates as the window is zoomed or dragged. Market gain
@@ -255,7 +274,7 @@
                 android:id="@+id/progressionWindowCard"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="10dp"
+                android:layout_marginTop="4dp"
                 android:visibility="gone"
                 app:cardCornerRadius="16dp"
                 app:cardElevation="3dp">
@@ -264,21 +283,12 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="vertical"
-                    android:padding="16dp">
+                    android:padding="14dp">
 
                     <TextView
                         android:id="@+id/windowSummaryTitle"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:textSize="12sp"
-                        android:textStyle="bold"
-                        android:textColor="@color/colorNeutral" />
-
-                    <TextView
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="8dp"
-                        android:text="Market gain in this window (money you added is excluded)"
                         android:textSize="11sp"
                         android:textColor="@color/colorNeutral" />
 
@@ -293,7 +303,7 @@
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="12dp"
+                        android:layout_marginTop="8dp"
                         android:orientation="horizontal">
 
                     <LinearLayout
@@ -305,37 +315,7 @@
                         <TextView
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:text="Value: start → end"
-                            android:textSize="11sp"
-                            android:textColor="@color/colorNeutral" />
-
-                        <TextView
-                            android:id="@+id/windowSummaryValues"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:layout_marginTop="2dp"
-                            android:textSize="14sp"
-                            android:textStyle="bold" />
-                    </LinearLayout>
-
-                    </LinearLayout>
-
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="12dp"
-                        android:orientation="horizontal">
-
-                    <LinearLayout
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:orientation="vertical">
-
-                        <TextView
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:text="Net money added"
+                            android:text="Money added"
                             android:textSize="11sp"
                             android:textColor="@color/colorNeutral" />
 
@@ -343,11 +323,9 @@
                             android:id="@+id/windowSummaryNetInvested"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:layout_marginTop="2dp"
                             android:textSize="14sp"
                             android:textStyle="bold" />
                     </LinearLayout>
-
 
                     <LinearLayout
                         android:layout_width="0dp"
@@ -366,11 +344,9 @@
                             android:id="@+id/windowSummaryDrawdown"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:layout_marginTop="2dp"
                             android:textSize="14sp"
                             android:textStyle="bold" />
                     </LinearLayout>
-
 
                     <LinearLayout
                         android:layout_width="0dp"
@@ -389,7 +365,6 @@
                             android:id="@+id/windowSummaryXirr"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:layout_marginTop="2dp"
                             android:textSize="14sp"
                             android:textStyle="bold" />
                     </LinearLayout>
@@ -398,30 +373,6 @@
 
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
-
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
-                android:text="Tap a range above or pinch to zoom · drag the chart to scroll through time once zoomed · double-tap to reset"
-                android:textSize="11sp"
-                android:gravity="center"
-                android:textColor="@color/colorNeutral" />
-
-            <!-- Slider mirrors the chart's own drag-scrub, for finer/easier
-                 control than dragging a thumb across a small chart area.
-                 Custom drawables give it a much thicker, more grabbable
-                 track+thumb than the stock thin SeekBar. -->
-            <SeekBar
-                android:id="@+id/progressionSeekBar"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
-                android:paddingTop="10dp"
-                android:paddingBottom="10dp"
-                android:progressDrawable="@drawable/progression_seekbar_track"
-                android:thumb="@drawable/progression_seekbar_thumb"
-                android:splitTrack="false" />
 
         </LinearLayout>
 
