@@ -1791,3 +1791,52 @@ func TestBuildTransactionMarkers_UnknownSeriesIDReturnsEmpty(t *testing.T) {
 		t.Errorf("expected 0 markers for unknown series ID, got %d", len(markers))
 	}
 }
+
+func TestAddFundTransaction_BuyAndSellDeriveUnitsAndSigns(t *testing.T) {
+	base := store.Portfolio{
+		Accounts: []store.Account{{ID: "acc1", MemberID: "m1", Name: "Main", Currency: "INR"}},
+		Assets:   []store.Asset{{ID: "a1", AccountID: "acc1", Name: "Test Fund"}},
+	}
+	raw, _ := json.Marshal(base)
+
+	out := AddFundTransaction(string(raw), "acc1", "a1", "2026-01-15", "PURCHASE", 50000, 25)
+	var p store.Portfolio
+	if err := json.Unmarshal([]byte(out), &p); err != nil || len(p.Transactions) != 1 {
+		t.Fatalf("buy failed: %v / %s", err, out)
+	}
+	buy := p.Transactions[0]
+	if buy.Amount != 50000 || buy.Units == nil || *buy.Units != 2000 || buy.Price == nil || *buy.Price != 25 {
+		t.Fatalf("unexpected buy: %+v", buy)
+	}
+
+	out = AddFundTransaction(out, "acc1", "a1", "2026-02-01", "REDEMPTION", 10000, 25)
+	if err := json.Unmarshal([]byte(out), &p); err != nil || len(p.Transactions) != 2 {
+		t.Fatalf("sell failed: %v / %s", err, out)
+	}
+	sell := p.Transactions[1]
+	if sell.Amount != -10000 || *sell.Units != -400 {
+		t.Fatalf("unexpected sell: %+v", sell)
+	}
+}
+
+func TestAddFundTransaction_RejectsBadInput(t *testing.T) {
+	base := store.Portfolio{Assets: []store.Asset{{ID: "a1", AccountID: "acc1"}}}
+	raw, _ := json.Marshal(base)
+	cases := []struct {
+		name, date, typ string
+		amount, nav     float64
+		asset           string
+	}{
+		{"zero nav", "2026-01-15", "PURCHASE", 1000, 0, "a1"},
+		{"zero amount", "2026-01-15", "PURCHASE", 0, 10, "a1"},
+		{"bad date", "15-01-2026", "PURCHASE", 1000, 10, "a1"},
+		{"bad type", "2026-01-15", "DIVIDEND_REINVEST", 1000, 10, "a1"},
+		{"unknown asset", "2026-01-15", "PURCHASE", 1000, 10, "nope"},
+	}
+	for _, c := range cases {
+		out := AddFundTransaction(string(raw), "acc1", c.asset, c.date, c.typ, c.amount, c.nav)
+		if !strings.HasPrefix(out, `{"error"`) {
+			t.Errorf("%s: expected error, got %s", c.name, out)
+		}
+	}
+}

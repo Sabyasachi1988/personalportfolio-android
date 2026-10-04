@@ -161,6 +161,78 @@
 
             </LinearLayout>
 
+            <!-- Zoom presets: jump straight to the most recent N months,
+                 then drag the chart to scroll through time. The box takes any
+                 whole number of months. -->
+            <HorizontalScrollView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:scrollbars="none">
+
+                <LinearLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical">
+
+                    <TextView
+                        android:id="@+id/progressionZoom1M"
+                        style="@style/ActionChip"
+                        android:layout_width="wrap_content"
+                        android:layout_marginEnd="6dp"
+                        android:text="1M" />
+
+                    <TextView
+                        android:id="@+id/progressionZoom3M"
+                        style="@style/ActionChip"
+                        android:layout_width="wrap_content"
+                        android:layout_marginEnd="6dp"
+                        android:text="3M" />
+
+                    <TextView
+                        android:id="@+id/progressionZoom6M"
+                        style="@style/ActionChip"
+                        android:layout_width="wrap_content"
+                        android:layout_marginEnd="6dp"
+                        android:text="6M" />
+
+                    <TextView
+                        android:id="@+id/progressionZoom1Y"
+                        style="@style/ActionChip"
+                        android:layout_width="wrap_content"
+                        android:layout_marginEnd="6dp"
+                        android:text="1Y" />
+
+                    <TextView
+                        android:id="@+id/progressionZoom2Y"
+                        style="@style/ActionChip"
+                        android:layout_width="wrap_content"
+                        android:layout_marginEnd="6dp"
+                        android:text="2Y" />
+
+                    <EditText
+                        android:id="@+id/progressionZoomMonthsInput"
+                        android:layout_width="64dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="6dp"
+                        android:hint="months"
+                        android:textSize="13sp"
+                        android:inputType="number"
+                        android:maxLength="3"
+                        android:imeOptions="actionGo"
+                        android:singleLine="true" />
+
+                    <TextView
+                        android:id="@+id/progressionZoomCustomGo"
+                        style="@style/ActionChip"
+                        android:layout_width="wrap_content"
+                        android:layout_marginStart="6dp"
+                        android:text="Zoom" />
+
+                </LinearLayout>
+            </HorizontalScrollView>
+
             <com.saby.personalportfolio.ProgressionChartView
                 android:id="@+id/progressionChart"
                 android:layout_width="match_parent"
@@ -171,7 +243,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="4dp"
-                android:text="Pinch to zoom (past ~6 months shows real daily detail) · drag to pan once zoomed · double-tap to reset"
+                android:text="Tap a range above or pinch to zoom · drag the chart to scroll through time once zoomed · double-tap to reset"
                 android:textSize="11sp"
                 android:gravity="center"
                 android:textColor="@color/colorNeutral" />

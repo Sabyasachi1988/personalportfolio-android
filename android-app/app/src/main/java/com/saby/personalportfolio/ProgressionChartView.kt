@@ -243,6 +243,41 @@ class ProgressionChartView @JvmOverloads constructor(
         onScrub?.invoke(scrubbedIndex)
     }
 
+    /**
+     * Zooms to the most recent `months` calendar months of the loaded series
+     * (ending at its last point), exactly as if the person had pinched to
+     * that width - the same callbacks fire, so the hosting Activity's
+     * reset button and daily-detail fetch react as they do for a pinch.
+     * Once zoomed, the usual single-finger drag scrolls the window earlier
+     * or later in time. A request reaching back past the start of the loaded
+     * data just shows everything. Returns true if the view ended up zoomed.
+     */
+    fun zoomToRecentMonths(months: Int): Boolean {
+        if (points.size < 2 || months < 1) return false
+        val endIdx = points.size - 1
+        val endDate = try { isoDateFormat.parse(points[endIdx].date) } catch (e: Exception) { null }
+        if (endDate == null) return false
+        val cal = java.util.Calendar.getInstance().apply {
+            time = endDate
+            add(java.util.Calendar.MONTH, -months)
+        }
+        val targetStart = isoDateFormat.format(cal.time)
+        var startIdx = points.indexOfFirst { it.date >= targetStart }
+        if (startIdx < 0) startIdx = 0
+        if (endIdx - startIdx < minWindowSpan) startIdx = (endIdx - minWindowSpan).coerceAtLeast(0)
+
+        val wasZoomed = isZoomed()
+        windowStart = startIdx
+        windowEnd = endIdx
+        scrubbedIndex = windowEnd
+        invalidate()
+        val nowZoomed = isZoomed()
+        if (nowZoomed != wasZoomed) onZoomChanged?.invoke(nowZoomed)
+        notifyWindowChanged()
+        onScrub?.invoke(scrubbedIndex)
+        return nowZoomed
+    }
+
     /** Restores the full range after a pinch-zoom. Safe to call even when not zoomed. */
     fun resetZoom() {
         if (points.isEmpty()) return

@@ -7,6 +7,7 @@ import android.os.Looper
 import android.view.View
 import android.widget.SeekBar
 import android.widget.TextView
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.PopupMenu
 import com.google.gson.Gson
@@ -197,6 +198,29 @@ class ProgressionActivity : AppCompatActivity() {
             onChartWindowChanged(startDate, endDate, spanDays)
         }
         resetZoomButton.setOnClickListener { resetToWeeklyView() }
+        // Zoom presets + custom months. Always measured back from the most
+        // recent point of the weekly spine, so it works the same whether the
+        // chart is currently on weekly or daily-detail data.
+        val zoomChips = mapOf(
+            R.id.progressionZoom1M to 1, R.id.progressionZoom3M to 3, R.id.progressionZoom6M to 6,
+            R.id.progressionZoom1Y to 12, R.id.progressionZoom2Y to 24
+        )
+        for ((id, months) in zoomChips) {
+            findViewById<TextView>(id).setOnClickListener { zoomToMonths(months) }
+        }
+        val zoomMonthsInput = findViewById<android.widget.EditText>(R.id.progressionZoomMonthsInput)
+        val applyCustomZoom = {
+            val months = zoomMonthsInput.text.toString().trim().toIntOrNull()
+            if (months == null || months < 1) {
+                Toast.makeText(this, "Enter a whole number of months (1 or more)", Toast.LENGTH_SHORT).show()
+            } else {
+                zoomToMonths(months)
+                (getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager)
+                    .hideSoftInputFromWindow(zoomMonthsInput.windowToken, 0)
+            }
+        }
+        findViewById<TextView>(R.id.progressionZoomCustomGo).setOnClickListener { applyCustomZoom() }
+        zoomMonthsInput.setOnEditorActionListener { _, _, _ -> applyCustomZoom(); true }
         seekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(bar: SeekBar?, progress: Int, fromUser: Boolean) {
                 if (fromUser && !syncingScrub) {
@@ -766,6 +790,23 @@ class ProgressionActivity : AppCompatActivity() {
             } catch (e: Exception) {
                 // Stay on the weekly view, same as a Bridge-level error above.
             }
+        }
+    }
+
+    /** Zooms to the most recent [months] months. Starts from the weekly spine so the range is always measured from the latest data point. */
+    private fun zoomToMonths(months: Int) {
+        if (weeklySpine.size < 2) return
+        pendingDailyModeRunnable?.let { dailyModeHandler.removeCallbacks(it) }
+        if (inDailyMode) {
+            inDailyMode = false
+            dailyDataStart = null
+            dailyDataEnd = null
+            points = weeklySpine
+            seekBar.max = (weeklySpine.size - 1).coerceAtLeast(0)
+            chart.setPoints(weeklySpine)
+        }
+        if (!chart.zoomToRecentMonths(months)) {
+            Toast.makeText(this, "Showing everything - history is shorter than $months months", Toast.LENGTH_SHORT).show()
         }
     }
 

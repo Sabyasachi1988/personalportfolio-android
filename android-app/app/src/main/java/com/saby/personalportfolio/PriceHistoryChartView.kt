@@ -49,8 +49,8 @@ class PriceHistoryChartView @JvmOverloads constructor(
 
     companion object {
         private const val MIN_WINDOW_POINTS = 5
-        private const val MARKER_RADIUS_MIN_PX = 11f // smallest marker in a fund's own set (its smallest transaction) - never so small it disappears, even for a tiny top-up
-        private const val MARKER_RADIUS_MAX_PX = 24f // largest marker (its biggest transaction) - see setMarkers' doc comment on relative sizing
+        private const val MARKER_RADIUS_MIN_PX = 5f // hard floor only: a marker is never drawn smaller than this, so an extreme outlier (more than ~23:1 vs the fund's largest) stays visible; below that ratio sizes are exactly proportional
+        private const val MARKER_RADIUS_MAX_PX = 26f // radius of the fund's largest transaction; every other marker's AREA is amount / largest amount times this one's
         private const val MARKER_TAP_RADIUS_PAD_PX = 24f // touch tolerance ADDED on top of each marker's own drawn radius - a small dot is still a small target even when drawn bigger
         private const val SELECTED_MARKER_HALO_PX = 10f // extra radius the selected-marker halo extends past the marker's own drawn radius
     }
@@ -277,31 +277,30 @@ class PriceHistoryChartView @JvmOverloads constructor(
      *
      * Dot RADIUS is scaled by this fund's own transaction amounts - a
      * bigger investment draws a bigger dot, per explicit request.
-     * Scaled RELATIVE TO THIS FUND'S OWN transactions (min amount →
-     * MARKER_RADIUS_MIN_PX, max amount → MARKER_RADIUS_MAX_PX, linear
-     * in between), not on one absolute rupee scale shared across every
-     * fund's chart - a fund where every purchase happens to be a small
-     * SIP would otherwise draw every single dot at the same tiny size,
-     * losing exactly the size variation this feature is meant to show.
-     * A fund with only one transaction (min == max) draws it at
-     * MARKER_RADIUS_MAX_PX - there's no "relatively small" one to
-     * compare it against.
+     * Dot AREA is proportional to the amount (radius = MAX * sqrt(amount /
+     * this fund's largest amount)), so Rs 2 lakh has exactly 8x the area of
+     * Rs 25,000 and 4x the area of Rs 50,000. The largest transaction in the
+     * fund is anchored at MARKER_RADIUS_MAX_PX, which keeps the scale
+     * per-fund rather than one absolute rupee scale shared across funds
+     * (a fund of small SIPs would otherwise draw tiny dots). The only
+     * departure from strict proportionality is the MARKER_RADIUS_MIN_PX
+     * visibility floor, reached only when a transaction is more than
+     * ~23x smaller than the fund's largest.
      */
     fun setMarkers(newMarkers: List<TransactionMarker>) {
         if (points.isEmpty() || newMarkers.isEmpty()) {
             resolvedMarkers = emptyList()
             return
         }
-        val minAmount = newMarkers.minOf { it.amount }
-        val maxAmount = newMarkers.maxOf { it.amount }
-        val amountRange = maxAmount - minAmount
+        val maxAmount = newMarkers.maxOf { kotlin.math.abs(it.amount) }
         resolvedMarkers = newMarkers.mapNotNull { marker ->
             val idx = closestPointIndexForDate(marker.date) ?: return@mapNotNull null
-            val radius = if (amountRange <= 0.0) {
+            val radius = if (maxAmount <= 0.0) {
                 MARKER_RADIUS_MAX_PX
             } else {
-                val fraction = ((marker.amount - minAmount) / amountRange).toFloat()
-                MARKER_RADIUS_MIN_PX + fraction * (MARKER_RADIUS_MAX_PX - MARKER_RADIUS_MIN_PX)
+                val areaFraction = kotlin.math.abs(marker.amount) / maxAmount
+                (MARKER_RADIUS_MAX_PX * kotlin.math.sqrt(areaFraction)).toFloat()
+                    .coerceIn(MARKER_RADIUS_MIN_PX, MARKER_RADIUS_MAX_PX)
             }
             ResolvedMarker(idx, marker, radius)
         }

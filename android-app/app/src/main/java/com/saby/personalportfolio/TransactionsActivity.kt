@@ -59,6 +59,10 @@ class TransactionsActivity : AppCompatActivity() {
 
         BottomNavHelper.setup(this, findViewById(R.id.bottomNav), BottomNavDestination.TRANSACTIONS)
 
+        findViewById<android.widget.Button>(R.id.addTransactionButton).setOnClickListener {
+            startActivity(android.content.Intent(this, AddTransactionActivity::class.java))
+        }
+
         findViewById<android.widget.Button>(R.id.exportCsvButton).setOnClickListener {
             val stamp = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
             createCsvFile.launch("personalportfolio-transactions-$stamp.csv")

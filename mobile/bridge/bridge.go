@@ -3277,6 +3277,65 @@ func AddManualTransaction(portfolioJSON string, accountID string, assetID string
 	return string(out)
 }
 
+// AddFundTransaction records ONE hand-entered Buy or Sell of an asset that
+// already exists (the Add Transaction screen's fund dropdown guarantees the
+// asset/account pair, so nothing can be mistyped). The caller supplies
+// amount (rupees, always positive) and the NAV/price; units are derived
+// here as amount / nav so the Kotlin side and Go side can never disagree
+// about the rounding. txnType must be "PURCHASE" or "REDEMPTION". A sale is
+// stored with negative Amount and Units, the same sign convention a CAS
+// Redemption uses. Price is stored too. Returns the updated portfolio as
+// JSON, or {"error":...}.
+func AddFundTransaction(portfolioJSON string, accountID string, assetID string, date string, txnType string, amount float64, nav float64) string {
+	var p store.Portfolio
+	if portfolioJSON != "" {
+		if err := json.Unmarshal([]byte(portfolioJSON), &p); err != nil {
+			return fmt.Sprintf(`{"error":%q}`, "invalid portfolio JSON: "+err.Error())
+		}
+	}
+	tt := store.TransactionType(txnType)
+	if tt != store.Purchase && tt != store.Redemption {
+		return fmt.Sprintf(`{"error":%q}`, "unsupported transaction type: "+txnType)
+	}
+	if amount <= 0 {
+		return `{"error":"amount must be greater than zero"}`
+	}
+	if nav <= 0 {
+		return `{"error":"NAV must be greater than zero"}`
+	}
+	if _, err := time.Parse("2006-01-02", date); err != nil {
+		return `{"error":"date must be in YYYY-MM-DD format"}`
+	}
+	found := false
+	for _, a := range p.Assets {
+		if a.ID == assetID && a.AccountID == accountID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return `{"error":"no matching asset found in that account"}`
+	}
+
+	units := amount / nav
+	signedAmount := amount
+	if tt == store.Redemption {
+		signedAmount = -amount
+		units = -units
+	}
+	price := nav
+	p.Transactions = append(p.Transactions, store.StoredTransaction{
+		ID: store.NewID("txn"), AccountID: accountID, AssetID: assetID, Date: date,
+		Type: tt, Description: "Manual entry", Amount: signedAmount, Units: &units, Price: &price, Source: "MANUAL",
+	})
+
+	out, err := json.Marshal(p)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+	return string(out)
+}
+
 // AddMember creates a new Member with the given name, if one with that
 // exact name doesn't already exist (matches CommitStagedRows' own
 // member-matching rule, so a member added here and one created later via
