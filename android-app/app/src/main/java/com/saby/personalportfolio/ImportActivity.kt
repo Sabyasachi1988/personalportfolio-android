@@ -85,6 +85,9 @@ class ImportActivity : AppCompatActivity() {
         findViewById<Button>(R.id.importButton).setOnClickListener {
             pickPdf.launch(arrayOf("application/pdf"))
         }
+        findViewById<Button>(R.id.addManualTransactionButton).setOnClickListener {
+            startActivity(android.content.Intent(this, AddTransactionActivity::class.java))
+        }
         findViewById<Button>(R.id.importCsvButton).setOnClickListener {
             // "text/comma-separated-values" is included because some
             // Android file providers (notably Google Drive's) report CSV

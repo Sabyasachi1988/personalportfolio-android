@@ -40,6 +40,15 @@ class ProgressionActivity : AppCompatActivity() {
     private var pendingDailyModeRunnable: Runnable? = null
     private val dailyZoomDebounceMillis = 400L
     private val dailyZoomThresholdDays = 180
+    // Delay before an edge-triggered top-up fetch. Much shorter than the
+    // debounce above: that one waits for a pinch to settle, whereas this one
+    // fires while the finger is still dragging so data is ready before the
+    // edge of what's loaded is reached.
+    private val edgeFetchDelayMillis = 60L
+    // Only one daily fetch runs at a time; a second one started while the
+    // first is still computing just queues up behind it and then lands on
+    // top of a window that has already moved on.
+    private var dailyFetchInFlight = false
 
     private lateinit var memberTab: TextView
     private lateinit var axisTab: TextView
@@ -635,31 +644,45 @@ class ProgressionActivity : AppCompatActivity() {
         if (startDate.isBlank() || endDate.isBlank()) return
         if (spanDays !in 1..dailyZoomThresholdDays) return
 
+        var delayMillis = dailyZoomDebounceMillis
         if (inDailyMode) {
             val loadedStart = dailyDataStart
             val loadedEnd = dailyDataEnd
             if (loadedStart != null && loadedEnd != null) {
                 val loadedSpanDays = daysBetween(loadedStart, loadedEnd)
-                // Plain string comparison is safe here - every date is
-                // "yyyy-MM-dd", where lexicographic order already
-                // matches chronological order.
-                val atLeftEdge = startDate <= loadedStart
-                val atRightEdge = endDate >= loadedEnd
-                // Strictly less-than: a full-width view of exactly
-                // what's loaded has spanDays == loadedSpanDays, and
-                // must NOT count as "zoomed in", or it re-triggers
-                // itself the instant it's loaded (see doc comment).
+                // Strictly less-than: a full-width view of exactly what's
+                // loaded has spanDays == loadedSpanDays and must NOT count
+                // as "zoomed in", or it re-triggers itself (see doc comment).
                 val isZoomedWithinLoaded = loadedSpanDays != null && spanDays < loadedSpanDays
-                val pinnedAtLoadedEdge = isZoomedWithinLoaded && (atLeftEdge || atRightEdge)
-                if (!pinnedAtLoadedEdge) {
-                    return // comfortably inside what's loaded, or just viewing the full loaded range as-is
-                }
+                if (!isZoomedWithinLoaded) return
+
+                // More data only EXISTS beyond an edge if that edge isn't
+                // already the end of the whole series. Without this, a window
+                // ending today (the default view, and every preset chip) was
+                // always "pinned at the right edge" - loaded data already ends
+                // today, so there is nothing more to fetch - and the screen
+                // re-fetched the same range, forever, after every pause. That
+                // endless background recompute is what made dragging feel
+                // stuck.
+                val spineStart = weeklySpine.first().date
+                val spineEnd = weeklySpine.last().date
+                // Look ahead: start the top-up while still a quarter of the
+                // window away from the edge, so it lands before the finger
+                // gets there instead of after it has hit a wall.
+                val marginDays = (spanDays / 4).coerceAtLeast(7)
+                val nearLeft = loadedStart > spineStart &&
+                    (daysBetween(loadedStart, startDate) ?: Int.MAX_VALUE) <= marginDays
+                val nearRight = loadedEnd < spineEnd &&
+                    (daysBetween(endDate, loadedEnd) ?: Int.MAX_VALUE) <= marginDays
+                if (!nearLeft && !nearRight) return
+                delayMillis = edgeFetchDelayMillis
             }
         }
+        if (dailyFetchInFlight) return // the running fetch's own result re-evaluates the window when it lands
 
         val runnable = Runnable { fetchAndSwitchToDailyRange(startDate, endDate) }
         pendingDailyModeRunnable = runnable
-        dailyModeHandler.postDelayed(runnable, dailyZoomDebounceMillis)
+        dailyModeHandler.postDelayed(runnable, delayMillis)
     }
 
     /** Whole-day difference between two "yyyy-MM-dd" dates, or null if either fails to parse (shouldn't happen - both always come from the bridge in this format). */
@@ -673,7 +696,7 @@ class ProgressionActivity : AppCompatActivity() {
 
     /**
      * Widens a requested daily-fetch range well beyond exactly what's
-     * currently visible (50% padding on each side), so panning within
+     * currently visible (one window's width on each side, up to the cap), so panning within
      * the loaded data has real room to move before hitting its edge and
      * needing another fetch. Fetching EXACTLY the visible window (the
      * previous behavior) left zero slack - the instant you panned at
@@ -689,7 +712,7 @@ class ProgressionActivity : AppCompatActivity() {
         val end = try { fmt.parse(endDate) } catch (e: Exception) { null } ?: return startDate to endDate
 
         val spanMillis = (end.time - start.time).coerceAtLeast(0L)
-        val paddingMillis = spanMillis / 2
+        val paddingMillis = spanMillis // a full window's worth on each side, trimmed to the cap below
         var paddedStartMillis = start.time - paddingMillis
         var paddedEndMillis = end.time + paddingMillis
 
@@ -717,6 +740,11 @@ class ProgressionActivity : AppCompatActivity() {
         val memberId = memberIds.getOrElse(selectedMemberIndex) { "" }
         val axisForFetch = currentAxis
         val (startDate, endDate) = paddedDailyRange(requestedStartDate, requestedEndDate)
+        // What this fetch is FOR, so a result that arrives after the person
+        // switched member/axis/fund can be discarded instead of overwriting it.
+        val memberAtStart = selectedMemberIndex
+        val axisAtStart = currentAxis
+        dailyFetchInFlight = true
 
         backgroundExecutor.execute {
             // Same reasoning as loadAndShowProgression's try/catch - an
@@ -752,6 +780,10 @@ class ProgressionActivity : AppCompatActivity() {
                 if (dailyPoints.size < 2) return@execute // not enough to show a meaningful chart - stay on weekly
 
                 mainThread.post {
+                    if (memberAtStart != selectedMemberIndex || axisAtStart != currentAxis ||
+                        assetId != selectedAssetId || groupLabel != selectedGroupLabel || tag != selectedTag) {
+                        return@post
+                    }
                     // Same gap as loadAndShowProgression's mainThread.post
                     // - protecting the code that SCHEDULES this block does
                     // not protect what's INSIDE it once it actually runs.
@@ -789,6 +821,16 @@ class ProgressionActivity : AppCompatActivity() {
                 }
             } catch (e: Exception) {
                 // Stay on the weekly view, same as a Bridge-level error above.
+            } finally {
+                mainThread.post {
+                    dailyFetchInFlight = false
+                    // The window may have moved while this was computing; the
+                    // fetched range may still not cover it.
+                    // Only while already on daily data: a failed first fetch
+                    // from the weekly view must not retry itself endlessly.
+                    val w = if (inDailyMode) chart.currentWindow() else null
+                    if (w != null) onChartWindowChanged(w.first, w.second, daysBetween(w.first, w.second) ?: 0)
+                }
             }
         }
     }

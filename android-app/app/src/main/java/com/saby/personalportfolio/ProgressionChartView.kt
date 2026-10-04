@@ -206,7 +206,6 @@ class ProgressionChartView @JvmOverloads constructor(
             windowEnd = (points.size - 1).coerceAtLeast(0)
         }
         scrubbedIndex = windowEnd.coerceAtLeast(-1)
-        valuePaint.color = currentSeriesColor()
         // If a single-finger pan is actively in progress, this call is
         // almost always the daily-range refetch it just triggered by
         // panning past the edge of what was loaded (see
@@ -323,12 +322,15 @@ class ProgressionChartView @JvmOverloads constructor(
         callback(startDate, endDate, spanDays)
     }
 
+    /** The visible window's (start, end) dates, or null when there is no data. */
+    fun currentWindow(): Pair<String, String>? {
+        if (points.isEmpty()) return null
+        return points[windowStart].date to points[windowEnd].date
+    }
+
     private fun isZoomed(): Boolean = points.isNotEmpty() && (windowStart > 0 || windowEnd < points.size - 1)
 
-    private fun currentSeriesColor(): Int {
-        val last = points.lastOrNull() ?: return gainColor
-        return if (last.gain >= 0) gainColor else lossColor
-    }
+    private fun colorForGain(gain: Double): Int = if (gain >= 0) gainColor else lossColor
 
     private fun xForIndex(index: Int): Float {
         val span = (windowEnd - windowStart).coerceAtLeast(1)
@@ -385,10 +387,21 @@ class ProgressionChartView @JvmOverloads constructor(
             canvas.drawLine(edgeInset, y, width - edgeInset, y, gridPaint)
         }
 
+        // The Value line is coloured POINT BY POINT, using the same test the
+        // detail card uses (gain >= 0 -> green, else red). It used to be one
+        // colour for the whole line, picked from the last point of the whole
+        // loaded series - so a stretch where Value sat below Invested was
+        // still drawn green whenever today happened to be in profit, and the
+        // colour ignored which window was on screen. Where the line crosses
+        // from one side to the other the segment is split at the crossing.
         val investedPath = Path()
-        val valuePath = Path()
+        val gainPath = Path()
+        val lossPath = Path()
         val fillPath = Path()
         var lastX = edgeInset
+        var prevX = 0f
+        var prevY = 0f
+        var prevGain = 0.0
         for (i in windowStart..windowEnd) {
             val p = points[i]
             val x = xForIndex(i)
@@ -396,29 +409,54 @@ class ProgressionChartView @JvmOverloads constructor(
             val yValue = yForValue(p.value.toFloat(), minV, maxV)
             if (i == windowStart) {
                 investedPath.moveTo(x, yInvested)
-                valuePath.moveTo(x, yValue)
                 fillPath.moveTo(x, height - chartBottomInset)
                 fillPath.lineTo(x, yValue)
             } else {
                 investedPath.lineTo(x, yInvested)
-                valuePath.lineTo(x, yValue)
                 fillPath.lineTo(x, yValue)
+                val prevIsGain = prevGain >= 0
+                val isGain = p.gain >= 0
+                if (prevIsGain == isGain) {
+                    val path = if (isGain) gainPath else lossPath
+                    path.moveTo(prevX, prevY)
+                    path.lineTo(x, yValue)
+                } else {
+                    // Sign changed inside this segment: split where gain == 0.
+                    val t = (prevGain / (prevGain - p.gain)).toFloat().coerceIn(0f, 1f)
+                    val cx = prevX + t * (x - prevX)
+                    val cy = prevY + t * (yValue - prevY)
+                    val first = if (prevIsGain) gainPath else lossPath
+                    val second = if (isGain) gainPath else lossPath
+                    first.moveTo(prevX, prevY)
+                    first.lineTo(cx, cy)
+                    second.moveTo(cx, cy)
+                    second.lineTo(x, yValue)
+                }
             }
+            prevX = x
+            prevY = yValue
+            prevGain = p.gain
             lastX = x
         }
         fillPath.lineTo(lastX, height - chartBottomInset)
         fillPath.close()
 
+        // The soft fill takes the colour of the right-hand end of the
+        // visible window - the state the person is looking at "now".
+        val fillColor = colorForGain(points[windowEnd].gain)
         valueFillPaint.shader = LinearGradient(
             0f, topInset, 0f, height - chartBottomInset,
-            (valuePaint.color and 0x00FFFFFF) or 0x33000000,
-            (valuePaint.color and 0x00FFFFFF) or 0x00000000,
+            (fillColor and 0x00FFFFFF) or 0x33000000,
+            (fillColor and 0x00FFFFFF) or 0x00000000,
             Shader.TileMode.CLAMP
         )
         canvas.drawPath(fillPath, valueFillPaint)
 
         canvas.drawPath(investedPath, investedPaint)
-        canvas.drawPath(valuePath, valuePaint)
+        valuePaint.color = lossColor
+        canvas.drawPath(lossPath, valuePaint)
+        valuePaint.color = gainColor
+        canvas.drawPath(gainPath, valuePaint)
 
         drawAxisLabels(canvas)
 
@@ -429,7 +467,7 @@ class ProgressionChartView @JvmOverloads constructor(
             val p = points[scrubbedIndex]
             scrubDotPaint.color = investedPaint.color
             canvas.drawCircle(x, yForValue(p.invested.toFloat(), minV, maxV), 4f * density, scrubDotPaint)
-            scrubDotPaint.color = valuePaint.color
+            scrubDotPaint.color = colorForGain(p.gain)
             canvas.drawCircle(x, yForValue(p.value.toFloat(), minV, maxV), 5.5f * density, scrubDotPaint)
         }
     }
@@ -480,6 +518,7 @@ class ProgressionChartView @JvmOverloads constructor(
     // window, when zoomed - see onTouchEvent's doc comment). Reset at
     // the start of every single-finger gesture.
     private var downX = 0f
+    private var downY = 0f
     private var downWindowStart = 0
     private var downWindowEnd = 0
     private var isPanningGesture = false
@@ -527,6 +566,13 @@ class ProgressionChartView @JvmOverloads constructor(
         when (event.action) {
             MotionEvent.ACTION_DOWN -> {
                 downX = event.x
+                downY = event.y
+                // This chart sits inside a vertical ScrollView. Without this
+                // the ScrollView takes over the touch the moment the finger
+                // drifts a little vertically, cancelling the chart's drag
+                // mid-gesture - which felt like the chart freezing. When
+                // zoomed, a touch here is for panning, so keep it.
+                if (isZoomed()) parent?.requestDisallowInterceptTouchEvent(true)
                 lastTouchX = event.x
                 downWindowStart = windowStart
                 downWindowEnd = windowEnd
@@ -538,6 +584,12 @@ class ProgressionChartView @JvmOverloads constructor(
             }
             MotionEvent.ACTION_MOVE -> {
                 lastTouchX = event.x
+                // Not zoomed: keep the page scrollable until the finger is
+                // clearly moving sideways, then claim the gesture.
+                if (kotlin.math.abs(event.x - downX) > touchSlop &&
+                    kotlin.math.abs(event.x - downX) > kotlin.math.abs(event.y - downY)) {
+                    parent?.requestDisallowInterceptTouchEvent(true)
+                }
                 if (isZoomed()) {
                     val totalDeltaX = event.x - downX
                     if (isPanningGesture || kotlin.math.abs(totalDeltaX) > touchSlop) {
@@ -551,6 +603,11 @@ class ProgressionChartView @JvmOverloads constructor(
                 } else {
                     scrubToX(event.x)
                 }
+                return true
+            }
+            MotionEvent.ACTION_CANCEL -> {
+                isPanningGesture = false
+                parent?.requestDisallowInterceptTouchEvent(false)
                 return true
             }
             MotionEvent.ACTION_UP -> {
