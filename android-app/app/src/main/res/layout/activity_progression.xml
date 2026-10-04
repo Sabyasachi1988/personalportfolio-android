@@ -19,10 +19,11 @@
         android:id="@+id/progressionSectionTabLayout"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_margin="16dp"
-        android:layout_marginBottom="0dp"
+        android:layout_marginStart="16dp"
+        android:layout_marginEnd="16dp"
+        android:layout_marginTop="8dp"
         android:background="@drawable/tab_bar_background"
-        android:padding="4dp"
+        android:padding="3dp"
         app:tabBackground="@android:color/transparent"
         app:tabIndicator="@drawable/tab_indicator_pill"
         app:tabIndicatorAnimationMode="elastic"
@@ -30,8 +31,8 @@
         app:tabIndicatorGravity="stretch"
         app:tabIndicatorColor="@color/colorPrimary"
         app:tabRippleColor="@null"
-        app:tabPaddingTop="6dp"
-        app:tabPaddingBottom="6dp"
+        app:tabPaddingTop="1dp"
+        app:tabPaddingBottom="1dp"
         app:tabTextColor="@color/colorNeutral"
         app:tabSelectedTextColor="@color/colorOnPrimary"
         app:tabMode="fixed"
@@ -61,47 +62,12 @@
             android:orientation="vertical"
             android:padding="16dp">
 
-            <!-- Three compact dropdown "tabs" side by side, replacing
-                 three stacked full-width Spinners - each shows its
-                 current selection and opens a popup menu on tap, same
-                 information density as before in a fraction of the
-                 vertical space. No separate screen title here - the
-                 bottom nav tab already reads "Progress", so repeating
-                 it as a heading was pure redundancy taking up a full
-                 line for no added information. -->
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal">
-
-                <TextView
-                    android:id="@+id/progressionMemberTab"
-                    style="@style/ProgressionDropdownTab"
-                    android:layout_width="0dp"
-                    android:layout_weight="1" />
-
-                <TextView
-                    android:id="@+id/progressionAxisTab"
-                    style="@style/ProgressionDropdownTab"
-                    android:layout_width="0dp"
-                    android:layout_weight="1"
-                    android:layout_marginStart="8dp" />
-
-                <TextView
-                    android:id="@+id/progressionCurrencyTab"
-                    style="@style/ProgressionDropdownTab"
-                    android:layout_width="0dp"
-                    android:layout_weight="1"
-                    android:layout_marginStart="8dp" />
-
-            </LinearLayout>
-
             <TextView
                 android:id="@+id/progressionStatusText"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="10dp"
-                android:textSize="13sp"
+                android:layout_marginTop="2dp"
+                android:textSize="11sp"
                 android:textColor="@color/colorNeutral" />
 
             <!-- Compact point-in-time card (same child ids as the shared
@@ -113,7 +79,7 @@
                 layout="@layout/include_progression_stats_compact"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="8dp" />
+                android:layout_marginTop="6dp" />
 
             <!-- Legend + Trades toggle -->
             <LinearLayout
@@ -163,12 +129,18 @@
 
             </LinearLayout>
 
-            <!-- Range chips. "All" is the old Reset zoom, now an ordinary
-                 chip instead of a fourth item squeezed into the legend row. -->
+            <com.saby.personalportfolio.ProgressionChartView
+                android:id="@+id/progressionChart"
+                android:layout_width="match_parent"
+                android:layout_height="220dp"
+                android:layout_marginTop="8dp" />
+
+            <!-- Range chips, directly under the chart they control. "All" is
+                 the old Reset zoom, now an ordinary chip. -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
+                android:layout_marginTop="6dp"
                 android:orientation="horizontal">
 
                 <TextView
@@ -249,12 +221,6 @@
                     android:text="Custom" />
 
             </LinearLayout>
-
-            <com.saby.personalportfolio.ProgressionChartView
-                android:id="@+id/progressionChart"
-                android:layout_width="match_parent"
-                android:layout_height="210dp"
-                android:layout_marginTop="8dp" />
 
             <!-- Slider mirrors the chart's own drag-scrub. -->
             <SeekBar
@@ -377,6 +343,39 @@
         </LinearLayout>
 
     </androidx.core.widget.NestedScrollView>
+
+    <!-- Scope bar: who / what / which currency. Changed rarely, so it lives
+         down here within thumb reach instead of taking prime space up top. -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:paddingTop="6dp"
+        android:paddingBottom="8dp">
+
+        <TextView
+            android:id="@+id/progressionMemberTab"
+            style="@style/ProgressionDropdownTab"
+            android:layout_width="0dp"
+            android:layout_weight="1" />
+
+        <TextView
+            android:id="@+id/progressionAxisTab"
+            style="@style/ProgressionDropdownTab"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_marginStart="8dp" />
+
+        <TextView
+            android:id="@+id/progressionCurrencyTab"
+            style="@style/ProgressionDropdownTab"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_marginStart="8dp" />
+
+    </LinearLayout>
 
     <com.google.android.material.bottomnavigation.BottomNavigationView
         android:id="@+id/bottomNav"
