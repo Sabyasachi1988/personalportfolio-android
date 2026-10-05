@@ -343,6 +343,9 @@ class ProgressionChartView @JvmOverloads constructor(
         callback(startDate, endDate, spanDays)
     }
 
+    /** Index of the currently scrubbed point (clamped inside the visible window), or -1 when there is no data. */
+    fun currentScrubIndex(): Int = scrubbedIndex
+
     /** The visible window as (first index, last index) into the loaded points, or null when there is no data. */
     fun currentWindowIndices(): Pair<Int, Int>? =
         if (points.isEmpty()) null else windowStart to windowEnd

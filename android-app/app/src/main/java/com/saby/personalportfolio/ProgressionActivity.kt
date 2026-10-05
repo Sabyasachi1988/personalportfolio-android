@@ -197,11 +197,7 @@ class ProgressionActivity : AppCompatActivity() {
         currencyTab.setOnClickListener { showCurrencyPicker() }
 
         chart.onScrub = { index ->
-            if (!syncingScrub) {
-                syncingScrub = true
-                seekBar.progress = index
-                syncingScrub = false
-            }
+            syncSeekBarToWindow(index)
             updateDetailCard(index)
         }
         chart.onZoomChanged = { zoomed ->
@@ -216,6 +212,9 @@ class ProgressionActivity : AppCompatActivity() {
             }
         }
         chart.onWindowChanged = { startDate, endDate, spanDays ->
+            // The slider spans exactly the visible window, so any zoom or pan
+            // changes its range.
+            syncSeekBarToWindow(chart.currentScrubIndex())
             onChartWindowChanged(startDate, endDate, spanDays)
             scheduleWindowSummary()
         }
@@ -243,10 +242,16 @@ class ProgressionActivity : AppCompatActivity() {
         seekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(bar: SeekBar?, progress: Int, fromUser: Boolean) {
                 if (fromUser && !syncingScrub) {
+                    // progress 0..max is the VISIBLE window, not the whole
+                    // loaded dataset (which also holds padding fetched beyond
+                    // the edges), so the two ends of the slider are exactly
+                    // the two ends of the chart.
+                    val window = chart.currentWindowIndices() ?: return
+                    val index = window.first + progress
                     syncingScrub = true
-                    chart.scrubTo(progress)
+                    chart.scrubTo(index)
                     syncingScrub = false
-                    updateDetailCard(progress)
+                    updateDetailCard(index)
                 }
             }
             override fun onStartTrackingTouch(bar: SeekBar?) {}
@@ -412,7 +417,7 @@ class ProgressionActivity : AppCompatActivity() {
         popup.setOnMenuItemClickListener { item ->
             selectedCurrencyIndex = item.itemId
             currencyTab.text = DisplayCurrency.entries[selectedCurrencyIndex].label
-            updateDetailCard(seekBar.progress)
+            updateDetailCard(chart.currentScrubIndex())
             scheduleWindowSummary()
             true
         }
@@ -874,6 +879,25 @@ class ProgressionActivity : AppCompatActivity() {
             .create()
         dialog.window?.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE)
         dialog.show()
+    }
+
+    /**
+     * Makes the slider mirror the chart's VISIBLE window: 0 is the window's
+     * left edge, max its right edge, and the thumb sits at the scrubbed
+     * point. Previously the slider ranged over every loaded point, so after
+     * zooming (the loaded data is deliberately wider than what is shown) its
+     * ends pointed at dates off-screen and the detail card disagreed with
+     * the chart's edges.
+     */
+    private fun syncSeekBarToWindow(scrubIndex: Int) {
+        val window = chart.currentWindowIndices() ?: return
+        val max = (window.second - window.first).coerceAtLeast(0)
+        val progress = (scrubIndex - window.first).coerceIn(0, max)
+        if (syncingScrub) return
+        syncingScrub = true
+        if (seekBar.max != max) seekBar.max = max
+        if (seekBar.progress != progress) seekBar.progress = progress
+        syncingScrub = false
     }
 
     private fun renderTradesToggle() {
