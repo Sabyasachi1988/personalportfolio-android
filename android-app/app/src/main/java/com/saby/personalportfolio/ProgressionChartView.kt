@@ -113,6 +113,13 @@ class ProgressionChartView @JvmOverloads constructor(
 
     private val density = context.resources.displayMetrics.density
     private val axisDateFormat = SimpleDateFormat("MMM ''yy", Locale.US)
+    private val axisDayFormat = SimpleDateFormat("d MMM", Locale.US)
+    // Up to this many days the axis shows "22 Sep" instead of "Sep '25". With
+    // about six labels across, month-only labels are less than a month apart
+    // on a window shorter than roughly five months, so they repeat
+    // ("Oct '25  Oct '25") or skip a month. A day-and-month label is unique
+    // at every tick; beyond this width the labels are always in different months.
+    private val dayLabelMaxSpanDays = 200
     private val isoDateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.US)
 
     private val investedColor = ContextCompat.getColor(context, R.color.colorProgressionInvested)
@@ -380,10 +387,23 @@ class ProgressionChartView @JvmOverloads constructor(
         return height - chartBottomInset - fraction * usableHeight
     }
 
-    /** Short "MMM ''yy" label for a "YYYY-MM-DD" point date; falls back to the raw string if it doesn't parse (shouldn't happen - dates always come from the bridge in this format). */
-    private fun axisLabelFor(isoDate: String): String {
+    /** Short axis label for a "YYYY-MM-DD" point date: "d MMM" on narrow windows, "MMM ''yy" on wide ones. Falls back to the raw string if it doesn't parse (shouldn't happen - dates always come from the bridge in this format). */
+    private fun axisLabelFor(isoDate: String, withDay: Boolean): String {
         val parsed = try { isoDateFormat.parse(isoDate) } catch (e: Exception) { null } ?: return isoDate
-        return axisDateFormat.format(parsed)
+        return (if (withDay) axisDayFormat else axisDateFormat).format(parsed)
+    }
+
+    /** True when the visible window is narrow enough that month-only labels would repeat - see [dayLabelMaxSpanDays]. */
+    private fun useDayLabels(): Boolean {
+        if (points.isEmpty()) return false
+        return try {
+            val start = isoDateFormat.parse(points[windowStart].date)
+            val end = isoDateFormat.parse(points[windowEnd].date)
+            if (start == null || end == null) false
+            else (end.time - start.time) / (1000L * 60 * 60 * 24) <= dayLabelMaxSpanDays
+        } catch (e: Exception) {
+            false
+        }
     }
 
     override fun onDraw(canvas: Canvas) {
@@ -567,10 +587,11 @@ class ProgressionChartView @JvmOverloads constructor(
         }
         indices.add(windowEnd)
 
+        val withDay = useDayLabels()
         for (index in indices) {
             val x = xForIndex(index)
             canvas.drawLine(x, height - chartBottomInset, x, tickY, axisTickPaint)
-            val label = axisLabelFor(points[index].date)
+            val label = axisLabelFor(points[index].date, withDay)
             val textWidth = axisLabelPaint.measureText(label)
             // Clamp horizontally so the first/last label's text doesn't
             // run off the view's edge, while the tick itself stays exactly
