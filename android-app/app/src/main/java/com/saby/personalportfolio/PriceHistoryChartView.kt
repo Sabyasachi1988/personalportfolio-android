@@ -351,6 +351,17 @@ class PriceHistoryChartView @JvmOverloads constructor(
         fireWindowChangedCallback()
     }
 
+    /**
+     * The scrubbed point must always lie inside the visible window: the header's
+     * price and CAGR are read from it, so a scrub index left behind outside the
+     * window (after a pan, zoom, range-bar drag or reset) made the header describe
+     * a different period than the chart shows. If it is still inside, it stays;
+     * otherwise it snaps to the window's last point.
+     */
+    private fun keepScrubInsideWindow() {
+        if (scrubbedIndex < windowStart || scrubbedIndex > windowEnd) scrubbedIndex = windowEnd
+    }
+
     private fun fireScrubCallback() {
         if (scrubbedIndex !in points.indices || windowStart !in points.indices) return
         onPointScrubbed?.invoke(points[windowStart], points[scrubbedIndex])
@@ -371,6 +382,7 @@ class PriceHistoryChartView @JvmOverloads constructor(
         if (points.isEmpty()) return
         windowStart = startIndex.coerceIn(0, points.size - 1)
         windowEnd = endIndex.coerceIn(windowStart, points.size - 1)
+        keepScrubInsideWindow()
         invalidate()
         fireScrubCallback()
         fireWindowChangedCallback()
@@ -586,6 +598,7 @@ class PriceHistoryChartView @JvmOverloads constructor(
         newStart = newStart.coerceAtLeast(0)
         windowStart = newStart
         windowEnd = newEnd
+        keepScrubInsideWindow()
         invalidate()
         fireScrubCallback()
         fireWindowChangedCallback()
@@ -623,6 +636,7 @@ class PriceHistoryChartView @JvmOverloads constructor(
             newStart = newStart.coerceAtLeast(0)
             windowStart = newStart
             windowEnd = newEnd
+            keepScrubInsideWindow()
             invalidate()
             fireScrubCallback()
             fireWindowChangedCallback()
@@ -634,6 +648,7 @@ class PriceHistoryChartView @JvmOverloads constructor(
         override fun onDoubleTap(e: MotionEvent): Boolean {
             windowStart = 0
             windowEnd = (points.size - 1).coerceAtLeast(0)
+            keepScrubInsideWindow()
             invalidate()
             fireScrubCallback()
             fireWindowChangedCallback()

@@ -70,15 +70,43 @@ object RollingMath {
         return idx
     }
 
+    /** Time-weighted rolling return: what the investments did, with deposits and withdrawals removed. */
     fun compute(days: IntArray, invested: DoubleArray, value: DoubleArray, months: Int): RollingResult {
+        val idx = growthIndex(invested, value)
+        val annualise = months >= 12
+        return assemble(days, value, months) { i, j ->
+            val elapsed = days[j] - days[i]
+            val ratio = idx[j] / idx[i]
+            if (annualise) (ratio.pow(365.25 / elapsed) - 1.0) * 100.0 else (ratio - 1.0) * 100.0
+        }
+    }
+
+    /**
+     * Money-weighted rolling return: what YOUR money earned, given when you put it in.
+     * For each window the opening value counts as money invested on day one, each
+     * deposit/withdrawal counts on its own date, and the closing value is what came
+     * back. Windows of a year or more give the annualised rate (XIRR); shorter windows
+     * give the total return on the money at work (Modified Dietz) - an annualised rate
+     * over a few weeks is meaningless. Both come from [WindowMath], so they agree with
+     * the Progression window card.
+     */
+    fun computeMoneyWeighted(days: IntArray, invested: DoubleArray, value: DoubleArray, months: Int): RollingResult {
+        val annualise = months >= 12
+        return assemble(days, value, months) { i, j ->
+            val s = WindowMath.compute(days, invested, value, i, j)
+            if (s == null) Double.NaN
+            else if (annualise) (s.xirrPct ?: Double.NaN) else (s.returnPct ?: Double.NaN)
+        }
+    }
+
+    /** Shared windowing: for each end point j, finds the start checkpoint [months] back and asks [pctFor] for the return over (i, j). */
+    private fun assemble(days: IntArray, value: DoubleArray, months: Int, pctFor: (Int, Int) -> Double): RollingResult {
         val n = days.size
         val start = value.indexOfFirst { it >= MIN_START_VALUE }
         val annualise = months >= 12
         if (n < 2 || start < 0 || months < 1) {
             return RollingResult(months, annualise, emptyList(), start, null, null, null, null, null)
         }
-        val idx = growthIndex(invested, value)
-
         val points = ArrayList<RollingPoint>()
         var i = start
         for (j in start + 1 until n) {
@@ -86,10 +114,8 @@ object RollingMath {
             if (target < days[start]) continue // not enough history behind this point yet
             // i = last checkpoint on or before the target date (monotone as j grows).
             while (i + 1 <= j && days[i + 1] <= target) i++
-            val elapsed = days[j] - days[i]
-            if (elapsed <= 0) continue
-            val ratio = idx[j] / idx[i]
-            val pct = if (annualise) (ratio.pow(365.25 / elapsed) - 1.0) * 100.0 else (ratio - 1.0) * 100.0
+            if (days[j] - days[i] <= 0) continue
+            val pct = pctFor(i, j)
             if (pct.isNaN() || pct.isInfinite()) continue
             points.add(RollingPoint(j, pct))
         }

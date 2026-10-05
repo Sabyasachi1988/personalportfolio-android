@@ -189,6 +189,7 @@ class OverlayChartView @JvmOverloads constructor(
         if (unionDates.isEmpty()) return
         windowStart = startIndex.coerceIn(0, unionDates.size - 1)
         windowEnd = endIndex.coerceIn(windowStart, unionDates.size - 1)
+        keepScrubInsideWindow()
         invalidate()
         if (!lockBaseDate) fireScrubCallback()
         fireWindowChangedCallback()
@@ -350,6 +351,11 @@ class OverlayChartView @JvmOverloads constructor(
         stored
     }
 
+    /** Keeps the scrubbed point inside the visible window (snaps to its last point otherwise), so the readout always describes what the chart shows. */
+    private fun keepScrubInsideWindow() {
+        if (scrubbedIndex < windowStart || scrubbedIndex > windowEnd) scrubbedIndex = windowEnd
+    }
+
     private fun fireScrubCallback() {
         if (scrubbedIndex !in unionDates.indices) return
         val baseAnchors = series.indices.map { baseAnchorFor(it) }
@@ -444,6 +450,7 @@ class OverlayChartView @JvmOverloads constructor(
         newStart = newStart.coerceAtLeast(0)
         windowStart = newStart
         windowEnd = newEnd
+        keepScrubInsideWindow()
         invalidate()
         if (!lockBaseDate) fireScrubCallback() // auto-rebase: the base (window start) just moved
         fireWindowChangedCallback()
@@ -476,6 +483,7 @@ class OverlayChartView @JvmOverloads constructor(
             newStart = newStart.coerceAtLeast(0)
             windowStart = newStart
             windowEnd = newEnd
+            keepScrubInsideWindow()
             invalidate()
             if (!lockBaseDate) fireScrubCallback() // auto-rebase: the base (window start) just moved
             fireWindowChangedCallback()
@@ -487,6 +495,7 @@ class OverlayChartView @JvmOverloads constructor(
         override fun onDoubleTap(e: MotionEvent): Boolean {
             windowStart = 0
             windowEnd = (unionDates.size - 1).coerceAtLeast(0)
+            keepScrubInsideWindow()
             invalidate()
             if (!lockBaseDate) fireScrubCallback()
             fireWindowChangedCallback()

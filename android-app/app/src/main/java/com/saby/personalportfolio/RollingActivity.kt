@@ -52,12 +52,16 @@ class RollingActivity : AppCompatActivity() {
     private lateinit var axisTab: TextView
     private lateinit var chips: Map<Int, TextView>
     private lateinit var customChip: TextView
+    private lateinit var modeMoney: TextView
+    private lateinit var modeTime: TextView
+    private lateinit var compareText: TextView
 
     private var memberIds: List<String> = emptyList()
     private var memberLabels: List<String> = emptyList()
     private var selectedMemberIndex = 0
     private var selectedAxisIndex = 0
     private var months = 12
+    private var moneyWeighted = true
 
     private var dates: List<String> = emptyList()
     private var days = IntArray(0)
@@ -72,7 +76,9 @@ class RollingActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_rolling)
 
-        months = getSharedPreferences(PREFS, Context.MODE_PRIVATE).getInt(KEY_MONTHS, 12).coerceIn(1, 120)
+        val prefs = getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        months = prefs.getInt(KEY_MONTHS, 12).coerceIn(1, 120)
+        moneyWeighted = prefs.getBoolean(KEY_MONEY, true)
 
         tabs = findViewById(R.id.rollingSectionTabLayout)
         statusText = findViewById(R.id.rollingStatusText)
@@ -92,6 +98,11 @@ class RollingActivity : AppCompatActivity() {
         memberTab = findViewById(R.id.rollingMemberTab)
         axisTab = findViewById(R.id.rollingAxisTab)
         customChip = findViewById(R.id.rollingChipCustom)
+        modeMoney = findViewById(R.id.rollingModeMoney)
+        modeTime = findViewById(R.id.rollingModeTime)
+        compareText = findViewById(R.id.rollingCompare)
+        modeMoney.setOnClickListener { setMode(true) }
+        modeTime.setOnClickListener { setMode(false) }
         chips = mapOf(
             1 to findViewById(R.id.rollingChip1M),
             3 to findViewById(R.id.rollingChip3M),
@@ -239,6 +250,7 @@ class RollingActivity : AppCompatActivity() {
         latestCaption.text = ""
         listOf(medianText, worstText, worstDate, bestText, bestDate, positiveText, countText).forEach { it.text = "" }
         scrubText.text = ""
+        compareText.text = ""
         noteText.text = ""
     }
 
@@ -249,7 +261,16 @@ class RollingActivity : AppCompatActivity() {
         if (days.isNotEmpty()) render()
     }
 
+    private fun setMode(money: Boolean) {
+        moneyWeighted = money
+        getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(KEY_MONEY, money).apply()
+        renderChips()
+        if (days.isNotEmpty()) render()
+    }
+
     private fun renderChips() {
+        modeMoney.alpha = if (moneyWeighted) 1f else 0.55f
+        modeTime.alpha = if (moneyWeighted) 0.55f else 1f
         chips.forEach { (m, chip) -> chip.alpha = if (m == months) 1f else 0.55f }
         val custom = months !in presetMonths
         customChip.alpha = if (custom) 1f else 0.55f
@@ -278,14 +299,21 @@ class RollingActivity : AppCompatActivity() {
         if (m % 12 == 0) "${m / 12}-year" else "$m-month"
 
     private fun render() {
-        val result = RollingMath.compute(days, invested, value, months)
+        val tw = RollingMath.compute(days, invested, value, months)
+        val mw = RollingMath.computeMoneyWeighted(days, invested, value, months)
+        val result = if (moneyWeighted) mw else tw
         shown = result
         val kind = if (result.annualised) "annualised" else "total"
-        titleText.text = "${periodLabel(months)} rolling return · $kind"
+        val how = if (moneyWeighted) "money-weighted" else "time-weighted"
+        titleText.text = "${periodLabel(months)} rolling return · $kind · $how"
 
-        noteText.text = "Time-weighted: deposits and withdrawals are removed, so this is what the markets did to your money, not how much you added. " +
-            "Measured from when the portfolio first reached ₹1,00,000 (earlier weeks are too small to measure reliably). " +
-            "Rupee-based, so international holdings include currency moves. Windows of a year or more are annualised; shorter ones are total returns."
+        noteText.text = (if (moneyWeighted)
+            "Money-weighted: your opening balance counts as money invested on day one and every deposit or withdrawal counts on its own date, so this reflects what YOUR money earned, including the timing of what you added. " +
+            (if (months >= 12) "Shown as an annualised rate (XIRR). " else "Windows under a year show the total return on the money at work, not an annualised rate. ")
+        else
+            "Time-weighted: deposits and withdrawals are removed, so this is what the investments themselves did, regardless of when you added money. Comparable to an index or a fund. " +
+            (if (months >= 12) "Annualised. " else "Total return for the window. ")) +
+            "Both start once the portfolio first reached ₹1,00,000 (earlier weeks are too small to measure reliably) and are rupee-based, so international holdings include currency moves."
 
         if (result.seriesStartIndex < 0) {
             showNoResult("This portfolio never reached ₹1,00,000, so a rolling return can't be measured yet.")
@@ -301,6 +329,12 @@ class RollingActivity : AppCompatActivity() {
         latestText.text = signed(latest)
         latestText.setTextColor(colorFor(latest))
         latestCaption.text = "Latest window, ending ${pretty(dates[result.points.last().endIndex])}"
+        val mwLast = mw.points.lastOrNull()
+        val twLast = tw.points.lastOrNull()
+        compareText.text = if (mwLast != null && twLast != null && mwLast.endIndex == twLast.endIndex) {
+            val gap = mwLast.percent - twLast.percent
+            String.format(Locale.US, "Money-weighted %+.2f%%  ·  Time-weighted %+.2f%%  ·  your timing: %+.2f pts", mwLast.percent, twLast.percent, gap)
+        } else ""
         medianText.text = signed(result.median ?: 0.0)
         medianText.setTextColor(colorFor(result.median ?: 0.0))
         result.worst?.let {
@@ -326,6 +360,7 @@ class RollingActivity : AppCompatActivity() {
         latestText.text = "—"
         latestText.setTextColor(ContextCompat.getColor(this, R.color.colorNeutral))
         latestCaption.text = message
+        compareText.text = ""
         listOf(medianText, worstText, worstDate, bestText, bestDate, positiveText, countText).forEach { it.text = "" }
         scrubText.text = ""
     }
@@ -356,5 +391,6 @@ class RollingActivity : AppCompatActivity() {
     companion object {
         private const val PREFS = "rolling_prefs"
         private const val KEY_MONTHS = "months"
+        private const val KEY_MONEY = "money_weighted"
     }
 }
