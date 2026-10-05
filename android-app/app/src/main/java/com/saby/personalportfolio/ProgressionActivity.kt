@@ -167,6 +167,8 @@ class ProgressionActivity : AppCompatActivity() {
                 override fun onTabSelected(tab: com.google.android.material.tabs.TabLayout.Tab) {
                     if (tab.position == 1) {
                         startActivity(Intent(this@ProgressionActivity, ReturnsActivity::class.java))
+                    } else if (tab.position == 2) {
+                        startActivity(Intent(this@ProgressionActivity, RollingActivity::class.java))
                     }
                 }
                 override fun onTabUnselected(tab: com.google.android.material.tabs.TabLayout.Tab) {}

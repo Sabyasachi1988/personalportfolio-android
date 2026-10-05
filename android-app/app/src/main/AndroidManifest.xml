@@ -53,6 +53,9 @@
             android:name=".AddTransactionActivity"
             android:exported="false" />
         <activity
+            android:name=".RollingActivity"
+            android:exported="false" />
+        <activity
             android:name=".ManualHoldingsActivity"
             android:exported="false" />
         <activity
