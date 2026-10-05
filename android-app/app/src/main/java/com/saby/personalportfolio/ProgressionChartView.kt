@@ -425,8 +425,22 @@ class ProgressionChartView @JvmOverloads constructor(
         val investedPath = Path()
         val gainPath = Path()
         val lossPath = Path()
-        val fillPath = Path()
-        var lastX = edgeInset
+        // The soft fill under the line is split the same way as the line:
+        // green where Value is at or above Invested, red where below. (It
+        // used to take ONE colour from the right-hand end of the window, so a
+        // mostly-green line sat on a red wash whenever the window happened
+        // to end in a dip.) Each quad shares edges with its neighbours inside
+        // one Path, so there are no seams between them.
+        val gainFill = Path()
+        val lossFill = Path()
+        val baseline = height - chartBottomInset
+        fun addFillQuad(path: Path, x0: Float, y0: Float, x1: Float, y1: Float) {
+            path.moveTo(x0, baseline)
+            path.lineTo(x0, y0)
+            path.lineTo(x1, y1)
+            path.lineTo(x1, baseline)
+            path.close()
+        }
         var prevX = 0f
         var prevY = 0f
         var prevGain = 0.0
@@ -437,17 +451,13 @@ class ProgressionChartView @JvmOverloads constructor(
             val yValue = yForValue(p.value.toFloat(), minV, maxV)
             if (i == windowStart) {
                 investedPath.moveTo(x, yInvested)
-                fillPath.moveTo(x, height - chartBottomInset)
-                fillPath.lineTo(x, yValue)
             } else {
                 investedPath.lineTo(x, yInvested)
-                fillPath.lineTo(x, yValue)
                 val prevIsGain = prevGain >= 0
                 val isGain = p.gain >= 0
                 if (prevIsGain == isGain) {
-                    val path = if (isGain) gainPath else lossPath
-                    path.moveTo(prevX, prevY)
-                    path.lineTo(x, yValue)
+                    (if (isGain) gainPath else lossPath).apply { moveTo(prevX, prevY); lineTo(x, yValue) }
+                    addFillQuad(if (isGain) gainFill else lossFill, prevX, prevY, x, yValue)
                 } else {
                     // Sign changed inside this segment: split where gain == 0.
                     val t = (prevGain / (prevGain - p.gain)).toFloat().coerceIn(0f, 1f)
@@ -455,30 +465,26 @@ class ProgressionChartView @JvmOverloads constructor(
                     val cy = prevY + t * (yValue - prevY)
                     val first = if (prevIsGain) gainPath else lossPath
                     val second = if (isGain) gainPath else lossPath
-                    first.moveTo(prevX, prevY)
-                    first.lineTo(cx, cy)
-                    second.moveTo(cx, cy)
-                    second.lineTo(x, yValue)
+                    first.moveTo(prevX, prevY); first.lineTo(cx, cy)
+                    second.moveTo(cx, cy); second.lineTo(x, yValue)
+                    addFillQuad(if (prevIsGain) gainFill else lossFill, prevX, prevY, cx, cy)
+                    addFillQuad(if (isGain) gainFill else lossFill, cx, cy, x, yValue)
                 }
             }
             prevX = x
             prevY = yValue
             prevGain = p.gain
-            lastX = x
         }
-        fillPath.lineTo(lastX, height - chartBottomInset)
-        fillPath.close()
 
-        // The soft fill takes the colour of the right-hand end of the
-        // visible window - the state the person is looking at "now".
-        val fillColor = colorForGain(points[windowEnd].gain)
-        valueFillPaint.shader = LinearGradient(
-            0f, topInset, 0f, height - chartBottomInset,
-            (fillColor and 0x00FFFFFF) or 0x33000000,
-            (fillColor and 0x00FFFFFF) or 0x00000000,
-            Shader.TileMode.CLAMP
-        )
-        canvas.drawPath(fillPath, valueFillPaint)
+        for ((fillPath, color) in listOf(gainFill to gainColor, lossFill to lossColor)) {
+            valueFillPaint.shader = LinearGradient(
+                0f, topInset, 0f, baseline,
+                (color and 0x00FFFFFF) or 0x33000000,
+                (color and 0x00FFFFFF) or 0x00000000,
+                Shader.TileMode.CLAMP
+            )
+            canvas.drawPath(fillPath, valueFillPaint)
+        }
 
         canvas.drawPath(investedPath, investedPaint)
         valuePaint.color = lossColor

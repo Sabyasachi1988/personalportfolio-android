@@ -900,6 +900,13 @@ class ProgressionActivity : AppCompatActivity() {
         syncingScrub = false
     }
 
+    private fun weeklyCaption(): String = when {
+        selectedGroupLabel != null -> "Weekly checkpoints for ${selectedGroupLabel} (combined)"
+        selectedTag != null -> "Weekly checkpoints for tag: ${selectedTag} (combined)"
+        selectedAssetId != null -> "Weekly checkpoints for this fund"
+        else -> "Weekly checkpoints"
+    }
+
     private fun renderTradesToggle() {
         val on = chart.showTrades
         val label = if (on) "Trades: On   ● buy   ● sell" else "Trades: Off"
@@ -1011,6 +1018,10 @@ class ProgressionActivity : AppCompatActivity() {
             points = weeklySpine
             seekBar.max = (weeklySpine.size - 1).coerceAtLeast(0)
             chart.setPoints(weeklySpine)
+            // Back on weekly data, so the caption must say so. A window wider
+            // than ~6 months never switches to daily detail, and the old
+            // "Daily detail" text used to stay on screen over weekly data.
+            statusText.text = weeklyCaption()
         }
         if (!chart.zoomToRecentMonths(months)) {
             Toast.makeText(this, "Showing everything - history is shorter than $months months", Toast.LENGTH_SHORT).show()
@@ -1027,12 +1038,7 @@ class ProgressionActivity : AppCompatActivity() {
             points = weeklySpine
             seekBar.max = (weeklySpine.size - 1).coerceAtLeast(0)
             chart.setPoints(weeklySpine)
-            statusText.text = when {
-                selectedGroupLabel != null -> "Weekly checkpoints for ${selectedGroupLabel} (combined)"
-                selectedTag != null -> "Weekly checkpoints for tag: ${selectedTag} (combined)"
-                selectedAssetId != null -> "Weekly checkpoints for this fund"
-                else -> "Weekly checkpoints"
-            }
+            statusText.text = weeklyCaption()
         } else {
             chart.resetZoom()
         }
