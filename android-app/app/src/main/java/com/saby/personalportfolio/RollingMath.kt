@@ -20,7 +20,9 @@ data class RollingResult(
     val median: Double?,
     val worst: RollingPoint?,
     val best: RollingPoint?,
-    val positiveSharePct: Double?
+    val positiveSharePct: Double?,
+    /** Plain average of every window's return - the headline "rolling return", as fund factsheets quote it. */
+    val mean: Double? = null
 )
 
 /**
@@ -131,7 +133,8 @@ object RollingMath {
             median = median,
             worst = points.minByOrNull { it.percent },
             best = points.maxByOrNull { it.percent },
-            positiveSharePct = points.count { it.percent > 0 } * 100.0 / points.size
+            positiveSharePct = points.count { it.percent > 0 } * 100.0 / points.size,
+            mean = sorted.average()
         )
     }
 

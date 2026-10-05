@@ -39,6 +39,7 @@ class RollingActivity : AppCompatActivity() {
     private lateinit var latestText: TextView
     private lateinit var latestCaption: TextView
     private lateinit var medianText: TextView
+    private lateinit var latestSmall: TextView
     private lateinit var worstText: TextView
     private lateinit var worstDate: TextView
     private lateinit var bestText: TextView
@@ -86,6 +87,7 @@ class RollingActivity : AppCompatActivity() {
         latestText = findViewById(R.id.rollingLatest)
         latestCaption = findViewById(R.id.rollingLatestCaption)
         medianText = findViewById(R.id.rollingMedian)
+        latestSmall = findViewById(R.id.rollingLatestSmall)
         worstText = findViewById(R.id.rollingWorst)
         worstDate = findViewById(R.id.rollingWorstDate)
         bestText = findViewById(R.id.rollingBest)
@@ -248,7 +250,7 @@ class RollingActivity : AppCompatActivity() {
         latestText.text = "—"
         latestText.setTextColor(ContextCompat.getColor(this, R.color.colorNeutral))
         latestCaption.text = ""
-        listOf(medianText, worstText, worstDate, bestText, bestDate, positiveText, countText).forEach { it.text = "" }
+        listOf(medianText, latestSmall, worstText, worstDate, bestText, bestDate, positiveText, countText).forEach { it.text = "" }
         scrubText.text = ""
         compareText.text = ""
         noteText.text = ""
@@ -305,7 +307,7 @@ class RollingActivity : AppCompatActivity() {
         shown = result
         val kind = if (result.annualised) "annualised" else "total"
         val how = if (moneyWeighted) "money-weighted" else "time-weighted"
-        titleText.text = "${periodLabel(months)} rolling return · $kind · $how"
+        titleText.text = "Average ${periodLabel(months)} rolling return · $kind · $how"
 
         noteText.text = (if (moneyWeighted)
             "Money-weighted: your opening balance counts as money invested on day one and every deposit or withdrawal counts on its own date, so this reflects what YOUR money earned, including the timing of what you added. " +
@@ -325,15 +327,19 @@ class RollingActivity : AppCompatActivity() {
             return
         }
 
+        val average = result.mean ?: 0.0
+        latestText.text = signed(average)
+        latestText.setTextColor(colorFor(average))
+        val first = pretty(dates[result.points.first().endIndex])
+        val last = pretty(dates[result.points.last().endIndex])
+        latestCaption.text = "Average of ${result.points.size} windows ending $first to $last"
         val latest = result.latest ?: 0.0
-        latestText.text = signed(latest)
-        latestText.setTextColor(colorFor(latest))
-        latestCaption.text = "Latest window, ending ${pretty(dates[result.points.last().endIndex])}"
-        val mwLast = mw.points.lastOrNull()
-        val twLast = tw.points.lastOrNull()
-        compareText.text = if (mwLast != null && twLast != null && mwLast.endIndex == twLast.endIndex) {
-            val gap = mwLast.percent - twLast.percent
-            String.format(Locale.US, "Money-weighted %+.2f%%  ·  Time-weighted %+.2f%%  ·  your timing: %+.2f pts", mwLast.percent, twLast.percent, gap)
+        latestSmall.text = signed(latest)
+        latestSmall.setTextColor(colorFor(latest))
+        val mwAvg = mw.mean
+        val twAvg = tw.mean
+        compareText.text = if (mwAvg != null && twAvg != null) {
+            String.format(Locale.US, "Averages: money-weighted %+.2f%%  ·  time-weighted %+.2f%%  ·  your timing: %+.2f pts", mwAvg, twAvg, mwAvg - twAvg)
         } else ""
         medianText.text = signed(result.median ?: 0.0)
         medianText.setTextColor(colorFor(result.median ?: 0.0))
@@ -361,7 +367,7 @@ class RollingActivity : AppCompatActivity() {
         latestText.setTextColor(ContextCompat.getColor(this, R.color.colorNeutral))
         latestCaption.text = message
         compareText.text = ""
-        listOf(medianText, worstText, worstDate, bestText, bestDate, positiveText, countText).forEach { it.text = "" }
+        listOf(medianText, latestSmall, worstText, worstDate, bestText, bestDate, positiveText, countText).forEach { it.text = "" }
         scrubText.text = ""
     }
 
