@@ -208,6 +208,7 @@ class ProgressionActivity : AppCompatActivity() {
         chart.onScrub = { index ->
             syncSeekBarToWindow(index)
             updateDetailCard(index)
+            updateSeriesReadout()
         }
         chart.onZoomChanged = { zoomed ->
             resetZoomButton.alpha = if (zoomed || inDailyMode) 1f else 0.45f
@@ -224,6 +225,7 @@ class ProgressionActivity : AppCompatActivity() {
             // The slider spans exactly the visible window, so any zoom or pan
             // changes its range.
             syncSeekBarToWindow(chart.currentScrubIndex())
+            updateSeriesReadout() // drawdown is measured from the window's own start, so it moves with the window
             onChartWindowChanged(startDate, endDate, spanDays)
             scheduleWindowSummary()
         }
@@ -234,17 +236,38 @@ class ProgressionActivity : AppCompatActivity() {
         legendText = findViewById(R.id.progressionLegend)
         viewButton = findViewById(R.id.progressionViewButton)
         chart.mode = try {
-            ProgressionChartView.Mode.valueOf(prefs.getString("chart_mode", null) ?: "VALUE_RETURN")
+            ProgressionChartView.Mode.valueOf(prefs.getString("chart_mode", null) ?: "VALUE")
         } catch (e: IllegalArgumentException) {
-            ProgressionChartView.Mode.VALUE_RETURN
+            ProgressionChartView.Mode.VALUE // includes the old "VALUE_RETURN" setting, which is now Value + a Return % overlay
+        }
+        chart.overlay = try {
+            ProgressionChartView.Overlay.valueOf(prefs.getString("chart_overlay", null) ?: "RETURN_PCT")
+        } catch (e: IllegalArgumentException) {
+            ProgressionChartView.Overlay.RETURN_PCT
         }
         renderViewControls()
         viewButton.setOnClickListener {
+            // Two small groups in one menu: WHAT the chart shows, then the
+            // extra line that can sit on the Value chart (in % or in rupees).
             val popup = android.widget.PopupMenu(this, viewButton)
-            ProgressionChartView.Mode.entries.forEachIndexed { i, m -> popup.menu.add(0, i, i, viewTitle(m)) }
+            val modes = ProgressionChartView.Mode.entries
+            val overlays = ProgressionChartView.Overlay.entries
+            modes.forEachIndexed { i, m ->
+                popup.menu.add(1, i, i, viewTitle(m)).isChecked = (chart.mode == m)
+            }
+            overlays.forEachIndexed { i, o ->
+                popup.menu.add(2, 100 + i, 100 + i, overlayTitle(o)).isChecked = (chart.mode == ProgressionChartView.Mode.VALUE && chart.overlay == o)
+            }
+            popup.menu.setGroupCheckable(1, true, true)
+            popup.menu.setGroupCheckable(2, true, true)
             popup.setOnMenuItemClickListener { item ->
-                chart.mode = ProgressionChartView.Mode.entries[item.itemId]
-                prefs.edit().putString("chart_mode", chart.mode.name).apply()
+                if (item.itemId >= 100) {
+                    chart.mode = ProgressionChartView.Mode.VALUE
+                    chart.overlay = overlays[item.itemId - 100]
+                } else {
+                    chart.mode = modes[item.itemId]
+                }
+                prefs.edit().putString("chart_mode", chart.mode.name).putString("chart_overlay", chart.overlay.name).apply()
                 renderViewControls()
                 true
             }
@@ -898,34 +921,57 @@ class ProgressionActivity : AppCompatActivity() {
         }
     }
 
-    /** "Custom" chip: ask for any whole number of months and zoom to that. */
+    /**
+     * "Custom" chip: the stock tracker's period chooser - highs and lows of the
+     * portfolio's growth index as ready-made windows, a calendar range picker,
+     * or "the last N days / weeks / months / years".
+     */
     private fun showCustomZoomDialog() {
-        val input = android.widget.EditText(this).apply {
-            inputType = android.text.InputType.TYPE_CLASS_NUMBER
-            hint = "e.g. 18"
-            setSingleLine()
-            filters = arrayOf(android.text.InputFilter.LengthFilter(3))
-        }
-        val holder = android.widget.FrameLayout(this).apply {
-            val pad = (20 * resources.displayMetrics.density).toInt()
-            setPadding(pad, pad / 2, pad, 0)
-            addView(input)
-        }
-        val dialog = android.app.AlertDialog.Builder(this)
-            .setTitle("Show the last how many months?")
-            .setView(holder)
-            .setPositiveButton("Zoom") { _, _ ->
-                val months = input.text.toString().trim().toIntOrNull()
-                if (months == null || months < 1) {
-                    Toast.makeText(this, "Enter a whole number of months (1 or more)", Toast.LENGTH_SHORT).show()
-                } else {
-                    zoomToMonths(months)
+        if (weeklySpine.size < 2) return
+        val prefs = getSharedPreferences("progression_prefs", MODE_PRIVATE)
+        val days = IntArray(weeklySpine.size) { WindowMath.dayNumber(weeklySpine[it].date) ?: 0 }
+        val invested = DoubleArray(weeklySpine.size) { weeklySpine[it].invested }
+        val value = DoubleArray(weeklySpine.size) { weeklySpine[it].value }
+        val anchors = PortfolioHighs.anchors(days, PortfolioHighs.growthIndex(invested, value))
+        val lastDay = days.last()
+        CustomPeriodDialog.show(
+            this, days.first(), lastDay,
+            prefs.getInt("look_n", 6), (prefs.getString("look_unit", "M") ?: "M")[0],
+            onDates = { from, to -> zoomToRange(isoFromDay(from), isoFromDay(to)) },
+            onLookback = { n, unit ->
+                prefs.edit().putInt("look_n", n).putString("look_unit", unit.toString()).apply()
+                val startDay = when (unit) {
+                    'D' -> lastDay - n
+                    'W' -> lastDay - 7 * n
+                    'M' -> RollingMath.monthsBefore(lastDay, n)
+                    else -> RollingMath.monthsBefore(lastDay, 12 * n)
                 }
-            }
-            .setNegativeButton("Cancel", null)
-            .create()
-        dialog.window?.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE)
-        dialog.show()
+                zoomToRange(isoFromDay(startDay), isoFromDay(lastDay))
+            },
+            anchors = anchors,
+            onAnchor = { an -> zoomToRange(isoFromDay(an.day), isoFromDay(lastDay)) }
+        )
+    }
+
+    private fun isoFromDay(day: Int): String {
+        val (y, m, d) = RollingMath.civilFromDays(day)
+        return String.format(Locale.US, "%04d-%02d-%02d", y, m, d)
+    }
+
+    /** Shows exactly [startIso]..[endIso], going back to the weekly data first if daily detail is showing (the daily refetch then follows if the span is short enough). */
+    private fun zoomToRange(startIso: String, endIso: String) {
+        if (weeklySpine.size < 2) return
+        pendingDailyModeRunnable?.let { dailyModeHandler.removeCallbacks(it) }
+        if (inDailyMode) {
+            inDailyMode = false
+            dailyDataStart = null
+            dailyDataEnd = null
+            points = weeklySpine
+            seekBar.max = (weeklySpine.size - 1).coerceAtLeast(0)
+            chart.setPoints(weeklySpine)
+            statusText.text = weeklyCaption()
+        }
+        chart.zoomToDates(startIso, endIso)
     }
 
     /**
@@ -956,42 +1002,75 @@ class ProgressionActivity : AppCompatActivity() {
 
     private fun viewTitle(m: ProgressionChartView.Mode): String = when (m) {
         ProgressionChartView.Mode.VALUE -> "Value & Invested"
-        ProgressionChartView.Mode.VALUE_RETURN -> "Value, Invested & Return %"
         ProgressionChartView.Mode.GAIN -> "Gain (₹)"
         ProgressionChartView.Mode.RETURN_PCT -> "Return (%)"
-        ProgressionChartView.Mode.DRAWDOWN -> "Drawdown"
+        ProgressionChartView.Mode.DRAWDOWN -> "Drawdown (%)"
     }
 
-    /** Legend text and the View chip follow the chart mode; Trades only applies where Invested is drawn. */
+    private fun overlayTitle(o: ProgressionChartView.Overlay): String = when (o) {
+        ProgressionChartView.Overlay.NONE -> "Value only"
+        ProgressionChartView.Overlay.RETURN_PCT -> "Value + Return % line"
+        ProgressionChartView.Overlay.GAIN -> "Value + Gain ₹ line"
+    }
+
+    /**
+     * The row above the chart. On the Value chart it is the legend (coloured
+     * dots); on Gain / Return / Drawdown, where the line carries no numbers,
+     * it reads out the exact figure for the point being touched. Trades only
+     * applies where Invested is drawn.
+     */
     private fun renderViewControls() {
-        val mode = chart.mode
-        viewButton.text = when (mode) {
-            ProgressionChartView.Mode.VALUE -> "View: Value ▾"
-            ProgressionChartView.Mode.VALUE_RETURN -> "View: + Return ▾"
-            ProgressionChartView.Mode.GAIN -> "View: Gain ₹ ▾"
-            ProgressionChartView.Mode.RETURN_PCT -> "View: Return % ▾"
-            ProgressionChartView.Mode.DRAWDOWN -> "View: Drawdown ▾"
+        val onValue = chart.mode == ProgressionChartView.Mode.VALUE
+        viewButton.text = "View ▾"
+        tradesToggle.visibility = if (onValue) View.VISIBLE else View.GONE
+        if (onValue) {
+            val blue = androidx.core.content.ContextCompat.getColor(this, R.color.colorProgressionInvested)
+            val green = androidx.core.content.ContextCompat.getColor(this, R.color.colorGain)
+            val amber = androidx.core.content.ContextCompat.getColor(this, R.color.colorAmber)
+            val parts = mutableListOf("Invested" to blue, "Value" to green)
+            when (chart.overlay) {
+                ProgressionChartView.Overlay.RETURN_PCT -> parts.add("Return %" to amber)
+                ProgressionChartView.Overlay.GAIN -> parts.add("Gain ₹" to amber)
+                ProgressionChartView.Overlay.NONE -> {}
+            }
+            val sb = android.text.SpannableStringBuilder()
+            parts.forEachIndexed { i, (label, color) ->
+                if (i > 0) sb.append("   ")
+                val start = sb.length
+                sb.append("●")
+                sb.setSpan(android.text.style.ForegroundColorSpan(color), start, start + 1, 0)
+                sb.append(" ").append(label)
+            }
+            legendText.text = sb
+        } else {
+            updateSeriesReadout()
         }
-        val blue = androidx.core.content.ContextCompat.getColor(this, R.color.colorProgressionInvested)
-        val green = androidx.core.content.ContextCompat.getColor(this, R.color.colorGain)
-        val amber = androidx.core.content.ContextCompat.getColor(this, R.color.colorAmber)
-        val parts: List<Pair<String, Int>> = when (mode) {
-            ProgressionChartView.Mode.VALUE -> listOf("Invested" to blue, "Value" to green)
-            ProgressionChartView.Mode.VALUE_RETURN -> listOf("Invested" to blue, "Value" to green, "Return %" to amber)
-            ProgressionChartView.Mode.GAIN -> listOf("Value − Invested" to green)
-            ProgressionChartView.Mode.RETURN_PCT -> listOf("Gain ÷ Invested" to green)
-            ProgressionChartView.Mode.DRAWDOWN -> listOf("From running peak, deposits removed" to green)
+    }
+
+    /** Figure for the scrubbed point in the Gain / Return / Drawdown views, written into the row above the chart. */
+    private fun updateSeriesReadout() {
+        if (chart.mode == ProgressionChartView.Mode.VALUE) return
+        val v = chart.scrubSeriesValue()
+        val p = points.getOrNull(chart.currentScrubIndex())
+        if (v == null || p == null) { legendText.text = ""; return }
+        val name = when (chart.mode) {
+            ProgressionChartView.Mode.GAIN -> "Gain"
+            ProgressionChartView.Mode.RETURN_PCT -> "Return"
+            else -> "Drawdown"
         }
-        val sb = android.text.SpannableStringBuilder()
-        parts.forEachIndexed { i, (label, color) ->
-            if (i > 0) sb.append("  ")
-            val start = sb.length
-            sb.append("▬ ")
-            sb.setSpan(android.text.style.ForegroundColorSpan(color), start, start + 1, 0)
-            sb.append(label)
+        val figure = if (chart.mode == ProgressionChartView.Mode.GAIN) {
+            IndianCurrencyFormatter.formatSigned(v)
+        } else {
+            String.format(Locale.US, "%+.2f%%", v)
         }
+        val color = androidx.core.content.ContextCompat.getColor(this, if (v >= 0 && chart.mode != ProgressionChartView.Mode.DRAWDOWN) R.color.colorGain else R.color.colorLoss)
+        val sb = android.text.SpannableStringBuilder("$name ")
+        val start = sb.length
+        sb.append(figure)
+        sb.setSpan(android.text.style.ForegroundColorSpan(color), start, sb.length, 0)
+        sb.setSpan(android.text.style.StyleSpan(android.graphics.Typeface.BOLD), start, sb.length, 0)
+        sb.append("  ·  ").append(p.date)
         legendText.text = sb
-        tradesToggle.visibility = if (mode == ProgressionChartView.Mode.VALUE || mode == ProgressionChartView.Mode.VALUE_RETURN) View.VISIBLE else View.GONE
     }
 
     private fun renderTradesToggle() {

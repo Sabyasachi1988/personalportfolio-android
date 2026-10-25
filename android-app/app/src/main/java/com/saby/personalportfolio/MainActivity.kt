@@ -111,9 +111,6 @@ class MainActivity : AppCompatActivity() {
         findViewById<FloatingActionButton>(R.id.importFab).setOnClickListener {
             startActivity(Intent(this, ImportActivity::class.java))
         }
-        findViewById<ImageButton>(R.id.dashboardSettingsButton).setOnClickListener {
-            startActivity(Intent(this, SettingsActivity::class.java))
-        }
         findViewById<ImageButton>(R.id.dashboardMoreButton).setOnClickListener {
             startActivity(Intent(this, MoreActivity::class.java))
         }

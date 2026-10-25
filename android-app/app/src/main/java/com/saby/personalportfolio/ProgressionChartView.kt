@@ -101,16 +101,22 @@ class ProgressionChartView @JvmOverloads constructor(
         set(value) {
             if (field != value) { field = value; invalidate() }
         }
-    /** What the chart shows. The first two draw Invested and Value; the rest draw one series against a zero line. */
-    enum class Mode { VALUE, VALUE_RETURN, GAIN, RETURN_PCT, DRAWDOWN }
+    /** What the chart shows: Invested and Value, or one series (gain, return, drawdown) against a zero line. */
+    enum class Mode { VALUE, GAIN, RETURN_PCT, DRAWDOWN }
 
     /**
-     * VALUE_RETURN is the normal Invested/Value chart with the return (gain as
-     * a percent of money invested) added as a thin line on its own right-hand
-     * axis, because that return is tiny next to the money itself and would
-     * otherwise be a flat line on the Value scale.
+     * An extra line on the Value chart, on its own right-hand axis. The gain
+     * is tiny next to the money itself and would be a flat line on the Value
+     * scale, so it gets a scale of its own, in percent or in rupees.
      */
+    enum class Overlay { NONE, RETURN_PCT, GAIN }
+
     var mode: Mode = Mode.VALUE
+        set(value) {
+            if (field != value) { field = value; invalidate() }
+        }
+
+    var overlay: Overlay = Overlay.NONE
         set(value) {
             if (field != value) { field = value; invalidate() }
         }
@@ -307,6 +313,35 @@ class ProgressionChartView @JvmOverloads constructor(
         if (startIdx < 0) startIdx = 0
         if (endIdx - startIdx < minWindowSpan) startIdx = (endIdx - minWindowSpan).coerceAtLeast(0)
 
+        val wasZoomed = isZoomed()
+        windowStart = startIdx
+        windowEnd = endIdx
+        scrubbedIndex = windowEnd
+        invalidate()
+        val nowZoomed = isZoomed()
+        if (nowZoomed != wasZoomed) onZoomChanged?.invoke(nowZoomed)
+        notifyWindowChanged()
+        onScrub?.invoke(scrubbedIndex)
+        return nowZoomed
+    }
+
+    /**
+     * Shows exactly [startIso]..[endIso] ("yyyy-MM-dd"), clamped to the loaded
+     * data: the nearest point on or after the start and on or before the end.
+     * Returns true if the result is narrower than everything loaded.
+     */
+    fun zoomToDates(startIso: String, endIso: String): Boolean {
+        if (points.size < 2) return false
+        val lo = minOf(startIso, endIso)
+        val hi = maxOf(startIso, endIso)
+        var startIdx = points.indexOfFirst { it.date >= lo }
+        if (startIdx < 0) startIdx = points.size - 1
+        var endIdx = points.indexOfLast { it.date <= hi }
+        if (endIdx < 0) endIdx = 0
+        if (endIdx - startIdx < minWindowSpan) {
+            endIdx = (startIdx + minWindowSpan).coerceAtMost(points.size - 1)
+            startIdx = (endIdx - minWindowSpan).coerceAtLeast(0)
+        }
         val wasZoomed = isZoomed()
         windowStart = startIdx
         windowEnd = endIdx
@@ -533,7 +568,7 @@ class ProgressionChartView @JvmOverloads constructor(
 
         if (showTrades) drawTradeDots(canvas, minV, maxV)
 
-        val returnAxis = if (mode == Mode.VALUE_RETURN) drawReturnOverlay(canvas) else null
+        val returnAxis = if (mode == Mode.VALUE && overlay != Overlay.NONE) drawReturnOverlay(canvas) else null
 
         drawAxisLabels(canvas)
 
@@ -548,7 +583,7 @@ class ProgressionChartView @JvmOverloads constructor(
             canvas.drawCircle(x, yForValue(p.value.toFloat(), minV, maxV), 5.5f * density, scrubDotPaint)
             if (returnAxis != null) {
                 scrubDotPaint.color = returnLineColor
-                canvas.drawCircle(x, yForValue(p.gainPercent.toFloat(), returnAxis.first, returnAxis.second), 4f * density, scrubDotPaint)
+                canvas.drawCircle(x, yForValue(overlayValue(p).toFloat(), returnAxis.first, returnAxis.second), 4f * density, scrubDotPaint)
             }
         }
     }
@@ -580,30 +615,59 @@ class ProgressionChartView @JvmOverloads constructor(
      * scale's (min, max) so the scrub dot can sit on it. The scale always
      * includes 0%, so the dotted 0% reference is the break-even level.
      */
+    private fun overlayValue(p: ProgressionPoint): Double = if (overlay == Overlay.GAIN) p.gain else p.gainPercent
+
     private fun drawReturnOverlay(canvas: Canvas): Pair<Float, Float> {
+        val rupees = overlay == Overlay.GAIN
         var lo = 0f
         var hi = 0f
         for (i in windowStart..windowEnd) {
-            val r = points[i].gainPercent.toFloat()
+            val r = overlayValue(points[i]).toFloat()
             lo = minOf(lo, r); hi = maxOf(hi, r)
         }
-        if (hi - lo < 0.5f) { hi += 0.25f; lo -= 0.25f }
+        if (hi - lo < (if (rupees) 1f else 0.5f)) { val d = if (rupees) 1f else 0.25f; hi += d; lo -= d }
         val pad = (hi - lo) * 0.10f
         hi += pad; lo -= pad
         val path = Path()
         for (i in windowStart..windowEnd) {
             val x = xForIndex(i)
-            val y = yForValue(points[i].gainPercent.toFloat(), lo, hi)
+            val y = yForValue(overlayValue(points[i]).toFloat(), lo, hi)
             if (i == windowStart) path.moveTo(x, y) else path.lineTo(x, y)
         }
         val zeroY = yForValue(0f, lo, hi)
         canvas.drawLine(edgeInset, zeroY, width - edgeInset, zeroY, zeroLinePaint)
         canvas.drawPath(path, returnLinePaint)
         val rightX = width - edgeInset - 2f * density
-        canvas.drawText(String.format(Locale.US, "%+.1f%%", hi - pad), rightX, topInset + 10f * density, returnLabelPaint)
-        canvas.drawText(String.format(Locale.US, "%+.1f%%", lo + pad), rightX, height - chartBottomInset - 4f * density, returnLabelPaint)
-        canvas.drawText("0%", rightX, zeroY - 3f * density, returnLabelPaint)
+        fun lab(v: Float) = if (rupees) ProgressionSeries.compactRupees(v.toDouble()) else String.format(Locale.US, "%+.1f%%", v)
+        canvas.drawText(lab(hi - pad), rightX, topInset + 10f * density, returnLabelPaint)
+        canvas.drawText(lab(lo + pad), rightX, height - chartBottomInset - 4f * density, returnLabelPaint)
+        canvas.drawText(if (rupees) "₹0" else "0%", rightX, zeroY - 3f * density, returnLabelPaint)
         return lo to hi
+    }
+
+    /** The window's values for the zero-line views (gain in rupees, return in percent, or drawdown in percent). */
+    private fun zeroSeriesValues(): DoubleArray {
+        val n = windowEnd - windowStart + 1
+        return when (mode) {
+            Mode.GAIN -> DoubleArray(n) { points[windowStart + it].gain }
+            Mode.RETURN_PCT -> DoubleArray(n) { points[windowStart + it].gainPercent }
+            else -> {
+                val inv = DoubleArray(points.size) { points[it].invested }
+                val v = DoubleArray(points.size) { points[it].value }
+                ProgressionSeries.drawdownPct(inv, v, windowStart, windowEnd)
+            }
+        }
+    }
+
+    /**
+     * The exact figure for the scrubbed point in a zero-line view (gain in
+     * rupees, return or drawdown in percent), or null on the Value chart. The
+     * host shows it as text, since the line itself carries no numbers there.
+     */
+    fun scrubSeriesValue(): Double? {
+        if (mode == Mode.VALUE || points.isEmpty() || windowEnd - windowStart < 1) return null
+        if (scrubbedIndex !in windowStart..windowEnd) return null
+        return zeroSeriesValues()[scrubbedIndex - windowStart]
     }
 
     /**
@@ -614,15 +678,7 @@ class ProgressionChartView @JvmOverloads constructor(
      */
     private fun drawZeroSeries(canvas: Canvas) {
         val n = windowEnd - windowStart + 1
-        val vals = when (mode) {
-            Mode.GAIN -> DoubleArray(n) { points[windowStart + it].gain }
-            Mode.RETURN_PCT -> DoubleArray(n) { points[windowStart + it].gainPercent }
-            else -> {
-                val inv = DoubleArray(points.size) { points[it].invested }
-                val v = DoubleArray(points.size) { points[it].value }
-                ProgressionSeries.drawdownPct(inv, v, windowStart, windowEnd)
-            }
-        }
+        val vals = zeroSeriesValues()
         val isRupees = mode == Mode.GAIN
         var lo = minOf(vals.min(), 0.0).toFloat()
         var hi = maxOf(vals.max(), 0.0).toFloat()
@@ -643,7 +699,8 @@ class ProgressionChartView @JvmOverloads constructor(
             val a = vals[k - 1]; val b = vals[k]
             val x0 = xForIndex(windowStart + k - 1); val x1 = xForIndex(windowStart + k)
             val y0 = yFor(a); val y1 = yFor(b)
-            val aPos = a >= 0; val bPos = b >= 0
+            // A drawdown is never a gain: points sitting exactly at the old peak (0%) stay red, not green dots.
+            val aPos = a >= 0 && mode != Mode.DRAWDOWN; val bPos = b >= 0 && mode != Mode.DRAWDOWN
             if (aPos == bPos) {
                 (if (aPos) gainLine else lossLine).apply { moveTo(x0, y0); lineTo(x1, y1) }
                 quad(if (aPos) gainFill else lossFill, x0, y0, x1, y1)
@@ -681,7 +738,7 @@ class ProgressionChartView @JvmOverloads constructor(
             val x = xForIndex(scrubbedIndex)
             canvas.drawLine(x, topInset, x, height - chartBottomInset, scrubLinePaint)
             val sv = vals[scrubbedIndex - windowStart]
-            scrubDotPaint.color = if (sv >= 0) gainColor else lossColor
+            scrubDotPaint.color = if (sv >= 0 && mode != Mode.DRAWDOWN) gainColor else lossColor
             canvas.drawCircle(x, yFor(sv), 5.5f * density, scrubDotPaint)
         }
     }

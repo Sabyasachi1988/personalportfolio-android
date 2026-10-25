@@ -31,8 +31,10 @@
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
                         android:text="Personal Portfolio"
-                        android:textSize="22sp"
-                        android:textStyle="bold" />
+                        android:textSize="21sp"
+                        android:textStyle="bold"
+                        android:maxLines="1"
+                        android:ellipsize="end" />
 
                     <ImageButton
                         android:id="@+id/dashboardIncognitoButton"
@@ -52,16 +54,6 @@
                         android:background="?attr/selectableItemBackgroundBorderless"
                         android:src="@drawable/ic_refresh"
                         android:contentDescription="Refresh prices" />
-
-                    <ImageButton
-                        android:id="@+id/dashboardSettingsButton"
-                        android:layout_width="40dp"
-                        android:layout_height="40dp"
-                        android:layout_marginStart="4dp"
-                        android:padding="8dp"
-                        android:background="?attr/selectableItemBackgroundBorderless"
-                        android:src="@drawable/ic_settings_gear"
-                        android:contentDescription="Settings" />
 
                     <ImageButton
                         android:id="@+id/dashboardMoreButton"
