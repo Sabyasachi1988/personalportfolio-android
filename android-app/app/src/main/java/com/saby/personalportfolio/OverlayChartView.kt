@@ -140,6 +140,7 @@ class OverlayChartView @JvmOverloads constructor(
         windowEnd = (unionDates.size - 1).coerceAtLeast(0)
         lockedBaseIndex = windowStart
         scrubbedIndex = windowEnd
+        startReveal()
         invalidate()
         fireScrubCallback()
         fireWindowChangedCallback()
@@ -175,6 +176,7 @@ class OverlayChartView @JvmOverloads constructor(
         windowStart = startIndex
         windowEnd = endIndex
         scrubbedIndex = windowEnd
+        startReveal()
         invalidate()
         fireScrubCallback()
         fireWindowChangedCallback()
@@ -241,6 +243,24 @@ class OverlayChartView @JvmOverloads constructor(
 
     private fun isZoomed(): Boolean = unionDates.isNotEmpty() && (windowEnd - windowStart + 1) < unionDates.size
 
+    /** 0 = Auto (log when the visible high is at least 3x the low), 1 = Log, 2 = Linear. */
+    var scaleMode: Int = 0
+        set(v) { if (field != v) { field = v; invalidate() } }
+
+    private var revealFraction = 1f
+    private var revealAnimator: android.animation.ValueAnimator? = null
+    fun startReveal() {
+        revealAnimator?.cancel()
+        revealFraction = 0f
+        revealAnimator = android.animation.ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = 550
+            interpolator = android.view.animation.DecelerateInterpolator()
+            addUpdateListener { revealFraction = it.animatedValue as Float; invalidate() }
+            start()
+        }
+    }
+    override fun onDetachedFromWindow() { revealAnimator?.cancel(); super.onDetachedFromWindow() }
+
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         if (unionDates.isEmpty() || windowEnd - windowStart < 1 || series.isEmpty()) return
@@ -279,16 +299,35 @@ class OverlayChartView @JvmOverloads constructor(
             minVal -= 1.0
             maxVal += 1.0
         }
+        val dataMin = minVal
+        val dataMax = maxVal
+        val logOn = dataMin > 0.0 && (scaleMode == 1 || (scaleMode == 0 && dataMax / dataMin >= ChartScale.AUTO_LOG_RATIO))
+        var logLo = 0.0
+        var logSpan = 1.0
+        if (logOn) {
+            val l0 = kotlin.math.ln(dataMin)
+            val l1 = kotlin.math.ln(dataMax)
+            val pad = ((l1 - l0) * 0.10).let { if (it <= 0.0) 0.05 else it }
+            logLo = l0 - pad
+            logSpan = (l1 + pad) - logLo
+            minVal = kotlin.math.exp(logLo)
+            maxVal = kotlin.math.exp(logLo + logSpan)
+        }
         val valRange = (maxVal - minVal).coerceAtLeast(0.01)
 
         fun xFor(localIndex: Int): Float = chartLeft + chartWidth * localIndex / windowSize.toFloat().coerceAtLeast(1f)
-        fun yFor(v: Double): Float = chartTop + chartHeight * (1f - ((v - minVal) / valRange).toFloat())
+        fun yFor(v: Double): Float {
+            val frac = if (logOn) (kotlin.math.ln(v.coerceAtLeast(1e-9)) - logLo) / logSpan else (v - minVal) / valRange
+            return chartTop + chartHeight * (1f - frac.toFloat())
+        }
 
         // Y-axis gridlines + labels (index values, not currency - this
         // is a normalized-to-100 comparison, not a price chart).
         axisLabelPaint.textAlign = Paint.Align.RIGHT
-        val midVal = (minVal + maxVal) / 2.0
-        listOf(maxVal to chartTop, midVal to chartTop + chartHeight / 2f, minVal to chartBottom).forEach { (v, y) ->
+        val ticks = (if (logOn) ChartScale.logTicks(minVal, maxVal, 60f, ::yFor)
+            else ChartScale.niceTicks(dataMin, dataMax, 4)).ifEmpty { listOf(dataMin, (dataMin + dataMax) / 2.0, dataMax) }
+        ticks.forEach { v ->
+            val y = yFor(v)
             canvas.drawLine(chartLeft, y, chartRight, y, gridlinePaint)
             canvas.drawText(String.format(Locale.getDefault(), "%.0f", v), chartLeft - 12f, y + 8f, axisLabelPaint)
         }
@@ -336,7 +375,10 @@ class OverlayChartView @JvmOverloads constructor(
                     linePath.lineTo(x, y)
                 }
             }
+            canvas.save()
+            canvas.clipRect(chartLeft - 2f, 0f, chartLeft + chartWidth * revealFraction + 2f, h)
             canvas.drawPath(linePath, linePaint)
+            canvas.restore()
         }
 
         if (scrubbedIndex in windowStart..windowEnd) {

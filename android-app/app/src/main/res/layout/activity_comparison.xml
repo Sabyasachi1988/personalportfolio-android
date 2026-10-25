@@ -92,6 +92,13 @@
             android:layout_height="wrap_content" />
 
         <TextView
+            android:id="@+id/comparisonScale"
+            style="@style/ActionChip"
+            android:layout_width="wrap_content"
+            android:layout_marginStart="8dp"
+            android:text="Auto" />
+
+        <TextView
             android:id="@+id/comparisonSetDateRange"
             style="@style/ActionChip"
             android:layout_width="wrap_content"

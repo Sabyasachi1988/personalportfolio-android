@@ -1,3 +1,5 @@
 <resources>
     <string name="app_name">Personal Portfolio</string>
+    <string name="shortcut_stock_tracker">Stock Tracker</string>
+    <string name="shortcut_stock_tracker_long">Open Stock Tracker</string>
 </resources>

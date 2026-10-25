@@ -78,6 +78,16 @@ class ComparisonActivity : AppCompatActivity() {
 
         pickButton.setOnClickListener { showPicker() }
         lockSwitch.setOnCheckedChangeListener { _, checked -> chart.setLockBaseDate(checked) }
+        val scalePrefs = getSharedPreferences("chart_options_prefs", MODE_PRIVATE)
+        val scalePill = findViewById<TextView>(R.id.comparisonScale)
+        chart.scaleMode = scalePrefs.getInt("scale", 0)
+        fun refreshScalePill() { scalePill.text = "\u21C5 " + when (chart.scaleMode) { 1 -> "Log"; 2 -> "Linear"; else -> "Auto" } }
+        refreshScalePill()
+        scalePill.setOnClickListener {
+            chart.scaleMode = (chart.scaleMode + 1) % 3
+            scalePrefs.edit().putInt("scale", chart.scaleMode).apply()
+            refreshScalePill()
+        }
         chart.onWindowChanged = { total, start, end -> chartScrubber.setRange(total, start, end) }
         chartScrubber.onRangeDragged = { start, end -> chart.setWindowByIndex(start, end) }
         findViewById<View>(R.id.comparisonSetDateRange).setOnClickListener {
