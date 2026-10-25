@@ -82,7 +82,7 @@ class ComparisonActivity : AppCompatActivity() {
         chartScrubber.onRangeDragged = { start, end -> chart.setWindowByIndex(start, end) }
         findViewById<View>(R.id.comparisonSetDateRange).setOnClickListener {
             val bounds = currentUnionDateBounds ?: return@setOnClickListener
-            DateRangePicker.show(this, bounds.first, bounds.second) { start, end -> chart.setWindowByDates(start, end) }
+            ChartCustomPeriod.show(this, listOf(bounds.first, bounds.second), null) { start, end -> chart.setWindowByDates(start, end) }
         }
 
         chart.onScrubbed = { date, values ->

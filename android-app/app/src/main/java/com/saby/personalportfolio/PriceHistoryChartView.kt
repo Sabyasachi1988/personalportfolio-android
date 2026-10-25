@@ -250,6 +250,47 @@ class PriceHistoryChartView @JvmOverloads constructor(
     private var lastDrawnChartBottom = 0f
     private var lastDrawnMinPrice = 0.0
     private var lastDrawnPriceRange = 1.0
+    private var lastDrawnLogOn = false
+    private var lastDrawnLogLo = 0.0
+    private var lastDrawnLogSpan = 1.0
+
+    /** 0 = Auto (log when the window spans 3x or more), 1 = Log, 2 = Linear. Same meaning as the stock tracker. */
+    var scaleMode: Int = 0
+        set(v) { if (field != v) { field = v; invalidate() } }
+    var showMean: Boolean = false
+        set(v) { if (field != v) { field = v; invalidate() } }
+    var showMedian: Boolean = false
+        set(v) { if (field != v) { field = v; invalidate() } }
+
+    /** True when the most recent frame was drawn on a log axis (Auto resolves per visible window). */
+    val isLogScale: Boolean get() = lastDrawnLogOn
+
+    private val meanPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0xFFE0A93B.toInt(); style = Paint.Style.STROKE; strokeWidth = 3f
+        pathEffect = android.graphics.DashPathEffect(floatArrayOf(14f, 10f), 0f)
+    }
+    private val medianPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0xFFB38CFF.toInt(); style = Paint.Style.STROKE; strokeWidth = 3f
+        pathEffect = android.graphics.DashPathEffect(floatArrayOf(14f, 10f), 0f)
+    }
+    private val legendPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        textSize = 28f; color = ContextCompat.getColor(context, R.color.colorNeutral)
+    }
+
+    // Left-to-right reveal of the line, as in the stock tracker (550 ms).
+    private var revealFraction = 1f
+    private var revealAnimator: android.animation.ValueAnimator? = null
+    private fun startReveal() {
+        revealAnimator?.cancel()
+        revealFraction = 0f
+        revealAnimator = android.animation.ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = 550
+            interpolator = android.view.animation.DecelerateInterpolator()
+            addUpdateListener { revealFraction = it.animatedValue as Float; invalidate() }
+            start()
+        }
+    }
+    override fun onDetachedFromWindow() { revealAnimator?.cancel(); super.onDetachedFromWindow() }
     private var lastDrawnWindowStart = 0
     private var lastDrawnWindowEnd = 0
 
@@ -259,6 +300,7 @@ class PriceHistoryChartView @JvmOverloads constructor(
         windowEnd = (points.size - 1).coerceAtLeast(0)
         scrubbedIndex = if (points.isNotEmpty()) points.size - 1 else -1
         resolvedMarkers = emptyList() // markers are resolved against THIS series' points - stale from a previous fund otherwise
+        startReveal()
         invalidate()
         fireScrubCallback()
         fireWindowChangedCallback()
@@ -346,6 +388,7 @@ class PriceHistoryChartView @JvmOverloads constructor(
         windowStart = startIndex
         windowEnd = endIndex
         scrubbedIndex = windowEnd
+        startReveal()
         invalidate()
         fireScrubCallback()
         fireWindowChangedCallback()
@@ -401,54 +444,67 @@ class PriceHistoryChartView @JvmOverloads constructor(
 
         val minPrice = visible.minOf { it.price }
         val maxPrice = visible.maxOf { it.price }
-        val midPrice = (minPrice + maxPrice) / 2.0
-        val priceRange = (maxPrice - minPrice).let { if (it <= 0.0) 1.0 else it }
+        val logPossible = minPrice > 0.0
+        val logOn = logPossible && (scaleMode == 1 || (scaleMode == 0 && maxPrice / minPrice >= ChartScale.AUTO_LOG_RATIO))
+        // Axis range: linear keeps the old min..max (line touches the edges);
+        // log pads 10% of the log span each side so the extremes aren't glued to the frame.
+        var lo = minPrice
+        var hi = maxPrice
+        var logLo = 0.0
+        var logSpan = 1.0
+        if (logOn) {
+            val l0 = kotlin.math.ln(minPrice)
+            val l1 = kotlin.math.ln(maxPrice)
+            val pad = ((l1 - l0) * 0.10).let { if (it <= 0.0) 0.05 else it }
+            logLo = l0 - pad
+            logSpan = (l1 + pad) - logLo
+            lo = kotlin.math.exp(logLo)
+            hi = kotlin.math.exp(logLo + logSpan)
+        } else if (hi - lo <= 0.0) {
+            hi = lo + 1.0
+        }
+        val priceRange = hi - lo
 
-        // Widest of the 3 y-axis labels actually being drawn THIS frame
-        // (not a fixed guess) decides how much left padding the chart
-        // needs, so a large NAV/index level (4+ digits, e.g.
-        // "2,297.09") gets the room it needs instead of being clipped -
-        // see chartPaddingLeftMin's doc comment for the bug this fixes.
-        val maxLabel = PricePerUnitFormatter.format(maxPrice, decimals = 2)
-        val midLabel = PricePerUnitFormatter.format(midPrice, decimals = 2)
-        val minLabel = PricePerUnitFormatter.format(minPrice, decimals = 2)
-        val widestLabelWidth = maxOf(
-            axisLabelPaint.measureText(maxLabel),
-            axisLabelPaint.measureText(midLabel),
-            axisLabelPaint.measureText(minLabel)
-        )
-        val chartLeft = (widestLabelWidth + 28f).coerceAtLeast(chartPaddingLeftMin)
-        lastDrawnChartLeft = chartLeft
         val chartRight = w - chartPaddingRight
         val chartTop = chartPaddingTop
         val chartBottom = h - chartPaddingBottom
-        val chartWidth = (chartRight - chartLeft).coerceAtLeast(1f)
         val chartHeight = (chartBottom - chartTop).coerceAtLeast(1f)
+        fun yForScale(price: Double): Float {
+            val frac = if (logOn) (kotlin.math.ln(price.coerceAtLeast(1e-9)) - logLo) / logSpan else (price - lo) / priceRange
+            return chartTop + chartHeight * (1f - frac.toFloat())
+        }
+        val ticks: List<Double> = (if (logOn) ChartScale.logTicks(lo, hi, 60f, ::yForScale)
+            else ChartScale.niceTicks(minPrice, maxPrice, 4)).ifEmpty { listOf(minPrice, (minPrice + maxPrice) / 2.0, maxPrice) }
+        val tickDecimals = if (ticks.all { kotlin.math.abs(it - Math.round(it)) < 1e-6 }) 0 else 2
 
-        // Cache the geometry this frame actually drew with, so
-        // findMarkerNear (called later from a tap, outside onDraw) can
-        // reproduce the exact same (x, y) for a given point index - see
-        // the field's own doc comment above.
+        // Widest y label actually drawn THIS frame decides the left padding
+        // (a 4+ digit NAV/index level otherwise clips - see chartPaddingLeftMin).
+        val widestLabelWidth = ticks.maxOf { axisLabelPaint.measureText(PricePerUnitFormatter.format(it, decimals = tickDecimals)) }
+        val chartLeft = (widestLabelWidth + 28f).coerceAtLeast(chartPaddingLeftMin)
+        lastDrawnChartLeft = chartLeft
+        val chartWidth = (chartRight - chartLeft).coerceAtLeast(1f)
+
+        // Cache the geometry this frame drew with so findMarkerNear reproduces the same (x, y).
         lastDrawnChartRight = chartRight
         lastDrawnChartTop = chartTop
         lastDrawnChartBottom = chartBottom
-        lastDrawnMinPrice = minPrice
+        lastDrawnMinPrice = lo
         lastDrawnPriceRange = priceRange
+        lastDrawnLogOn = logOn
+        lastDrawnLogLo = logLo
+        lastDrawnLogSpan = logSpan
         lastDrawnWindowStart = windowStart
         lastDrawnWindowEnd = windowEnd
 
         fun xFor(localIndex: Int): Float = chartLeft + chartWidth * localIndex / (visible.size - 1).toFloat().coerceAtLeast(1f)
-        fun yFor(price: Double): Float = chartTop + chartHeight * (1f - ((price - minPrice) / priceRange).toFloat())
+        fun yFor(price: Double): Float = yForScale(price)
 
-        // Y-axis gridlines + price labels: min / mid / max of the
-        // CURRENTLY VISIBLE window, not the full series - so zooming
-        // into a narrower price range re-scales the axis to that
-        // range, which is what makes zoom actually useful for reading
-        // fine-grained moves rather than just stretching the same line.
+        // Y-axis gridlines + labels over the CURRENT window's scale.
         axisLabelPaint.textAlign = Paint.Align.RIGHT
-        listOf(maxPrice to chartTop, midPrice to chartTop + chartHeight / 2f, minPrice to chartBottom).forEach { (price, y) ->
+        ticks.forEach { price ->
+            val y = yFor(price)
             canvas.drawLine(chartLeft, y, chartRight, y, gridlinePaint)
-            canvas.drawText(PricePerUnitFormatter.format(price, decimals = 2), chartLeft - 12f, y + 8f, axisLabelPaint)
+            canvas.drawText(PricePerUnitFormatter.format(price, decimals = tickDecimals), chartLeft - 12f, y + 8f, axisLabelPaint)
         }
 
         // X-axis date labels: start / mid / end of the visible window.
@@ -471,7 +527,22 @@ class PriceHistoryChartView @JvmOverloads constructor(
             val y = yFor(p.price)
             if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
         }
+        // Mean / median of the visible window, dashed, with a legend (as in the stock tracker).
+        val prices = DoubleArray(visible.size) { visible[it].price }
+        var legendX = chartLeft + 8f
+        fun refLine(value: Double, paint: Paint, label: String) {
+            val y = yFor(value)
+            if (y in chartTop..chartBottom) canvas.drawLine(chartLeft, y, chartRight, y, paint)
+            canvas.drawText(label, legendX, chartTop + 22f, legendPaint.apply { color = paint.color })
+            legendX += legendPaint.measureText(label) + 24f
+        }
+        if (showMean) refLine(ChartScale.mean(prices, 0, prices.size - 1), meanPaint, "- - Mean")
+        if (showMedian) refLine(ChartScale.median(prices, 0, prices.size - 1), medianPaint, "- - Median")
+
+        canvas.save()
+        canvas.clipRect(chartLeft - 2f, 0f, chartLeft + chartWidth * revealFraction + 2f, h)
         canvas.drawPath(path, linePaint)
+        canvas.restore()
 
         val localScrub = scrubbedIndex - windowStart
         if (localScrub in visible.indices) {
@@ -709,7 +780,8 @@ class PriceHistoryChartView @JvmOverloads constructor(
             if (localIndex !in 0 until windowSize) return@forEach
             val point = points.getOrNull(rm.index) ?: return@forEach
             val x = lastDrawnChartLeft + chartWidth * localIndex / (windowSize - 1).coerceAtLeast(1).toFloat()
-            val y = lastDrawnChartTop + chartHeight * (1f - ((point.price - lastDrawnMinPrice) / lastDrawnPriceRange).toFloat())
+            val frac = if (lastDrawnLogOn) (kotlin.math.ln(point.price.coerceAtLeast(1e-9)) - lastDrawnLogLo) / lastDrawnLogSpan else (point.price - lastDrawnMinPrice) / lastDrawnPriceRange
+            val y = lastDrawnChartTop + chartHeight * (1f - frac.toFloat())
             val dx = touchX - x
             val dy = touchY - y
             val distSq = dx * dx + dy * dy

@@ -113,9 +113,7 @@ class ReturnsDetailActivity : AppCompatActivity() {
 
         setUpRangePresets(points, chart)
 
-        findViewById<View>(R.id.returnsDetailSetDateRange).setOnClickListener {
-            showDateRangeDialog(points) { start, end -> chart.setWindowByDates(start, end) }
-        }
+        setUpChartOptions(chart)
 
         // Transaction markers (buy/sell dots on the chart) only make
         // sense for a real holding, not a Benchmark - see Benchmark's
@@ -141,9 +139,29 @@ class ReturnsDetailActivity : AppCompatActivity() {
         }
     }
 
-    private fun showDateRangeDialog(points: List<PricePoint>, onPicked: (start: String, end: String) -> Unit) {
-        if (points.size < 2) return
-        DateRangePicker.show(this, points.first().date, points.last().date, onPicked)
+    /** Mean / Median / scale pills under the presets, remembered across funds. */
+    private fun setUpChartOptions(chart: PriceHistoryChartView) {
+        val prefs = getSharedPreferences("chart_options_prefs", MODE_PRIVATE)
+        val row = findViewById<LinearLayout>(R.id.returnsDetailChartOptions)
+        chart.showMean = prefs.getBoolean("mean", false)
+        chart.showMedian = prefs.getBoolean("median", false)
+        chart.scaleMode = prefs.getInt("scale", 0)
+        fun pill(): TextView = TextView(this, null, 0, R.style.ActionChip).apply {
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { marginEnd = dpToPx(8) }
+            row.addView(this)
+        }
+        val mean = pill(); val median = pill(); val scale = pill()
+        fun refresh() {
+            mean.text = (if (chart.showMean) "\u25CF" else "\u25CB") + " Mean"
+            median.text = (if (chart.showMedian) "\u25CF" else "\u25CB") + " Median"
+            scale.text = "\u21C5 " + when (chart.scaleMode) { 1 -> "Log"; 2 -> "Linear"; else -> "Auto" }
+            mean.alpha = if (chart.showMean) 1f else 0.6f
+            median.alpha = if (chart.showMedian) 1f else 0.6f
+        }
+        mean.setOnClickListener { chart.showMean = !chart.showMean; prefs.edit().putBoolean("mean", chart.showMean).apply(); refresh() }
+        median.setOnClickListener { chart.showMedian = !chart.showMedian; prefs.edit().putBoolean("median", chart.showMedian).apply(); refresh() }
+        scale.setOnClickListener { chart.scaleMode = (chart.scaleMode + 1) % 3; prefs.edit().putInt("scale", chart.scaleMode).apply(); refresh() }
+        refresh()
     }
 
     // 3M/6M/1Y/2Y/3Y/Max quick-jump shortcuts alongside the chart's own
@@ -171,20 +189,12 @@ class ReturnsDetailActivity : AppCompatActivity() {
             chart.setWindowByDates(firstDate, lastDate)
         })
 
-        // Free-typed custom window, in years (including fractional -
-        // "4.5 years, 1.5 years, whatever" was the exact ask) - a
-        // complement to the fixed preset chips above, not a
-        // replacement.
-        val yearsInput = findViewById<android.widget.EditText>(R.id.returnsDetailChartWindowYears)
-        findViewById<View>(R.id.returnsDetailChartWindowYearsShow).setOnClickListener {
-            val years = yearsInput.text?.toString()?.trim()?.toDoubleOrNull()
-            if (years == null || years <= 0) {
-                yearsInput.error = "Enter a window in years, e.g. 4.5"
-                return@setOnClickListener
+        // Same Custom dialog as the Progression screen and the stock tracker.
+        container.addView(buildPresetChip("Custom") {
+            ChartCustomPeriod.show(this, points.map { it.date }, DoubleArray(points.size) { points[it].price }) { start, end ->
+                chart.setWindowByDates(start, end)
             }
-            yearsInput.error = null
-            chart.setWindowByDates(dateYearsBefore(lastDate, years), lastDate)
-        }
+        })
     }
 
     private fun buildPresetChip(label: String, onClick: () -> Unit): TextView {

@@ -93,32 +93,14 @@
 
         </HorizontalScrollView>
 
-        <!-- Custom years input alongside the fixed presets above -
-             "4.5 years, 1.5 years, whatever" was the exact ask, so this
-             takes a free-typed decimal rather than another fixed chip. -->
+        <!-- Chart options: dashed Mean / Median lines and the Auto / Log / Linear
+             scale, same pills as the stock tracker. Filled in by the activity. -->
         <LinearLayout
+            android:id="@+id/returnsDetailChartOptions"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:orientation="horizontal"
-            android:gravity="center_vertical">
-
-            <EditText
-                android:id="@+id/returnsDetailChartWindowYears"
-                android:layout_width="0dp"
-                android:layout_weight="1"
-                android:layout_height="wrap_content"
-                android:hint="Custom window, years (e.g. 4.5)"
-                android:inputType="numberDecimal" />
-
-            <TextView
-                android:id="@+id/returnsDetailChartWindowYearsShow"
-                style="@style/ActionChip"
-                android:layout_width="wrap_content"
-                android:layout_marginStart="8dp"
-                android:text="Show" />
-
-        </LinearLayout>
+            android:orientation="horizontal" />
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -135,11 +117,6 @@
                 android:textSize="11sp"
                 android:textColor="@color/colorNeutral" />
 
-            <TextView
-                android:id="@+id/returnsDetailSetDateRange"
-                style="@style/ActionChip"
-                android:layout_width="wrap_content"
-                android:text="Set date range" />
 
         </LinearLayout>
 
