@@ -113,19 +113,13 @@ class RollingActivity : AppCompatActivity() {
             24 to findViewById(R.id.rollingChip2Y)
         )
 
-        // Rolling is the third section of the Progression | Returns | Rolling
-        // switch. Progression is the screen that launched this one, so it is
-        // reached by finishing; Returns is its own screen.
-        tabs.getTabAt(2)?.select()
+        // Rolling is the second section of the Progression | Rolling switch.
+        // Progression is the screen that launched this one, so it is reached
+        // by finishing.
+        tabs.getTabAt(1)?.select()
         tabs.addOnTabSelectedListener(object : TabLayout.OnTabSelectedListener {
             override fun onTabSelected(tab: TabLayout.Tab) {
-                when (tab.position) {
-                    0 -> finish()
-                    1 -> {
-                        startActivity(Intent(this@RollingActivity, ReturnsActivity::class.java))
-                        finish()
-                    }
-                }
+                if (tab.position == 0) finish()
             }
             override fun onTabUnselected(tab: TabLayout.Tab) {}
             override fun onTabReselected(tab: TabLayout.Tab) {}
@@ -146,7 +140,7 @@ class RollingActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        tabs.getTabAt(2)?.select()
+        tabs.getTabAt(1)?.select()
     }
 
     private fun isBridgeError(json: String): Boolean = json.trimStart().startsWith("{\"error\"")

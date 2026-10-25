@@ -101,6 +101,20 @@ class ProgressionChartView @JvmOverloads constructor(
         set(value) {
             if (field != value) { field = value; invalidate() }
         }
+    /** What the chart shows. The first two draw Invested and Value; the rest draw one series against a zero line. */
+    enum class Mode { VALUE, VALUE_RETURN, GAIN, RETURN_PCT, DRAWDOWN }
+
+    /**
+     * VALUE_RETURN is the normal Invested/Value chart with the return (gain as
+     * a percent of money invested) added as a thin line on its own right-hand
+     * axis, because that return is tiny next to the money itself and would
+     * otherwise be a flat line on the Value scale.
+     */
+    var mode: Mode = Mode.VALUE
+        set(value) {
+            if (field != value) { field = value; invalidate() }
+        }
+
     // Largest single step in Invested across ALL loaded points (not just the
     // visible ones), so a dot does not change size as the window is panned.
     private var maxFlowAbs: Double = 0.0
@@ -411,6 +425,11 @@ class ProgressionChartView @JvmOverloads constructor(
         val visibleCount = windowEnd - windowStart + 1
         if (points.size < 2 || visibleCount < 2) return
 
+        if (mode == Mode.GAIN || mode == Mode.RETURN_PCT || mode == Mode.DRAWDOWN) {
+            drawZeroSeries(canvas)
+            return
+        }
+
         var minV = Float.MAX_VALUE
         var maxV = -Float.MAX_VALUE
         for (i in windowStart..windowEnd) {
@@ -514,6 +533,8 @@ class ProgressionChartView @JvmOverloads constructor(
 
         if (showTrades) drawTradeDots(canvas, minV, maxV)
 
+        val returnAxis = if (mode == Mode.VALUE_RETURN) drawReturnOverlay(canvas) else null
+
         drawAxisLabels(canvas)
 
         if (scrubbedIndex in windowStart..windowEnd) {
@@ -525,6 +546,143 @@ class ProgressionChartView @JvmOverloads constructor(
             canvas.drawCircle(x, yForValue(p.invested.toFloat(), minV, maxV), 4f * density, scrubDotPaint)
             scrubDotPaint.color = colorForGain(p.gain)
             canvas.drawCircle(x, yForValue(p.value.toFloat(), minV, maxV), 5.5f * density, scrubDotPaint)
+            if (returnAxis != null) {
+                scrubDotPaint.color = returnLineColor
+                canvas.drawCircle(x, yForValue(p.gainPercent.toFloat(), returnAxis.first, returnAxis.second), 4f * density, scrubDotPaint)
+            }
+        }
+    }
+
+    private val returnLineColor = ContextCompat.getColor(context, R.color.colorAmber)
+    private val returnLinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 2f * density
+        strokeCap = Paint.Cap.ROUND
+        strokeJoin = Paint.Join.ROUND
+        color = returnLineColor
+        pathEffect = android.graphics.DashPathEffect(floatArrayOf(7f * density, 4f * density), 0f)
+    }
+    private val returnLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+        color = returnLineColor
+        textSize = 10.5f * density
+        textAlign = Paint.Align.RIGHT
+    }
+    private val zeroLinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 1.2f * density
+        color = ContextCompat.getColor(context, R.color.colorOnSurface)
+        alpha = 110
+    }
+
+    /**
+     * Draws the return line on its own right-hand scale and returns that
+     * scale's (min, max) so the scrub dot can sit on it. The scale always
+     * includes 0%, so the dotted 0% reference is the break-even level.
+     */
+    private fun drawReturnOverlay(canvas: Canvas): Pair<Float, Float> {
+        var lo = 0f
+        var hi = 0f
+        for (i in windowStart..windowEnd) {
+            val r = points[i].gainPercent.toFloat()
+            lo = minOf(lo, r); hi = maxOf(hi, r)
+        }
+        if (hi - lo < 0.5f) { hi += 0.25f; lo -= 0.25f }
+        val pad = (hi - lo) * 0.10f
+        hi += pad; lo -= pad
+        val path = Path()
+        for (i in windowStart..windowEnd) {
+            val x = xForIndex(i)
+            val y = yForValue(points[i].gainPercent.toFloat(), lo, hi)
+            if (i == windowStart) path.moveTo(x, y) else path.lineTo(x, y)
+        }
+        val zeroY = yForValue(0f, lo, hi)
+        canvas.drawLine(edgeInset, zeroY, width - edgeInset, zeroY, zeroLinePaint)
+        canvas.drawPath(path, returnLinePaint)
+        val rightX = width - edgeInset - 2f * density
+        canvas.drawText(String.format(Locale.US, "%+.1f%%", hi - pad), rightX, topInset + 10f * density, returnLabelPaint)
+        canvas.drawText(String.format(Locale.US, "%+.1f%%", lo + pad), rightX, height - chartBottomInset - 4f * density, returnLabelPaint)
+        canvas.drawText("0%", rightX, zeroY - 3f * density, returnLabelPaint)
+        return lo to hi
+    }
+
+    /**
+     * Gain (rupees), Return (%) or Drawdown (%) as ONE line against a zero
+     * line: green above, red below, split exactly where it crosses zero, with
+     * a soft fill between the line and zero. Same visual language as the
+     * Value line's gain/loss colouring.
+     */
+    private fun drawZeroSeries(canvas: Canvas) {
+        val n = windowEnd - windowStart + 1
+        val vals = when (mode) {
+            Mode.GAIN -> DoubleArray(n) { points[windowStart + it].gain }
+            Mode.RETURN_PCT -> DoubleArray(n) { points[windowStart + it].gainPercent }
+            else -> {
+                val inv = DoubleArray(points.size) { points[it].invested }
+                val v = DoubleArray(points.size) { points[it].value }
+                ProgressionSeries.drawdownPct(inv, v, windowStart, windowEnd)
+            }
+        }
+        val isRupees = mode == Mode.GAIN
+        var lo = minOf(vals.min(), 0.0).toFloat()
+        var hi = maxOf(vals.max(), 0.0).toFloat()
+        if (hi - lo < 1e-6f) { hi += 1f; lo -= 1f }
+        val pad = (hi - lo) * 0.12f
+        val top = hi + pad
+        val bottom = if (mode == Mode.DRAWDOWN) lo - pad else lo - pad
+        fun yFor(v: Double) = yForValue(v.toFloat(), bottom, top)
+        val zeroY = yFor(0.0)
+
+        canvas.drawLine(edgeInset, zeroY, width - edgeInset, zeroY, zeroLinePaint)
+
+        val gainLine = Path(); val lossLine = Path(); val gainFill = Path(); val lossFill = Path()
+        fun quad(path: Path, x0: Float, y0: Float, x1: Float, y1: Float) {
+            path.moveTo(x0, zeroY); path.lineTo(x0, y0); path.lineTo(x1, y1); path.lineTo(x1, zeroY); path.close()
+        }
+        for (k in 1 until n) {
+            val a = vals[k - 1]; val b = vals[k]
+            val x0 = xForIndex(windowStart + k - 1); val x1 = xForIndex(windowStart + k)
+            val y0 = yFor(a); val y1 = yFor(b)
+            val aPos = a >= 0; val bPos = b >= 0
+            if (aPos == bPos) {
+                (if (aPos) gainLine else lossLine).apply { moveTo(x0, y0); lineTo(x1, y1) }
+                quad(if (aPos) gainFill else lossFill, x0, y0, x1, y1)
+            } else {
+                val t = (a / (a - b)).toFloat().coerceIn(0f, 1f)
+                val cx = x0 + t * (x1 - x0)
+                (if (aPos) gainLine else lossLine).apply { moveTo(x0, y0); lineTo(cx, zeroY) }
+                (if (bPos) gainLine else lossLine).apply { moveTo(cx, zeroY); lineTo(x1, y1) }
+                quad(if (aPos) gainFill else lossFill, x0, y0, cx, zeroY)
+                quad(if (bPos) gainFill else lossFill, cx, zeroY, x1, y1)
+            }
+        }
+        valueFillPaint.shader = null
+        valueFillPaint.color = (gainColor and 0x00FFFFFF) or 0x2E000000
+        canvas.drawPath(gainFill, valueFillPaint)
+        valueFillPaint.color = (lossColor and 0x00FFFFFF) or 0x2E000000
+        canvas.drawPath(lossFill, valueFillPaint)
+        valuePaint.color = lossColor
+        canvas.drawPath(lossLine, valuePaint)
+        valuePaint.color = gainColor
+        canvas.drawPath(gainLine, valuePaint)
+
+        fun label(v: Double) = if (isRupees) ProgressionSeries.compactRupees(v) else String.format(Locale.US, "%+.1f%%", v)
+        axisLabelPaint.textAlign = Paint.Align.LEFT
+        val maxV = vals.max(); val minV = vals.min()
+        if (maxV > 0) canvas.drawText(label(maxV), edgeInset + 4f * density, yFor(maxV) - 5f * density, axisLabelPaint)
+        if (minV < 0) canvas.drawText(label(minV), edgeInset + 4f * density, yFor(minV) + 14f * density, axisLabelPaint)
+        axisLabelPaint.textAlign = Paint.Align.RIGHT
+        canvas.drawText(if (isRupees) "₹0" else "0%", width - edgeInset - 2f * density, zeroY - 4f * density, axisLabelPaint)
+        axisLabelPaint.textAlign = Paint.Align.LEFT
+
+        drawAxisLabels(canvas)
+
+        if (scrubbedIndex in windowStart..windowEnd) {
+            val x = xForIndex(scrubbedIndex)
+            canvas.drawLine(x, topInset, x, height - chartBottomInset, scrubLinePaint)
+            val sv = vals[scrubbedIndex - windowStart]
+            scrubDotPaint.color = if (sv >= 0) gainColor else lossColor
+            canvas.drawCircle(x, yFor(sv), 5.5f * density, scrubDotPaint)
         }
     }
 

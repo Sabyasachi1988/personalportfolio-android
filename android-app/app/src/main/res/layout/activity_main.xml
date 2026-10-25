@@ -63,6 +63,16 @@
                         android:src="@drawable/ic_settings_gear"
                         android:contentDescription="Settings" />
 
+                    <ImageButton
+                        android:id="@+id/dashboardMoreButton"
+                        android:layout_width="40dp"
+                        android:layout_height="40dp"
+                        android:layout_marginStart="4dp"
+                        android:padding="8dp"
+                        android:background="?attr/selectableItemBackgroundBorderless"
+                        android:src="@drawable/ic_more_vert"
+                        android:contentDescription="More" />
+
                 </LinearLayout>
 
                 <Spinner

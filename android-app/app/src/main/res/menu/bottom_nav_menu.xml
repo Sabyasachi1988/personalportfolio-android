@@ -17,7 +17,7 @@
         android:icon="@drawable/ic_nav_progression"
         android:title="Progress" />
     <item
-        android:id="@+id/nav_transactions"
-        android:icon="@drawable/ic_nav_transactions"
-        android:title="Transactions" />
+        android:id="@+id/nav_returns"
+        android:icon="@drawable/ic_nav_returns"
+        android:title="Returns" />
 </menu>

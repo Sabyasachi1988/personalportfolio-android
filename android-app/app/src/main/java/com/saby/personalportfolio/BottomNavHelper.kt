@@ -4,7 +4,7 @@ import android.app.Activity
 import android.content.Intent
 import com.google.android.material.bottomnavigation.BottomNavigationView
 
-enum class BottomNavDestination { DASHBOARD, HOLDINGS, ALLOCATION, PROGRESSION, TRANSACTIONS }
+enum class BottomNavDestination { DASHBOARD, HOLDINGS, ALLOCATION, PROGRESSION, RETURNS, TRANSACTIONS }
 
 object BottomNavHelper {
 
@@ -21,9 +21,17 @@ object BottomNavHelper {
             BottomNavDestination.HOLDINGS -> R.id.nav_holdings
             BottomNavDestination.ALLOCATION -> R.id.nav_allocation
             BottomNavDestination.PROGRESSION -> R.id.nav_progression
-            BottomNavDestination.TRANSACTIONS -> R.id.nav_transactions
+            BottomNavDestination.RETURNS -> R.id.nav_returns
+            // Transactions now lives under the Dashboard's "More" menu, so
+            // no bar item stands for it: show the bar with nothing selected.
+            BottomNavDestination.TRANSACTIONS -> 0
         }
-        bottomNav.selectedItemId = selectedId
+        if (selectedId != 0) {
+            bottomNav.menu.setGroupCheckable(0, true, true)
+            bottomNav.selectedItemId = selectedId
+        } else {
+            bottomNav.menu.setGroupCheckable(0, false, true)
+        }
 
         bottomNav.setOnItemSelectedListener { item ->
             val target: Class<out Activity>? = when (item.itemId) {
@@ -31,7 +39,7 @@ object BottomNavHelper {
                 R.id.nav_holdings -> if (current != BottomNavDestination.HOLDINGS) HoldingsActivity::class.java else null
                 R.id.nav_allocation -> if (current != BottomNavDestination.ALLOCATION) AllocationActivity::class.java else null
                 R.id.nav_progression -> if (current != BottomNavDestination.PROGRESSION) ProgressionActivity::class.java else null
-                R.id.nav_transactions -> if (current != BottomNavDestination.TRANSACTIONS) TransactionsActivity::class.java else null
+                R.id.nav_returns -> if (current != BottomNavDestination.RETURNS) ReturnsActivity::class.java else null
                 else -> null
             }
             if (target != null) {

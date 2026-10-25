@@ -46,11 +46,6 @@
         <com.google.android.material.tabs.TabItem
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Returns" />
-
-        <com.google.android.material.tabs.TabItem
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
             android:text="Rolling" />
 
     </com.google.android.material.tabs.TabLayout>
@@ -94,35 +89,23 @@
                 android:orientation="horizontal"
                 android:gravity="center_vertical">
 
-                <View
-                    android:layout_width="16dp"
-                    android:layout_height="4dp"
-                    android:background="@color/colorProgressionInvested" />
-
                 <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="6dp"
-                    android:text="Invested"
-                    android:textSize="12sp" />
-
-                <View
-                    android:layout_width="16dp"
-                    android:layout_height="4dp"
-                    android:layout_marginStart="16dp"
-                    android:background="@color/colorGain" />
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="6dp"
-                    android:text="Value"
-                    android:textSize="12sp" />
-
-                <View
+                    android:id="@+id/progressionLegend"
                     android:layout_width="0dp"
-                    android:layout_height="0dp"
-                    android:layout_weight="1" />
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:textSize="12sp"
+                    android:maxLines="1"
+                    android:ellipsize="end" />
+
+                <TextView
+                    android:id="@+id/progressionViewButton"
+                    style="@style/ActionChip"
+                    android:layout_width="wrap_content"
+                    android:layout_marginEnd="6dp"
+                    android:paddingTop="4dp"
+                    android:paddingBottom="4dp"
+                    android:textSize="12sp" />
 
                 <TextView
                     android:id="@+id/progressionTradesToggle"

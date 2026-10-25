@@ -44,10 +44,12 @@ class ReturnsActivity : AppCompatActivity() {
         findViewById<View>(R.id.returnsManageNamesButton).setOnClickListener {
             startActivity(Intent(this, ManageNamesActivity::class.java))
         }
+        BottomNavHelper.setup(this, findViewById(R.id.bottomNav), BottomNavDestination.RETURNS)
     }
 
     override fun onResume() {
         super.onResume()
+        BottomNavHelper.setup(this, findViewById(R.id.bottomNav), BottomNavDestination.RETURNS)
         loadReturnsTable()
     }
 

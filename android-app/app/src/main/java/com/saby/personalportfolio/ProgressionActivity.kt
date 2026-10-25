@@ -68,6 +68,8 @@ class ProgressionActivity : AppCompatActivity() {
     private var cachedInvested = DoubleArray(0)
     private var cachedValue = DoubleArray(0)
     private lateinit var tradesToggle: TextView
+    private lateinit var legendText: TextView
+    private lateinit var viewButton: TextView
 
     private lateinit var memberTab: TextView
     private lateinit var axisTab: TextView
@@ -173,8 +175,6 @@ class ProgressionActivity : AppCompatActivity() {
         sectionTabLayout.addOnTabSelectedListener(object : com.google.android.material.tabs.TabLayout.OnTabSelectedListener {
                 override fun onTabSelected(tab: com.google.android.material.tabs.TabLayout.Tab) {
                     if (tab.position == 1) {
-                        startActivity(Intent(this@ProgressionActivity, ReturnsActivity::class.java))
-                    } else if (tab.position == 2) {
                         startActivity(Intent(this@ProgressionActivity, RollingActivity::class.java))
                     }
                 }
@@ -231,6 +231,25 @@ class ProgressionActivity : AppCompatActivity() {
         tradesToggle = findViewById(R.id.progressionTradesToggle)
         val prefs = getSharedPreferences("progression_prefs", MODE_PRIVATE)
         chart.showTrades = prefs.getBoolean("show_trades", false)
+        legendText = findViewById(R.id.progressionLegend)
+        viewButton = findViewById(R.id.progressionViewButton)
+        chart.mode = try {
+            ProgressionChartView.Mode.valueOf(prefs.getString("chart_mode", null) ?: "VALUE_RETURN")
+        } catch (e: IllegalArgumentException) {
+            ProgressionChartView.Mode.VALUE_RETURN
+        }
+        renderViewControls()
+        viewButton.setOnClickListener {
+            val popup = android.widget.PopupMenu(this, viewButton)
+            ProgressionChartView.Mode.entries.forEachIndexed { i, m -> popup.menu.add(0, i, i, viewTitle(m)) }
+            popup.setOnMenuItemClickListener { item ->
+                chart.mode = ProgressionChartView.Mode.entries[item.itemId]
+                prefs.edit().putString("chart_mode", chart.mode.name).apply()
+                renderViewControls()
+                true
+            }
+            popup.show()
+        }
         renderTradesToggle()
         tradesToggle.setOnClickListener {
             chart.showTrades = !chart.showTrades
@@ -933,6 +952,46 @@ class ProgressionActivity : AppCompatActivity() {
         selectedTag != null -> "Weekly checkpoints for tag: ${selectedTag} (combined)"
         selectedAssetId != null -> "Weekly checkpoints for this fund"
         else -> "Weekly checkpoints"
+    }
+
+    private fun viewTitle(m: ProgressionChartView.Mode): String = when (m) {
+        ProgressionChartView.Mode.VALUE -> "Value & Invested"
+        ProgressionChartView.Mode.VALUE_RETURN -> "Value, Invested & Return %"
+        ProgressionChartView.Mode.GAIN -> "Gain (₹)"
+        ProgressionChartView.Mode.RETURN_PCT -> "Return (%)"
+        ProgressionChartView.Mode.DRAWDOWN -> "Drawdown"
+    }
+
+    /** Legend text and the View chip follow the chart mode; Trades only applies where Invested is drawn. */
+    private fun renderViewControls() {
+        val mode = chart.mode
+        viewButton.text = when (mode) {
+            ProgressionChartView.Mode.VALUE -> "View: Value ▾"
+            ProgressionChartView.Mode.VALUE_RETURN -> "View: + Return ▾"
+            ProgressionChartView.Mode.GAIN -> "View: Gain ₹ ▾"
+            ProgressionChartView.Mode.RETURN_PCT -> "View: Return % ▾"
+            ProgressionChartView.Mode.DRAWDOWN -> "View: Drawdown ▾"
+        }
+        val blue = androidx.core.content.ContextCompat.getColor(this, R.color.colorProgressionInvested)
+        val green = androidx.core.content.ContextCompat.getColor(this, R.color.colorGain)
+        val amber = androidx.core.content.ContextCompat.getColor(this, R.color.colorAmber)
+        val parts: List<Pair<String, Int>> = when (mode) {
+            ProgressionChartView.Mode.VALUE -> listOf("Invested" to blue, "Value" to green)
+            ProgressionChartView.Mode.VALUE_RETURN -> listOf("Invested" to blue, "Value" to green, "Return %" to amber)
+            ProgressionChartView.Mode.GAIN -> listOf("Value − Invested" to green)
+            ProgressionChartView.Mode.RETURN_PCT -> listOf("Gain ÷ Invested" to green)
+            ProgressionChartView.Mode.DRAWDOWN -> listOf("From running peak, deposits removed" to green)
+        }
+        val sb = android.text.SpannableStringBuilder()
+        parts.forEachIndexed { i, (label, color) ->
+            if (i > 0) sb.append("  ")
+            val start = sb.length
+            sb.append("▬ ")
+            sb.setSpan(android.text.style.ForegroundColorSpan(color), start, start + 1, 0)
+            sb.append(label)
+        }
+        legendText.text = sb
+        tradesToggle.visibility = if (mode == ProgressionChartView.Mode.VALUE || mode == ProgressionChartView.Mode.VALUE_RETURN) View.VISIBLE else View.GONE
     }
 
     private fun renderTradesToggle() {

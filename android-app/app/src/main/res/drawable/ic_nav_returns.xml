@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24"
+    android:tint="?attr/colorControlNormal">
+    <!-- A percent sign over a rising baseline: "returns". -->
+    <path
+        android:fillColor="@android:color/white"
+        android:pathData="M7.5,4.5C5.57,4.5 4,6.07 4,8s1.57,3.5 3.5,3.5S11,9.93 11,8 9.43,4.5 7.5,4.5zM7.5,9.8c-0.99,0 -1.8,-0.81 -1.8,-1.8s0.81,-1.8 1.8,-1.8 1.8,0.81 1.8,1.8 -0.81,1.8 -1.8,1.8zM16.5,12.5c-1.93,0 -3.5,1.57 -3.5,3.5s1.57,3.5 3.5,3.5 3.5,-1.57 3.5,-3.5 -1.57,-3.5 -3.5,-3.5zM16.5,17.8c-0.99,0 -1.8,-0.81 -1.8,-1.8s0.81,-1.8 1.8,-1.8 1.8,0.81 1.8,1.8 -0.81,1.8 -1.8,1.8zM18.1,4L5.9,20l-1.4,-1.1L16.7,2.9z" />
+</vector>

@@ -114,6 +114,9 @@ class MainActivity : AppCompatActivity() {
         findViewById<ImageButton>(R.id.dashboardSettingsButton).setOnClickListener {
             startActivity(Intent(this, SettingsActivity::class.java))
         }
+        findViewById<ImageButton>(R.id.dashboardMoreButton).setOnClickListener {
+            startActivity(Intent(this, MoreActivity::class.java))
+        }
         refreshButton.setOnClickListener { refreshAllPrices() }
 
         BottomNavHelper.setup(this, findViewById(R.id.bottomNav), BottomNavDestination.DASHBOARD)
