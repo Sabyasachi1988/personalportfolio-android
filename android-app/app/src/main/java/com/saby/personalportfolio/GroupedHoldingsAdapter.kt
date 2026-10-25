@@ -105,8 +105,7 @@ class GroupedHoldingsAdapter(
             val gainColor = androidx.core.content.ContextCompat.getColor(
                 holder.itemView.context, if (row.gain >= 0) R.color.colorGain else R.color.colorLoss
             )
-            val gainSign = if (row.gain >= 0) "+" else ""
-            holder.gainBadge.text = String.format(Locale.getDefault(), "%s%.2f%%", gainSign, row.gainPercent)
+            HoldingsAdapter.bindGainBadge(holder.gainBadge, row.gain, row.gainPercent)
             holder.gainBadge.setTextColor(gainColor)
             HoldingsAdapter.bindDayGain(holder.dayGain, row.hasDayGain, row.dayGain, row.dayGainPercent)
         } else {

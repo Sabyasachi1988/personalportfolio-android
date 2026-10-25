@@ -15,6 +15,19 @@ class HoldingsAdapter(private val holdings: List<Holding>) :
         private const val TYPE_HEADER = 0
         private const val TYPE_ROW = 1
 
+        /** Percentage return with the rupee return on a second, smaller line beneath it. */
+        fun bindGainBadge(badge: TextView, gain: Double, gainPercent: Double) {
+            val sign = if (gain >= 0) "+" else ""
+            val percentLine = String.format(Locale.getDefault(), "%s%.2f%%", sign, gainPercent)
+            val rupeeLine = IndianCurrencyFormatter.formatSigned(gain)
+            val text = android.text.SpannableString("$percentLine\n$rupeeLine")
+            text.setSpan(
+                android.text.style.RelativeSizeSpan(0.82f), percentLine.length + 1, text.length,
+                android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+            )
+            badge.text = text
+        }
+
         // Shared by HoldingsAdapter and GroupedHoldingsAdapter's own
         // per-row Day gain/loss line - see Holding.DayGain's doc comment
         // (internal/finance/holdings.go) for what this figure measures:
@@ -132,8 +145,7 @@ class HoldingsAdapter(private val holdings: List<Holding>) :
             val gainColor = androidx.core.content.ContextCompat.getColor(
                 rowHolder.itemView.context, if (h.gain >= 0) R.color.colorGain else R.color.colorLoss
             )
-            val gainSign = if (h.gain >= 0) "+" else ""
-            rowHolder.gainBadge.text = String.format(Locale.getDefault(), "%s%.2f%%", gainSign, h.gainPercent)
+            bindGainBadge(rowHolder.gainBadge, h.gain, h.gainPercent)
             rowHolder.gainBadge.setTextColor(gainColor)
 
             val xirrPart = if (h.hasXirr) String.format(Locale.getDefault(), " · XIRR %.2f%%", h.xirr) else ""

@@ -39,7 +39,14 @@ class ProgressionActivity : AppCompatActivity() {
     private val dailyModeHandler = Handler(Looper.getMainLooper())
     private var pendingDailyModeRunnable: Runnable? = null
     private val dailyZoomDebounceMillis = 400L
-    private val dailyZoomThresholdDays = 180
+    // Daily detail kicks in for any window of up to 6 calendar months. Six
+    // calendar months span 181-184 days, so the limit sits just above that;
+    // at exactly 180 the 6M chip fell on the wrong side of the line.
+    private val dailyZoomThresholdDays = 186
+    // Widest range a single daily fetch may ask for. Kept wider than the
+    // threshold so a 6-month window still has room to pan inside the loaded
+    // data instead of sitting against its edge.
+    private val dailyFetchMaxDays = 270
     // Delay before an edge-triggered top-up fetch. Much shorter than the
     // debounce above: that one waits for a pinch to settle, whereas this one
     // fires while the finger is still dragging so data is ready before the
@@ -734,7 +741,7 @@ class ProgressionActivity : AppCompatActivity() {
         var paddedStartMillis = start.time - paddingMillis
         var paddedEndMillis = end.time + paddingMillis
 
-        val maxWidthMillis = dailyZoomThresholdDays.toLong() * 24 * 60 * 60 * 1000
+        val maxWidthMillis = dailyFetchMaxDays.toLong() * 24 * 60 * 60 * 1000
         if (paddedEndMillis - paddedStartMillis > maxWidthMillis) {
             val center = (start.time + end.time) / 2
             paddedStartMillis = center - maxWidthMillis / 2
@@ -763,6 +770,7 @@ class ProgressionActivity : AppCompatActivity() {
         val memberAtStart = selectedMemberIndex
         val axisAtStart = currentAxis
         dailyFetchInFlight = true
+        var discardedForWindow = false
 
         backgroundExecutor.execute {
             // Same reasoning as loadAndShowProgression's try/catch - an
@@ -806,6 +814,23 @@ class ProgressionActivity : AppCompatActivity() {
                     // - protecting the code that SCHEDULES this block does
                     // not protect what's INSIDE it once it actually runs.
                     try {
+                        // The window the person is on NOW, which can differ
+                        // from the one this fetch was started for (they may
+                        // have tapped 3M or 1M while it was computing).
+                        // Re-applying the REQUESTED range here is what made
+                        // the chart flip back to the old window. Show the
+                        // current window instead, as long as the fetched
+                        // data covers it; otherwise drop this result and let
+                        // the follow-up fetch below load the right range.
+                        val now = chart.currentWindow()
+                        val showRange = now ?: (requestedStartDate to requestedEndDate)
+                        // A few days of slack: the weekly series can end on a date the daily data does not reach.
+                        val startGap = daysBetween(showRange.first, dailyPoints.first().date) ?: 0
+                        val endGap = daysBetween(dailyPoints.last().date, showRange.second) ?: 0
+                        if (startGap > 7 || endGap > 7) {
+                            discardedForWindow = true
+                            return@post
+                        }
                         inDailyMode = true
                         points = dailyPoints
                         // Recorded from the ACTUAL returned data, not the
@@ -823,7 +848,7 @@ class ProgressionActivity : AppCompatActivity() {
                         // requested padded range that was just fetched -
                         // see ProgressionChartView.setPoints' doc comment
                         // for the "snapping back out" bug this fixes.
-                        chart.setPoints(dailyPoints, requestedStartDate to requestedEndDate)
+                        chart.setPoints(dailyPoints, showRange)
                         resetZoomButton.alpha = 1f
                         statusText.text = when {
                             groupLabel != null -> "Daily detail for $groupLabel (combined)"
@@ -846,7 +871,8 @@ class ProgressionActivity : AppCompatActivity() {
                     // fetched range may still not cover it.
                     // Only while already on daily data: a failed first fetch
                     // from the weekly view must not retry itself endlessly.
-                    val w = if (inDailyMode) chart.currentWindow() else null
+                    // (Also once after a result was dropped because the window had moved on.)
+                    val w = if (inDailyMode || discardedForWindow) chart.currentWindow() else null
                     if (w != null) onChartWindowChanged(w.first, w.second, daysBetween(w.first, w.second) ?: 0)
                 }
             }
