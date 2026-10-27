@@ -273,6 +273,10 @@ class PriceHistoryChartView @JvmOverloads constructor(
         color = 0xFFB38CFF.toInt(); style = Paint.Style.STROKE; strokeWidth = 3f
         pathEffect = android.graphics.DashPathEffect(floatArrayOf(14f, 10f), 0f)
     }
+    private val latestPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = ContextCompat.getColor(context, R.color.colorPrimary); style = Paint.Style.STROKE; strokeWidth = 3f
+        pathEffect = android.graphics.DashPathEffect(floatArrayOf(6f, 8f), 0f)
+    }
     private val legendPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         textSize = 28f; color = ContextCompat.getColor(context, R.color.colorNeutral)
     }
@@ -538,6 +542,22 @@ class PriceHistoryChartView @JvmOverloads constructor(
         }
         if (showMean) refLine(ChartScale.mean(prices, 0, prices.size - 1), meanPaint, "- - Mean")
         if (showMedian) refLine(ChartScale.median(prices, 0, prices.size - 1), medianPaint, "- - Median")
+
+        // Dashed line at the latest value (the series' last point, wherever the window sits),
+        // so any past point can be read against where the price is today.
+        points.lastOrNull()?.let { latest ->
+            val y = yFor(latest.price)
+            if (y in chartTop..chartBottom) {
+                canvas.drawLine(chartLeft, y, chartRight, y, latestPaint)
+                axisLabelPaint.textAlign = Paint.Align.RIGHT
+                val lbl = "Latest " + PricePerUnitFormatter.format(latest.price, decimals = 2)
+                val ly = if (y - chartTop > 40f) y - 10f else y + 30f
+                val old = axisLabelPaint.color
+                axisLabelPaint.color = latestPaint.color
+                canvas.drawText(lbl, chartRight - 8f, ly, axisLabelPaint)
+                axisLabelPaint.color = old
+            }
+        }
 
         canvas.save()
         canvas.clipRect(chartLeft - 2f, 0f, chartLeft + chartWidth * revealFraction + 2f, h)
