@@ -227,7 +227,7 @@ class ScreenerActivity : AppCompatActivity() {
         val fl = field("Large-cap share at least (%)  [funds with portfolio data]", filters.minLarge)
         val fm = field("Mid-cap share at least (%)", filters.minMid)
         val fsm = field("Small-cap share at most (%)", filters.maxSmall)
-        val only = CheckBox(this).apply { text = "Only funds with portfolio (cap) data"; isChecked = filters.onlyWithCapMix }
+        val only = CheckBox(this).apply { text = "Only funds with portfolio (cap) data"; isChecked = this@ScreenerActivity.filters.onlyWithCapMix }
         box.addView(only)
         AlertDialog.Builder(this).setTitle("Filters").setView(ScrollView(this).apply { addView(box) })
             .setPositiveButton("Apply") { _, _ ->
