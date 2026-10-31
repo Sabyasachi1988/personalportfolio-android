@@ -157,6 +157,13 @@ class AdditionalFundsActivity : AppCompatActivity() {
         recyclerView.adapter = AdditionalFundsAdapter(
             funds = trackedFunds,
             hasHistory = { id -> id in pricedSeriesIds },
+            notesFor = { id ->
+                val h = snapshot.fundHistories.orEmpty().firstOrNull { it.assetId == id }
+                listOfNotNull(
+                    h?.navNote?.takeIf { it.isNotBlank() }?.let { "NAV: $it" },
+                    h?.note?.takeIf { it.isNotBlank() }?.let { "Cap/sector: $it" }
+                ).joinToString("\n")
+            },
             onRefresh = { fund, rowHolder -> refreshHistory(fund, rowHolder) },
             onDelete = { fund -> deleteTrackedFund(fund) }
         )
@@ -196,6 +203,23 @@ class AdditionalFundsActivity : AppCompatActivity() {
     private fun addTrackedFund(name: String, isin: String) {
         val portfolioPath = PortfolioStorage.filePath(this)
         val portfolioJson = PortfolioLoadCache.load(portfolioPath)
+        // Guard: the same ISIN already in the portfolio (owned or tracked) is never added a second time -
+        // a second Asset row would split one fund's history into two separate price series. Instead the
+        // existing one is topped up (only the missing days are fetched; existing prices are never blindly overwritten).
+        val snap: AdditionalFundsSnapshot? = try {
+            gson.fromJson(portfolioJson, AdditionalFundsSnapshot::class.java)
+        } catch (e: Exception) { null }
+        val existing = snap?.assets.orEmpty().firstOrNull { it.isin.equals(isin, ignoreCase = true) }
+        if (existing != null) {
+            val owned = existing.accountId.isNotEmpty()
+            Toast.makeText(
+                this,
+                if (owned) "Already in your portfolio - updating its existing history instead" else "Already tracked - updating its history",
+                Toast.LENGTH_LONG
+            ).show()
+            pullFundInBackground(existing.id, existing.name)
+            return
+        }
         val afterAdd = Bridge.addTrackedFund(portfolioJson, name, isin)
         if (isBridgeError(afterAdd)) {
             Toast.makeText(this, "Failed to add: $afterAdd", Toast.LENGTH_LONG).show()
@@ -206,8 +230,31 @@ class AdditionalFundsActivity : AppCompatActivity() {
             Toast.makeText(this, "Failed to save: $saveResult", Toast.LENGTH_LONG).show()
             return
         }
-        Toast.makeText(this, "Added $name - tap Refresh to fetch its history", Toast.LENGTH_SHORT).show()
         reload()
+        val added = try {
+            gson.fromJson(afterAdd, AdditionalFundsSnapshot::class.java)?.assets.orEmpty()
+                .lastOrNull { it.isin.equals(isin, ignoreCase = true) }
+        } catch (e: Exception) { null }
+        if (added != null) {
+            Toast.makeText(this, "Added $name - fetching its history…", Toast.LENGTH_SHORT).show()
+            pullFundInBackground(added.id, name)
+        }
+    }
+
+    /** NAV history + published cap/sector history for one fund, off the main thread. Re-pulling later only fetches what's new. */
+    private fun pullFundInBackground(assetId: String, name: String, full: Boolean = false) {
+        Thread {
+            // The bridge works on the file: network first, then reload-fresh + merge + save (nothing saved meanwhile is lost).
+            val result = Bridge.pullFundAtPath(PortfolioStorage.filePath(this), assetId, full)
+            mainHandler.post {
+                if (isBridgeError(result)) {
+                    Toast.makeText(this, "Could not fetch history: $result", Toast.LENGTH_LONG).show()
+                } else {
+                    Toast.makeText(this, "$name history updated", Toast.LENGTH_SHORT).show()
+                    reload()
+                }
+            }
+        }.start()
     }
 
     private fun deleteTrackedFund(fund: AssetSummary) {
@@ -229,21 +276,7 @@ class AdditionalFundsActivity : AppCompatActivity() {
     private fun refreshHistory(fund: AssetSummary, rowHolder: AdditionalFundsAdapter.RowHolder) {
         rowHolder.refreshButton.isEnabled = false
         rowHolder.status.text = "Fetching…"
-        val portfolioPath = PortfolioStorage.filePath(this)
-        val portfolioJson = PortfolioLoadCache.load(portfolioPath)
-        val afterFetch = Bridge.updateHistoricalNav(portfolioJson, fund.id, fund.isin)
-        rowHolder.refreshButton.isEnabled = true
-        if (isBridgeError(afterFetch)) {
-            Toast.makeText(this, "Failed to fetch history: $afterFetch", Toast.LENGTH_LONG).show()
-            rowHolder.status.text = fund.isin
-            return
-        }
-        val saveResult = Bridge.savePortfolio(portfolioPath, afterFetch)
-        if (isBridgeError(saveResult)) {
-            Toast.makeText(this, "Failed to save: $saveResult", Toast.LENGTH_LONG).show()
-            return
-        }
-        Toast.makeText(this, "${fund.name} history updated", Toast.LENGTH_SHORT).show()
-        reload()
+        pullFundInBackground(fund.id, fund.name)
+        mainHandler.postDelayed({ rowHolder.refreshButton.isEnabled = true }, 1500)
     }
 }

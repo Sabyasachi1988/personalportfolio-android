@@ -65,7 +65,8 @@ data class ReturnsTableRow(
 /** Assets+Prices from the raw portfolio JSON, reusing AssetSummary (see CapCompositionModels.kt) - only what the Additional Funds screen needs. */
 data class AdditionalFundsSnapshot(
     @SerializedName("Assets") val assets: List<AssetSummary>?,
-    @SerializedName("Prices") val prices: List<PricePoint>?
+    @SerializedName("Prices") val prices: List<PricePoint>?,
+    @SerializedName("FundHistories") val fundHistories: List<FundHistorySummary>? = null
 )
 
 /** Mirrors bridge.ResolveFundNameByISIN's success shape ({"name":"..."}). */

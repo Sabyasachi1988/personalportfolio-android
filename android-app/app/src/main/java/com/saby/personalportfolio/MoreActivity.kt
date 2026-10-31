@@ -20,6 +20,9 @@ class MoreActivity : AppCompatActivity() {
         findViewById<View>(R.id.moreImportCard).setOnClickListener {
             startActivity(Intent(this, ImportActivity::class.java))
         }
+        findViewById<View>(R.id.moreCompositionCard).setOnClickListener {
+            startActivity(Intent(this, CompositionHistoryActivity::class.java))
+        }
         findViewById<View>(R.id.moreStockTrackerCard).setOnClickListener {
             OtherApp.open(this, OtherApp.STOCK_TRACKER, "Stock Tracker")
         }

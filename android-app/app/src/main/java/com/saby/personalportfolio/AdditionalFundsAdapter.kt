@@ -11,6 +11,7 @@ import androidx.recyclerview.widget.RecyclerView
 class AdditionalFundsAdapter(
     private val funds: List<AssetSummary>,
     private val hasHistory: (assetId: String) -> Boolean,
+    private val notesFor: (assetId: String) -> String = { "" },
     private val onRefresh: (fund: AssetSummary, rowHolder: RowHolder) -> Unit,
     private val onDelete: (fund: AssetSummary) -> Unit
 ) : RecyclerView.Adapter<AdditionalFundsAdapter.RowHolder>() {
@@ -37,11 +38,12 @@ class AdditionalFundsAdapter(
         // here.
         val displayName = NicknameResolver.resolve(fund.name, fund.nickname)
         holder.name.text = displayName
-        holder.status.text = if (hasHistory(fund.id)) {
+        val notes = notesFor(fund.id)
+        holder.status.text = (if (hasHistory(fund.id)) {
             fund.isin
         } else {
             "${fund.isin} - no history fetched yet, tap Refresh"
-        }
+        }) + (if (notes.isNotBlank()) "\n$notes" else "")
         holder.refreshButton.setOnClickListener { onRefresh(fund, holder) }
         holder.deleteButton.setOnClickListener { onDelete(fund) }
     }

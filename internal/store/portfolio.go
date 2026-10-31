@@ -428,6 +428,7 @@ type Portfolio struct {
 	Transactions             []StoredTransaction
 	Prices                   []PriceRecord
 	CapCompositions          []CapComposition
+	FundHistories            []FundHistory
 	TargetAllocation         TargetAllocation
 	EquityOriginCompositions []EquityOriginComposition
 	PortfolioClassTarget     PortfolioClassTarget
@@ -540,6 +541,9 @@ func Load(path string) (*Portfolio, error) {
 	}
 	if p.Benchmarks == nil {
 		p.Benchmarks = []Benchmark{}
+	}
+	if p.FundHistories == nil {
+		p.FundHistories = []FundHistory{}
 	}
 	return &p, nil
 }

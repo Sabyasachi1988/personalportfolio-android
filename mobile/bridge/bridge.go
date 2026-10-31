@@ -1611,18 +1611,9 @@ func UpdateHistoricalNav(portfolioJSON string, assetID string, isin string) stri
 		return `{"error":"ISIN cannot be empty"}`
 	}
 
-	since := dayAfterLatest(p.PriceSeries(assetID))
-	history, err := priceapi.FetchTigzigNavHistory(isin, since)
-	if err != nil {
+	if err := pullNavGuarded(&p, assetID, isin, false); err != nil {
 		return fmt.Sprintf(`{"error":%q}`, err.Error())
 	}
-	records := make([]store.PriceRecord, 0, len(history.Data))
-	for _, pt := range history.Data {
-		records = append(records, store.PriceRecord{
-			AssetID: assetID, Date: pt.Date, Price: pt.Nav, Source: "TIGZIG_HISTORY",
-		})
-	}
-	p.UpsertPrices(records)
 
 	// Self-heal a stale "Name == ISIN" entry - a confirmed real
 	// leftover from the sync.Once scheme-list cache permanently

@@ -28,6 +28,7 @@ class PersonalPortfolioApp : Application() {
 
             override fun onStart(owner: LifecycleOwner) {
                 val app = this@PersonalPortfolioApp
+                FundDataSync.maybeRun(app)
                 if (!LockPreference.isEnabled(app)) {
                     AppLockManager.isLocked = false
                     return
