@@ -28,6 +28,7 @@ data class CompositionPoint(
     @SerializedName("Unclassified") val unclassified: Double = 0.0,
     @SerializedName("NoData") val noData: Double = 0.0,
     @SerializedName("Estimated") val estimated: Double = 0.0,
+    @SerializedName("Extra") val extra: Map<String, Double>? = null,
     @SerializedName("Sectors") val sectors: Map<String, Double>? = null,
     @SerializedName("OtherBy") val otherBy: Map<String, Double>? = null,
     @SerializedName("NoDataBy") val noDataBy: Map<String, Double>? = null

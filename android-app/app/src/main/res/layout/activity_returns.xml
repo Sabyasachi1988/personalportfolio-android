@@ -12,53 +12,53 @@
         android:padding="20dp">
 
 
-    <LinearLayout
+    <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center_vertical">
+        android:text="Returns"
+        android:textSize="20sp"
+        android:textStyle="bold" />
 
-        <TextView
-            android:layout_width="0dp"
-            android:layout_weight="1"
+    <HorizontalScrollView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
+        android:scrollbars="none">
+
+        <LinearLayout
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Returns"
-            android:textSize="20sp"
-            android:textStyle="bold" />
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
 
-        <TextView
-            android:id="@+id/returnsCompareButton"
-            style="@style/ActionChip"
-            android:layout_width="wrap_content"
-            android:layout_marginEnd="8dp"
-            android:text="Compare" />
+            <TextView
+                android:id="@+id/returnsCompareButton"
+                style="@style/ActionChip"
+                android:layout_width="wrap_content"
+                android:layout_marginEnd="8dp"
+                android:text="Compare" />
 
-        <TextView
-            android:id="@+id/returnsManageNamesButton"
-            style="@style/ActionChip"
-            android:layout_width="wrap_content"
-            android:layout_marginEnd="8dp"
-            android:text="Names" />
+            <TextView
+                android:id="@+id/returnsManageAdditionalFundsButton"
+                style="@style/ActionChip"
+                android:layout_width="wrap_content"
+                android:layout_marginEnd="8dp"
+                android:text="+ Add funds" />
 
-        <ImageButton
-            android:id="@+id/returnsManageAdditionalFundsButton"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:padding="8dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:src="@drawable/ic_tab_layers"
-            android:contentDescription="Manage Additional Funds" />
+            <TextView
+                android:id="@+id/returnsManageBenchmarksButton"
+                style="@style/ActionChip"
+                android:layout_width="wrap_content"
+                android:layout_marginEnd="8dp"
+                android:text="Benchmarks" />
 
-        <ImageButton
-            android:id="@+id/returnsManageBenchmarksButton"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:padding="8dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:src="@drawable/ic_settings_gear"
-            android:contentDescription="Manage benchmarks" />
-
-    </LinearLayout>
+            <TextView
+                android:id="@+id/returnsManageNamesButton"
+                style="@style/ActionChip"
+                android:layout_width="wrap_content"
+                android:text="Names" />
+        </LinearLayout>
+    </HorizontalScrollView>
 
     <TextView
         android:layout_width="match_parent"

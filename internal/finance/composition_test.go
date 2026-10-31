@@ -49,3 +49,51 @@ func TestComputeFundCompositionSingleFund(t *testing.T) {
 		t.Fatalf("unknown asset should be empty, got %d", n)
 	}
 }
+
+// The donut/dashboard/drift market-cap numbers and the newest Over Time point must be the same numbers.
+func TestMarketCapMixAgreesAcrossViews(t *testing.T) {
+	u := func(v float64) *float64 { return &v }
+	now := time.Now().UTC()
+	today := now.Format("2006-01-02")
+	start := now.AddDate(0, -3, 0).Format("2006-01-02")
+	p := &store.Portfolio{
+		Accounts: []store.Account{{ID: "ac", MemberID: "m", Currency: "INR"}},
+		Assets: []store.Asset{
+			{ID: "A", Name: "Pub Fund", AccountID: "ac", Type: "MutualFund"},
+			{ID: "B", Name: "Hand Fund", AccountID: "ac", Type: "MutualFund"},
+			{ID: "C", Name: "NIFTYBEES", AccountID: "ac", Type: "Stock"},
+		},
+		Transactions: []store.StoredTransaction{
+			{AssetID: "A", Date: start, Units: u(10), Amount: -1000}, {AssetID: "B", Date: start, Units: u(10), Amount: -2000}, {AssetID: "C", Date: start, Units: u(10), Amount: -500},
+		},
+		Prices: []store.PriceRecord{
+			{AssetID: "A", Date: today, Price: 100}, {AssetID: "B", Date: today, Price: 200}, {AssetID: "C", Date: today, Price: 50},
+		},
+	}
+	p.MergeFundMonths("A", "1", "v", "d", []store.FundMonth{{Month: now.AddDate(0, -1, 0).Format("2006-01"), Split: []float64{60, 20, 10, 2, 3, 1, 2, 2}}})
+	p.SetCapComposition("B", 10, 20, 70, 0, now.Format("2006-01")+"-01", "Manual entry")
+	hs := ComputeHoldings(p)
+	slices := AllocationByMarketCapMix(p, hs, now)
+	by := map[string]float64{}
+	for _, s := range slices {
+		by[s.Label] = s.Percent
+	}
+	pts := ComputeCompositionHistory(p, "", now)
+	last := pts[len(pts)-1]
+	chk := func(name string, donut, over float64) {
+		if math.Abs(donut-over) > 0.02 {
+			t.Errorf("%s: donut %.2f vs over-time %.2f", name, donut, over)
+		}
+	}
+	chk("large", by["Large Cap"], last.Large)
+	chk("mid", by["Mid Cap"], last.Mid)
+	chk("small", by["Small Cap"], last.Small)
+	chk("cash", by["Cash"], last.Cash)
+	chk("debt", by["Debt"], last.Debt)
+	chk("foreign", by["International Equity"], last.Foreign)
+	chk("others", by["Others"], last.Other)
+	chk("unclassified", by["Unclassified"], last.Unclassified)
+	if by["Large Cap"] < 1 {
+		t.Fatalf("expected some large cap: %v", by)
+	}
+}

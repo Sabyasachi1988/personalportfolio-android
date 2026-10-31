@@ -173,7 +173,7 @@ class CompositionHistoryPage(private val activity: AppCompatActivity) {
     } catch (e: Exception) { "" }
 
     /** value as a share of covered holdings (no-data slice removed), so the stack totals 100. */
-    private fun cov(p: CompositionPoint) = (100.0 - p.noData).coerceAtLeast(1.0)
+    private fun cov(p: CompositionPoint) = 100.0
 
     private fun rebuild(animate: Boolean) {
         val title = root.findViewById<TextView>(R.id.overTimeChartTitle)
@@ -205,6 +205,10 @@ class CompositionHistoryPage(private val activity: AppCompatActivity) {
             add("Foreign", color(R.color.viz_s7)) { it.foreign }
             add("Other", color(R.color.viz_neutral)) { it.other }
             add("Unclassified equity", color(R.color.viz_neutral_soft)) { it.unclassified }
+            // labels the name-guess fallback can produce for a fund with no published split
+            add("Multi Cap", color(R.color.viz_s6)) { it.extra?.get("Multi Cap") ?: 0.0 }
+            add("Flexi Cap", color(R.color.viz_s6)) { it.extra?.get("Flexi Cap") ?: 0.0 }
+            add("Commodity", color(R.color.viz_neutral)) { it.extra?.get("Commodity") ?: 0.0 }
         } else {
             picked.keys.retainAll { k -> points.any { it.sectors?.containsKey(k) == true } }
             if (picked.isEmpty()) {
@@ -223,7 +227,7 @@ class CompositionHistoryPage(private val activity: AppCompatActivity) {
         val last = points.last()
         root.findViewById<TextView>(R.id.overTimeCoverage).text =
             if (fundId.isNotEmpty()) "Source: the fund house's published monthly portfolio, classified with AMFI's half-yearly cap list. Months marked estimated are look-throughs from a same-index fund." else
-            "Published fund data covers ${"%.0f".format(100 - last.noData)}% of your latest value" +
+            "Published fund data covers ${"%.0f".format(100 - last.noData)}% of your latest value; the rest uses figures you entered or a guess from the fund name" +
                 (if (last.estimated >= 1) ", of which ${"%.0f".format(last.estimated)}% uses estimated months" else "") +
                 ". The newest month reuses the previous month's portfolio until fund houses publish it, around the middle of the following month."
     }
@@ -369,7 +373,7 @@ class CompositionHistoryPage(private val activity: AppCompatActivity) {
             .joinToString(", ") { "${FundNameFormatter.shorten(it.key).ifBlank { it.key }} ${"%.1f".format(it.value)}%" }
         val parts = listOfNotNull(
             fmt(p.otherBy).takeIf { it.isNotBlank() }?.let { "Other comes from: $it" },
-            fmt(p.noDataBy).takeIf { it.isNotBlank() }?.let { "No fund data for: $it" }
+            fmt(p.noDataBy).takeIf { it.isNotBlank() }?.let { "Estimated from entered figures or the fund name (no published data): $it" }
         )
         if (sectorMode) {
             val c = cov(p)

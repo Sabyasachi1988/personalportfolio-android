@@ -25,6 +25,7 @@ type CompositionPoint struct {
 	Unclassified float64 // Indian-listed equity the AMFI list does not categorise (new listings, delisted, ISIN gaps)
 	NoData       float64 // value held in funds with no published split for that month
 	Estimated    float64 // share of value whose month was estimated or carried from another month
+	Extra        map[string]float64 // name-guess labels with no published bucket (Multi Cap, Flexi Cap, Commodity), percent of value
 	Sectors      map[string]float64
 	OtherBy      map[string]float64 // fund name -> percent of portfolio value that sits in Other / unclassified
 	NoDataBy     map[string]float64 // fund name -> percent of portfolio value with no published split
@@ -144,34 +145,53 @@ func ComputeCompositionHistory(p *store.Portfolio, memberID string, today time.T
 			v := u * price
 			total += v
 			name := included[id].Name
-			h, has := p.FundHistoryFor(id)
-			if !has {
+			mix, src := MarketCapMixFor(p, id, name, pt.Month)
+			if src == "name" || src == "entered" {
+				// no published figures for this holding: it still counts (same rule as the donut) but is reported as such
 				noData += v
 				why := name
 				if strings.TrimSpace(included[id].ISIN) == "" {
 					why += " (no ISIN stored)"
 				}
 				noDataBy[why] += v
-				continue
-			}
-			m, flagged, found := fundMonthFor(h, pt.Month)
-			if !found || len(m.Split) < 8 {
-				noData += v
-				noDataBy[name] += v
-				continue
-			}
-			otherBy[name] += v * m.Split[7]
-			if flagged {
+			} else if src == "estimated" {
 				est += v
 			}
-			pt.Large += v * m.Split[0]
-			pt.Mid += v * m.Split[1]
-			pt.Small += v * m.Split[2]
-			pt.Other += v * m.Split[7]
-			pt.Unclassified += v * m.Split[3]
-			pt.Foreign += v * m.Split[4]
-			pt.Debt += v * m.Split[5]
-			pt.Cash += v * m.Split[6]
+			for label, w := range mix {
+				x := v * w * 100 // percent-of-value units, matching the factor below
+				switch label {
+				case "Large Cap":
+					pt.Large += x
+				case "Mid Cap":
+					pt.Mid += x
+				case "Small Cap":
+					pt.Small += x
+				case "Unclassified":
+					pt.Unclassified += x
+				case "International Equity":
+					pt.Foreign += x
+				case "Debt":
+					pt.Debt += x
+				case "Cash":
+					pt.Cash += x
+				case "Others":
+					pt.Other += x
+					otherBy[name] += x
+				default:
+					if pt.Extra == nil {
+						pt.Extra = map[string]float64{}
+					}
+					pt.Extra[label] += x
+				}
+			}
+			h, has := p.FundHistoryFor(id)
+			if !has {
+				continue
+			}
+			m, _, found := fundMonthFor(h, pt.Month)
+			if !found {
+				continue
+			}
 			for k, x := range m.Sectors {
 				sec[k] += v * x
 			}
@@ -185,6 +205,9 @@ func ComputeCompositionHistory(p *store.Portfolio, memberID string, today time.T
 			pt.Other *= f
 			pt.Unclassified *= f
 			pt.Foreign *= f
+			for k := range pt.Extra {
+				pt.Extra[k] *= f
+			}
 			pt.Debt *= f
 			pt.Cash *= f
 			pt.NoData = noData / total * 100
@@ -257,6 +280,86 @@ func PublishedSplitsByAsset(p *store.Portfolio, now time.Time) map[string][]floa
 			continue
 		}
 		out[h.AssetID] = m.Split
+	}
+	return out
+}
+
+// The eight published buckets, as the labels every market-cap view in the app uses.
+var capLabels = [8]string{"Large Cap", "Mid Cap", "Small Cap", "Unclassified", "International Equity", "Debt", "Cash", "Others"}
+
+// MarketCapMixFor is THE single place that decides how one holding splits across market-cap labels for a month
+// ("YYYY-MM"). Every screen (dashboard donut, Allocation donut, target drift, holdings-by-segment, Over Time) calls it,
+// so the same number appears everywhere. Order of precedence:
+//  1. the fund's published monthly disclosure (month, else the latest earlier month) - unless a cap composition the
+//     person entered by hand is NEWER than that published month (and not after `month`), which then wins;
+//  2. an entered cap composition;
+//  3. a guess from the fund's name (GuessMarketCapSplit).
+//
+// Returns fractions (sum ~1) by label and the source: "published", "estimated" (a published month that is itself an
+// estimate or carried 2+ months), "entered" or "name".
+func MarketCapMixFor(p *store.Portfolio, assetID, assetName, month string) (map[string]float64, string) {
+	manual, hasManual := p.GetCapComposition(assetID)
+	if h, ok := p.FundHistoryFor(assetID); ok {
+		if m, flagged, found := fundMonthFor(h, month); found && len(m.Split) >= 8 {
+			manualWins := hasManual && len(manual.AsOf) >= 7 && manual.AsOf[:7] > m.Month && manual.AsOf[:7] <= month
+			if !manualWins {
+				out := map[string]float64{}
+				for i, w := range m.Split[:8] {
+					if w > 0 {
+						out[capLabels[i]] = w / 100
+					}
+				}
+				if flagged {
+					return out, "estimated"
+				}
+				return out, "published"
+			}
+		}
+	}
+	if hasManual {
+		if sum := manual.Large + manual.Mid + manual.Small + manual.Cash; sum > 0 {
+			out := map[string]float64{}
+			for k, v := range map[string]float64{"Large Cap": manual.Large, "Mid Cap": manual.Mid, "Small Cap": manual.Small, "Cash": manual.Cash} {
+				if v > 0 {
+					out[k] = v / sum
+				}
+			}
+			return out, "entered"
+		}
+	}
+	return GuessMarketCapSplit(assetName), "name"
+}
+
+// AllocationByMarketCapMix is the market-cap donut: every priced holding's current value spread over the labels
+// MarketCapMixFor gives it.
+func AllocationByMarketCapMix(p *store.Portfolio, holdings []Holding, now time.Time) []AllocationSlice {
+	month := now.Format("2006-01")
+	totals := map[string]float64{}
+	var total float64
+	for _, h := range holdings {
+		if !h.HasPrice {
+			continue
+		}
+		mix, _ := MarketCapMixFor(p, h.AssetID, h.AssetName, month)
+		for k, w := range mix {
+			totals[k] += h.CurrentValue * w
+		}
+		total += h.CurrentValue
+	}
+	return toSlices(totals, total)
+}
+
+// HoldingsInMarketCapSegment lists the holdings that put any value in the given label, by the same rule as the donut.
+func HoldingsInMarketCapSegment(p *store.Portfolio, holdings []Holding, label string, now time.Time) []Holding {
+	month := now.Format("2006-01")
+	var out []Holding
+	for _, h := range holdings {
+		if !h.HasPrice {
+			continue
+		}
+		if mix, _ := MarketCapMixFor(p, h.AssetID, h.AssetName, month); mix[label] > 0 {
+			out = append(out, h)
+		}
 	}
 	return out
 }

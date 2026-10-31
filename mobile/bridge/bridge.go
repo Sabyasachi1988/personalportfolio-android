@@ -409,7 +409,7 @@ func ComputeDashboard(portfolioJSON string, memberID string, today string) strin
 		// origin/class allocation are whole-family always (matches
 		// ComputeAllocationByEquityOrigin/ByPortfolioClass, which never
 		// took a memberID param in the first place).
-		MarketCapSlices: finance.AllocationByMarketCapSegmentSplits(memberHoldings, capCompByAsset, finance.PublishedSplitsByAsset(&p, time.Now().UTC())),
+		MarketCapSlices: finance.AllocationByMarketCapMix(&p, memberHoldings, time.Now().UTC()),
 		OriginSlices:    finance.AllocationByEquityOrigin(allHoldings, classByAsset, originCompByAsset),
 		ClassSlices:     finance.AllocationByPortfolioClass(allHoldings, classByAsset),
 	}
@@ -445,7 +445,7 @@ func ComputeAllocationByMarketCap(portfolioJSON string, memberID string) string 
 		}
 	}
 
-	slices := finance.AllocationByMarketCapSegmentSplits(holdings, compByAsset, finance.PublishedSplitsByAsset(&p, time.Now().UTC()))
+	slices := finance.AllocationByMarketCapMix(&p, holdings, time.Now().UTC())
 	out, err := json.Marshal(slices)
 	if err != nil {
 		return fmt.Sprintf(`{"error":%q}`, err.Error())
@@ -1560,7 +1560,7 @@ func ComputeAllocationDrift(portfolioJSON string) string {
 			compByAsset[a.ID] = c
 		}
 	}
-	actual := finance.AllocationByMarketCapSegmentSplits(holdings, compByAsset, finance.PublishedSplitsByAsset(&p, time.Now().UTC()))
+	actual := finance.AllocationByMarketCapMix(&p, holdings, time.Now().UTC())
 	drift := finance.AllocationDrift(actual, p.TargetAllocation)
 
 	driftJSON, err := json.Marshal(drift)
@@ -3502,7 +3502,7 @@ func ComputeHoldingsInSegment(portfolioJSON string, memberID string, segmentLabe
 		}
 	}
 
-	filtered := finance.HoldingsInSegment(holdings, compByAsset, segmentLabel)
+	filtered := finance.HoldingsInMarketCapSegment(&p, holdings, segmentLabel, time.Now().UTC())
 	out, err := json.Marshal(filtered)
 	if err != nil {
 		return fmt.Sprintf(`{"error":%q}`, err.Error())
