@@ -70,7 +70,11 @@ class StackedAreaChartView @JvmOverloads constructor(
         return Paint(Paint.ANTI_ALIAS_FLAG).apply { shader = BitmapShader(bmp, Shader.TileMode.REPEAT, Shader.TileMode.REPEAT) }
     }
 
-    fun setData(labels: List<String>, series: List<Series>, animate: Boolean = true) {
+    private var yMax = 100.0
+
+    /** [yMax] is the axis maximum in the same unit as the values (100 for a 100%-stacked chart). */
+    fun setData(labels: List<String>, series: List<Series>, animate: Boolean = true, yMax: Double = 100.0) {
+        this.yMax = yMax.coerceAtLeast(1.0)
         this.labels = labels
         this.series = series
         selected = if (labels.isEmpty()) -1 else labels.size - 1
@@ -102,10 +106,11 @@ class StackedAreaChartView @JvmOverloads constructor(
         val top = padT
         val bottom = height - padB
         val h = bottom - top
-        for (p in intArrayOf(0, 25, 50, 75, 100)) {
-            val y = bottom - h * p / 100f
+        for (q in 0..4) {
+            val y = bottom - h * q / 4f
+            val v = yMax * q / 4
             c.drawLine(padL, y, width - padR, y, grid)
-            c.drawText("$p%", 0f, y + axisText.textSize / 3, axisText)
+            c.drawText(if (v == Math.floor(v)) "${v.toInt()}%" else "%.1f%%".format(v), 0f, y + axisText.textSize / 3, axisText)
         }
         if (n == 0 || series.isEmpty()) return
         c.save()
@@ -114,10 +119,10 @@ class StackedAreaChartView @JvmOverloads constructor(
         for (s in series) {
             val path = Path()
             for (i in 0 until n) {
-                val y = bottom - h * ((base[i] + s.values[i]) / 100.0).toFloat().coerceIn(0f, 1f)
+                val y = bottom - h * ((base[i] + s.values[i]) / yMax).toFloat().coerceIn(0f, 1f)
                 if (i == 0) path.moveTo(xAt(i, n), y) else path.lineTo(xAt(i, n), y)
             }
-            for (i in n - 1 downTo 0) path.lineTo(xAt(i, n), bottom - h * (base[i] / 100.0).toFloat().coerceIn(0f, 1f))
+            for (i in n - 1 downTo 0) path.lineTo(xAt(i, n), bottom - h * (base[i] / yMax).toFloat().coerceIn(0f, 1f))
             path.close()
             if (s.hatched) c.drawPath(path, hatchPaint) else { fill.color = s.color; c.drawPath(path, fill) }
             c.drawPath(path, gap)
@@ -144,7 +149,7 @@ class StackedAreaChartView @JvmOverloads constructor(
             var acc = 0.0
             for (s in series) {
                 acc += s.values[selected]
-                val y = bottom - h * (acc / 100.0).toFloat().coerceIn(0f, 1f)
+                val y = bottom - h * (acc / yMax).toFloat().coerceIn(0f, 1f)
                 dot.color = surface; c.drawCircle(x, y, 5f * d, dot)
                 dot.color = if (s.hatched) onSurface else s.color; c.drawCircle(x, y, 3f * d, dot)
             }
@@ -157,11 +162,19 @@ class StackedAreaChartView @JvmOverloads constructor(
         val title = labels[selected]
         val rowH = 18f * d
         val pad = 10f * d
+        val maxW = width * 0.78f - pad * 2
+        fun fit(t: String, room: Float): String {
+            if (bubbleText.measureText(t) <= room) return t
+            var e = t.length
+            while (e > 3 && bubbleText.measureText(t.substring(0, e) + "…") > room) e--
+            return t.substring(0, e).trimEnd() + "…"
+        }
         var w = bubbleTitle.measureText(title)
-        rows.forEach { (s, v) -> w = maxOf(w, 14f * d + bubbleText.measureText(s.name) + 14f * d + bubbleVal.measureText("%.1f%%".format(v))) }
-        val bw = w + pad * 2
+        rows.forEach { (s, v) -> w = maxOf(w, 14f * d + minOf(bubbleText.measureText(s.name), maxW * 0.62f) + 14f * d + bubbleVal.measureText("%.1f%%".format(v))) }
+        val bw = minOf(w, maxW) + pad * 2
         val bh = pad * 2 + 18f * d + rows.size * rowH
-        val left = if (cx + 14 * d + bw < width) cx + 14 * d else cx - 14 * d - bw
+        val rawLeft = if (cx + 14 * d + bw < width - 4 * d) cx + 14 * d else cx - 14 * d - bw
+        val left = rawLeft.coerceIn(4 * d, (width - bw - 4 * d).coerceAtLeast(4 * d))
         val r = RectF(left, top + 4 * d, left + bw, top + 4 * d + bh)
         c.drawRoundRect(r, 12 * d, 12 * d, bubbleFill)
         c.drawRoundRect(r, 12 * d, 12 * d, bubbleLine)
@@ -172,7 +185,7 @@ class StackedAreaChartView @JvmOverloads constructor(
             y += rowH
             dot.color = if (s.hatched) ContextCompat.getColor(context, R.color.viz_neutral) else s.color
             c.drawCircle(r.left + pad + 4f * d, y - 4f * d, 4f * d, dot)
-            c.drawText(s.name, r.left + pad + 14f * d, y, bubbleText)
+            c.drawText(fit(s.name, bw - pad * 2 - 14f * d - 14f * d - bubbleVal.measureText("%.1f%%".format(v))), r.left + pad + 14f * d, y, bubbleText)
             c.drawText("%.1f%%".format(v), r.right - pad, y, bubbleVal)
         }
     }

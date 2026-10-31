@@ -56,6 +56,13 @@ class CompositionHistoryPage(private val activity: AppCompatActivity) {
     private var points: List<CompositionPoint> = emptyList()
     private var series: List<StackedAreaChartView.Series> = emptyList()
     private var loadedOnce = false
+    private var fundId = ""
+    private var fundName = ""
+    private var fundChoices: List<Pair<String, String>> = emptyList() // assetId -> display name
+    private val fundButton: Button = root.findViewById(R.id.overTimeFund)
+    /** Sectors drawn in the chart (max 6 - the palette has six validated hues), each keeping its colour slot while selected. */
+    private val picked = LinkedHashMap<String, Int>()
+    private val slotColors = intArrayOf(R.color.viz_s1, R.color.viz_s2, R.color.viz_s3, R.color.viz_s4, R.color.viz_s5, R.color.viz_s6)
 
     private val monthIn = SimpleDateFormat("yyyy-MM", Locale.US)
     private val monthOut = SimpleDateFormat("MMM yy", Locale.US)
@@ -77,6 +84,18 @@ class CompositionHistoryPage(private val activity: AppCompatActivity) {
             menu.show()
         }
         refreshButton.setOnClickListener { forceRefresh() }
+        fundButton.setOnClickListener {
+            val menu = PopupMenu(activity, fundButton)
+            menu.menu.add(0, 0, 0, "Whole portfolio")
+            fundChoices.forEachIndexed { i, f -> menu.menu.add(0, i + 1, i + 1, f.second) }
+            menu.setOnMenuItemClickListener {
+                if (it.itemId == 0) { fundId = ""; fundName = "" } else { fundId = fundChoices[it.itemId - 1].first; fundName = fundChoices[it.itemId - 1].second }
+                fundButton.text = (if (fundId.isEmpty()) "Whole portfolio" else fundName) + " ▾"
+                memberButton.visibility = if (fundId.isEmpty() && memberIds.size > 2) View.VISIBLE else View.GONE
+                load(); true
+            }
+            menu.show()
+        }
         root.findViewById<View>(R.id.overTimeAddFund).setOnClickListener {
             activity.startActivity(android.content.Intent(activity, AdditionalFundsActivity::class.java))
         }
@@ -121,7 +140,14 @@ class CompositionHistoryPage(private val activity: AppCompatActivity) {
     private fun load() {
         bg.execute {
             val json = PortfolioLoadCache.load(PortfolioStorage.filePath(activity))
-            val res = Bridge.computeCompositionHistory(json, memberIds.getOrElse(memberIndex) { "" })
+            val res = if (fundId.isEmpty()) Bridge.computeCompositionHistory(json, memberIds.getOrElse(memberIndex) { "" })
+            else Bridge.computeFundCompositionHistory(json, fundId)
+            fundChoices = try {
+                val snap = gson.fromJson(json, AdditionalFundsSnapshot::class.java)
+                val withData = snap.fundHistories.orEmpty().filter { !it.months.isNullOrEmpty() }.map { it.assetId }.toSet()
+                snap.assets.orEmpty().filter { it.id in withData }
+                    .map { it.id to NicknameResolver.resolve(it.name, it.nickname) }.distinctBy { it.second }.sortedBy { it.second.lowercase() }
+            } catch (e: Exception) { fundChoices }
             val pts: List<CompositionPoint> = if (isErr(res)) emptyList() else try {
                 gson.fromJson(res, object : TypeToken<List<CompositionPoint>>() {}.type) ?: emptyList()
             } catch (e: Exception) { emptyList() }
@@ -150,8 +176,10 @@ class CompositionHistoryPage(private val activity: AppCompatActivity) {
     private fun rebuild(animate: Boolean) {
         val title = root.findViewById<TextView>(R.id.overTimeChartTitle)
         val sub = root.findViewById<TextView>(R.id.overTimeChartSub)
-        title.text = if (sectorMode) "Sector mix by month" else "Market cap mix by month"
-        sub.text = "Share of your holdings with published fund data · drag to explore"
+        title.text = (if (sectorMode) "Sector mix by month" else "Market cap mix by month") + (if (fundId.isNotEmpty()) " · fund" else "")
+        sub.text = if (fundId.isNotEmpty() && !sectorMode) "This fund's own holdings by market cap · drag to explore"
+        else if (sectorMode) "Share of your equity holdings · tap sectors below to chart them · drag to explore"
+        else "Share of your holdings with published fund data · drag to explore"
         if (points.isEmpty()) {
             chart.setData(emptyList(), emptyList(), false)
             legend.removeAllViews(); kpis.removeAllViews(); rows.removeAllViews()
@@ -176,24 +204,54 @@ class CompositionHistoryPage(private val activity: AppCompatActivity) {
             add("Other", color(R.color.viz_neutral)) { it.other }
             add("Unclassified equity", color(R.color.viz_neutral_soft)) { it.unclassified }
         } else {
-            val avg = HashMap<String, Double>()
-            points.forEach { p -> p.sectors.orEmpty().forEach { (k, v) -> avg[k] = (avg[k] ?: 0.0) + v / n } }
-            val top = avg.entries.sortedByDescending { it.value }.take(6).map { it.key }
-            val slots = intArrayOf(R.color.viz_s1, R.color.viz_s2, R.color.viz_s3, R.color.viz_s4, R.color.viz_s5, R.color.viz_s6)
-            top.forEachIndexed { i, k -> add(k, color(slots[i])) { it.sectors?.get(k) ?: 0.0 } }
-            add("Other sectors", color(R.color.viz_neutral)) { p -> p.sectors.orEmpty().filterKeys { it !in top }.values.sum() }
-            add("Non-equity", color(R.color.viz_neutral_soft)) { p -> (cov(p) - p.sectors.orEmpty().values.sum()).coerceAtLeast(0.0) }
+            picked.keys.retainAll { k -> points.any { it.sectors?.containsKey(k) == true } }
+            if (picked.isEmpty()) {
+                val avg = HashMap<String, Double>()
+                points.forEach { p -> p.sectors.orEmpty().forEach { (k, v) -> avg[k] = (avg[k] ?: 0.0) + v / n } }
+                avg.entries.sortedByDescending { it.value }.take(5).forEachIndexed { i, e -> picked[e.key] = i }
+            }
+            picked.forEach { (k, slot) -> addSector(list, k, slot) }
         }
         series = list
-        chart.setData(points.map { label(it.month) }, list, animate)
+        chart.setData(points.map { label(it.month) }, list, animate,
+            if (sectorMode) niceMax(list) else 100.0)
         buildLegend()
         buildKpis()
         showSelection(n - 1)
         val last = points.last()
         root.findViewById<TextView>(R.id.overTimeCoverage).text =
+            if (fundId.isNotEmpty()) "Source: the fund house's published monthly portfolio, classified with AMFI's half-yearly cap list. Months marked estimated are look-throughs from a same-index fund." else
             "Published fund data covers ${"%.0f".format(100 - last.noData)}% of your latest value" +
                 (if (last.estimated >= 1) ", of which ${"%.0f".format(last.estimated)}% uses estimated months" else "") +
                 ". The newest month reuses the previous month's portfolio until fund houses publish it, around the middle of the following month."
+    }
+
+    /** equity base for sector percentages: the sum of the sector split, so the full list always totals 100. */
+    private fun sectorBase(p: CompositionPoint) = p.sectors.orEmpty().values.sum().coerceAtLeast(0.0001)
+
+    private fun addSector(list: ArrayList<StackedAreaChartView.Series>, name: String, slot: Int) {
+        val v = DoubleArray(points.size) { i -> (points[i].sectors?.get(name) ?: 0.0) / sectorBase(points[i]) * 100.0 }
+        list.add(StackedAreaChartView.Series(name, color(slotColors[slot]), v))
+    }
+
+    private fun niceMax(list: List<StackedAreaChartView.Series>): Double {
+        var m = 0.0
+        for (i in points.indices) m = maxOf(m, list.sumOf { it.values[i] })
+        val steps = doubleArrayOf(4.0, 8.0, 12.0, 20.0, 40.0, 60.0, 80.0, 100.0)
+        return steps.firstOrNull { it >= m * 1.05 } ?: 100.0
+    }
+
+    private fun toggleSector(name: String) {
+        if (picked.containsKey(name)) {
+            if (picked.size > 1) picked.remove(name)
+        } else {
+            if (picked.size >= 6) { // the palette holds six hues: the oldest pick makes room
+                val old = picked.keys.first(); picked.remove(old)
+            }
+            val used = picked.values.toSet()
+            picked[name] = (0..5).first { it !in used }
+        }
+        rebuild(false)
     }
 
     private fun dot(col: Int, sizeDp: Int = 10): View = View(activity).apply {
@@ -226,7 +284,7 @@ class CompositionHistoryPage(private val activity: AppCompatActivity) {
         val first = 0
         val last = points.size - 1
         val picks = if (!sectorMode) series.filter { it.name in listOf("Large cap", "Mid cap", "Small cap") }
-        else series.filter { it.name != "Other sectors" && it.name != "Non-equity" }.take(3)
+        else series.take(3)
         picks.forEachIndexed { i, s ->
             val card = MaterialCardView(activity).apply {
                 radius = 18f * activity.resources.displayMetrics.density
@@ -263,10 +321,20 @@ class CompositionHistoryPage(private val activity: AppCompatActivity) {
         val p = points[idx]
         root.findViewById<TextView>(R.id.overTimeBreakdownTitle).text = label(p.month)
         root.findViewById<TextView>(R.id.overTimeBreakdownSub).text =
-            "Portfolio value " + IndianCurrencyFormatter.format(p.value) + " · ${"%.0f".format(100 - p.noData)}% covered by fund data"
+            if (fundId.isNotEmpty()) "${fundName.ifBlank { "Fund" }} · from the fund house's monthly disclosure" + (if (p.estimated > 0) " (estimated month)" else "")
+            else "Portfolio value " + IndianCurrencyFormatter.format(p.value) + " · ${"%.0f".format(100 - p.noData)}% covered by fund data"
         rows.removeAllViews()
         val dens = activity.resources.displayMetrics.density
-        series.map { it to it.values[idx] }.filter { it.second >= 0.05 }.sortedByDescending { it.second }.forEach { (s, v) ->
+        val entries: List<Triple<String, Int?, Double>> = if (!sectorMode) {
+            series.map { Triple(it.name, it.color as Int?, it.values[idx]) }
+        } else {
+            val bs = sectorBase(p)
+            p.sectors.orEmpty().map { (k, v) ->
+                Triple(k, picked[k]?.let { slot -> color(slotColors[slot]) }, v / bs * 100.0)
+            }
+        }
+        entries.filter { it.third >= 0.05 }.sortedByDescending { it.third }.forEach { (name, col, v) ->
+            val s = StackedAreaChartView.Series(name, col ?: color(R.color.viz_neutral), DoubleArray(0))
             val row = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL; setPadding(0, (6 * dens).toInt(), 0, (6 * dens).toInt()) }
             val line = LinearLayout(activity).apply { gravity = Gravity.CENTER_VERTICAL }
             line.addView(dot(s.color))
@@ -287,6 +355,11 @@ class CompositionHistoryPage(private val activity: AppCompatActivity) {
                 background = GradientDrawable().apply { cornerRadius = 2 * dens; setColor(s.color) }
             })
             row.addView(track)
+            if (sectorMode) {
+                row.isClickable = true
+                row.setOnClickListener { toggleSector(name) }
+                row.alpha = if (col == null) 0.72f else 1f
+            }
             rows.addView(row)
         }
         val contrib = root.findViewById<TextView>(R.id.overTimeContrib)
@@ -296,8 +369,18 @@ class CompositionHistoryPage(private val activity: AppCompatActivity) {
             fmt(p.otherBy).takeIf { it.isNotBlank() }?.let { "Other comes from: $it" },
             fmt(p.noDataBy).takeIf { it.isNotBlank() }?.let { "No fund data for: $it" }
         )
-        contrib.visibility = if (parts.isEmpty() || sectorMode) View.GONE else View.VISIBLE
-        contrib.text = parts.joinToString("\n")
+        if (sectorMode) {
+            val c = cov(p)
+            val non = p.cash + p.debt + p.foreign + p.other
+            fun pc(x: Double) = "%.1f%%".format(x / c * 100)
+            val t = "Not in the sector split: ${pc(non)} of covered value - cash ${pc(p.cash)}, debt ${pc(p.debt)}, foreign ${pc(p.foreign)}, other ${pc(p.other)}." +
+                (if (p.unclassified >= 0.5) " Indian shares missing from the AMFI cap list (${pc(p.unclassified)}) are still sector-tagged." else "")
+            contrib.visibility = View.VISIBLE
+            contrib.text = t
+        } else {
+            contrib.visibility = if (parts.isEmpty()) View.GONE else View.VISIBLE
+            contrib.text = parts.joinToString("\n")
+        }
     }
 
     private fun forceRefresh() {

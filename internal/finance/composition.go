@@ -204,3 +204,33 @@ func ComputeCompositionHistory(p *store.Portfolio, memberID string, today time.T
 	}
 	return out
 }
+
+// ComputeFundComposition is the month-by-month mix of ONE fund (owned or only tracked), straight from its stored
+// published history - no holdings or prices involved. Value is 0 (not applicable); Estimated is 100 for an estimated month.
+func ComputeFundComposition(p *store.Portfolio, assetID string) []CompositionPoint {
+	h, ok := p.FundHistoryFor(assetID)
+	if !ok {
+		return []CompositionPoint{}
+	}
+	out := make([]CompositionPoint, 0, len(h.Months))
+	for _, m := range h.Months {
+		if len(m.Split) < 8 {
+			continue
+		}
+		pt := CompositionPoint{
+			Month: m.Month, Date: m.Month + "-01",
+			Large: m.Split[0], Mid: m.Split[1], Small: m.Split[2], Unclassified: m.Split[3],
+			Foreign: m.Split[4], Debt: m.Split[5], Cash: m.Split[6], Other: m.Split[7],
+			Sectors: m.Sectors, OtherBy: map[string]float64{}, NoDataBy: map[string]float64{},
+		}
+		if pt.Sectors == nil {
+			pt.Sectors = map[string]float64{}
+		}
+		if m.Estimated {
+			pt.Estimated = 100
+		}
+		out = append(out, pt)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Month < out[j].Month })
+	return out
+}

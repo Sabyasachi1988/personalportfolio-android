@@ -306,6 +306,19 @@ func ComputeCompositionHistory(portfolioJSON string, memberID string) string {
 	return string(out)
 }
 
+// ComputeFundCompositionHistory returns one fund's own month-by-month cap / sector mix (an owned or tracked fund).
+func ComputeFundCompositionHistory(portfolioJSON string, assetID string) string {
+	p, e := decodePortfolio(portfolioJSON)
+	if e != "" {
+		return e
+	}
+	out, err := json.Marshal(finance.ComputeFundComposition(&p, assetID))
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+	return string(out)
+}
+
 // isFundLike: mutual funds and ETFs both have a published portfolio (index ETFs hold the index stocks), so both
 // get cap/sector history. Direct stocks do not.
 func isFundLike(a store.Asset) bool { return a.Type == "MutualFund" || a.Type == "ETF" }

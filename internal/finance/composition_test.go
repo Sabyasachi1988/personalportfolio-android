@@ -35,3 +35,17 @@ func TestCompositionHistoryWeighting(t *testing.T) {
 		t.Fatalf("feb %+v", pts[1])
 	}
 }
+
+func TestComputeFundCompositionSingleFund(t *testing.T) {
+	p := &store.Portfolio{FundHistories: []store.FundHistory{{AssetID: "a", Months: []store.FundMonth{
+		{Month: "2026-02", Split: []float64{50, 30, 10, 0, 0, 0, 5, 5}, Sectors: map[string]float64{"Banks": 40}},
+		{Month: "2026-01", Split: []float64{60, 20, 10, 0, 0, 0, 5, 5}, Estimated: true},
+	}}}}
+	got := ComputeFundComposition(p, "a")
+	if len(got) != 2 || got[0].Month != "2026-01" || got[0].Large != 60 || got[0].Estimated != 100 || got[1].Sectors["Banks"] != 40 {
+		t.Fatalf("unexpected: %+v", got)
+	}
+	if n := len(ComputeFundComposition(p, "zzz")); n != 0 {
+		t.Fatalf("unknown asset should be empty, got %d", n)
+	}
+}
