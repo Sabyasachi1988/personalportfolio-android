@@ -187,16 +187,12 @@ class CompositionHistoryActivity : AppCompatActivity() {
         refreshButton.text = "Checking…"
         bg.execute {
             val path = PortfolioStorage.filePath(this)
-            val json = PortfolioLoadCache.load(path)
-            val snap = try { gson.fromJson(json, AdditionalFundsSnapshot::class.java) } catch (e: Exception) { null }
-            var failed = 0
-            snap?.assets.orEmpty().filter { it.isin.isNotBlank() && it.type == "MutualFund" }.forEach {
-                if (isErr(Bridge.pullFundAtPath(path, it.id, false))) failed++
-            }
+            val res = Bridge.forceSyncFundHistoriesAtPath(path)
+            val failed = if (isErr(res)) 1 else 0
             main.post {
                 refreshButton.isEnabled = true
                 refreshButton.text = "Refresh fund data now"
-                if (failed > 0) Toast.makeText(this, "$failed fund(s) could not be refreshed", Toast.LENGTH_LONG).show()
+                if (failed > 0) Toast.makeText(this, "Could not reach fund data - try again later", Toast.LENGTH_LONG).show()
                 load()
             }
         }

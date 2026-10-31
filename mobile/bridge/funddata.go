@@ -187,7 +187,13 @@ func syncOne(p *store.Portfolio, a store.Asset, m priceapi.FundDataManifest) {
 // manifest, downloads data only for funds whose stored version is behind (network, no portfolio state held),
 // then reloads the file fresh, merges, and saves - so nothing the person saved in the meantime is overwritten.
 // Returns "" if nothing was needed, {"synced":N} when it saved, or an error JSON.
-func SyncFundHistoriesAtPath(path string) string {
+func SyncFundHistoriesAtPath(path string) string { return syncAtPath(path, false) }
+
+// ForceSyncFundHistoriesAtPath is the same but ignores the stored version, re-checking every covered fund
+// (used by the "Refresh fund data now" button). Merging stays append-only and guarded, so it is always safe.
+func ForceSyncFundHistoriesAtPath(path string) string { return syncAtPath(path, true) }
+
+func syncAtPath(path string, force bool) string {
 	p0, err := store.Load(path)
 	if err != nil {
 		return fmt.Sprintf(`{"error":%q}`, err.Error())
@@ -198,10 +204,10 @@ func SyncFundHistoriesAtPath(path string) string {
 	}
 	var todo []store.Asset
 	for _, a := range p0.Assets {
-		if strings.TrimSpace(a.ISIN) == "" || a.Type != "MutualFund" {
+		if strings.TrimSpace(a.ISIN) == "" || !isFundLike(a) {
 			continue
 		}
-		if h, ok := p0.FundHistoryFor(a.ID); ok && h.Version == m.Version {
+		if h, ok := p0.FundHistoryFor(a.ID); ok && h.Version == m.Version && !force {
 			continue
 		}
 		todo = append(todo, a)
@@ -270,7 +276,7 @@ func SyncAllFundHistories(portfolioJSON string) string {
 	}
 	changed := false
 	for _, a := range append([]store.Asset(nil), p.Assets...) {
-		if strings.TrimSpace(a.ISIN) == "" || a.Type != "MutualFund" {
+		if strings.TrimSpace(a.ISIN) == "" || !isFundLike(a) {
 			continue
 		}
 		if h, ok := p.FundHistoryFor(a.ID); ok && h.Version == m.Version {
@@ -299,3 +305,7 @@ func ComputeCompositionHistory(portfolioJSON string, memberID string) string {
 	}
 	return string(out)
 }
+
+// isFundLike: mutual funds and ETFs both have a published portfolio (index ETFs hold the index stocks), so both
+// get cap/sector history. Direct stocks do not.
+func isFundLike(a store.Asset) bool { return a.Type == "MutualFund" || a.Type == "ETF" }
