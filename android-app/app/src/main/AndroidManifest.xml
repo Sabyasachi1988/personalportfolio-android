@@ -99,6 +99,12 @@
             android:name=".AdditionalFundsActivity"
             android:exported="false" />
         <activity
+            android:name=".ScreenerActivity"
+            android:exported="false" />
+        <activity
+            android:name=".ScreenerCompareActivity"
+            android:exported="false" />
+        <activity
             android:name=".ReturnsActivity"
             android:launchMode="singleTop"
             android:exported="false" />

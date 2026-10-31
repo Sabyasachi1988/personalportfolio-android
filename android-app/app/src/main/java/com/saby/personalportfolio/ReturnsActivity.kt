@@ -38,6 +38,9 @@ class ReturnsActivity : AppCompatActivity() {
         findViewById<View>(R.id.returnsManageAdditionalFundsButton).setOnClickListener {
             startActivity(Intent(this, AdditionalFundsActivity::class.java))
         }
+        findViewById<View>(R.id.returnsScreenerButton).setOnClickListener {
+            startActivity(Intent(this, ScreenerActivity::class.java))
+        }
         findViewById<View>(R.id.returnsCompareButton).setOnClickListener {
             startActivity(Intent(this, ComparisonActivity::class.java))
         }

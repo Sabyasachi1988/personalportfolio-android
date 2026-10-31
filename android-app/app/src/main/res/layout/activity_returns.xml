@@ -32,6 +32,13 @@
             android:orientation="horizontal">
 
             <TextView
+                android:id="@+id/returnsScreenerButton"
+                style="@style/ActionChip"
+                android:layout_width="wrap_content"
+                android:layout_marginEnd="8dp"
+                android:text="Screener" />
+
+            <TextView
                 android:id="@+id/returnsCompareButton"
                 style="@style/ActionChip"
                 android:layout_width="wrap_content"
