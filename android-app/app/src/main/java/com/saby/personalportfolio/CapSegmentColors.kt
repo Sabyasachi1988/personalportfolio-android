@@ -15,18 +15,21 @@ import androidx.core.content.ContextCompat
 object CapSegmentColors {
     fun forLabel(context: Context, label: String): Int {
         val palette = ChartColors.palette(context)
+        fun c(id: Int) = androidx.core.content.ContextCompat.getColor(context, id)
+        // The market-cap labels use the SAME validated colours as the Over Time chart, so a segment is one colour
+        // on the Dashboard, Allocation and Over Time. (Other label families keep the general palette.)
         return when (label) {
-            "Large Cap" -> palette[0]
-            "Mid Cap" -> palette[1]
-            "Small Cap" -> palette[2]
-            "Cash" -> palette[3]
-            "Multi Cap" -> palette[4]
-            "Debt" -> palette[5]
-            "Commodity" -> palette[6]
+            "Large Cap" -> c(R.color.viz_s1)
+            "Mid Cap" -> c(R.color.viz_s2)
+            "Small Cap" -> c(R.color.viz_s3)
+            "Cash" -> c(R.color.viz_s4)
+            "Debt" -> c(R.color.viz_s5)
+            "Multi Cap", "Flexi Cap" -> c(R.color.viz_s6)
+            "International Equity" -> c(R.color.viz_s7)
+            "Others", "Commodity" -> c(R.color.viz_neutral)
+            "Unclassified" -> c(R.color.viz_neutral_soft)
             "Equity" -> palette[7]
-            "Others" -> palette[8]
             "Indian Equity" -> palette[0]
-            "International Equity" -> palette[9]
             // Any other/unclassified label falls back to a stable hash
             // of its own text, so it's at least consistent across the
             // donut and legend even without a dedicated slot.

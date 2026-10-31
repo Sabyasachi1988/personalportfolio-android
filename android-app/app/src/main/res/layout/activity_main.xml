@@ -130,7 +130,8 @@
 
                         <com.google.android.material.card.MaterialCardView
                             android:layout_width="240dp"
-                            android:layout_height="300dp"
+                            android:layout_height="wrap_content"
+                            android:minHeight="300dp"
                             app:cardCornerRadius="16dp"
                             app:cardElevation="3dp">
 
@@ -169,7 +170,8 @@
 
                         <com.google.android.material.card.MaterialCardView
                             android:layout_width="240dp"
-                            android:layout_height="300dp"
+                            android:layout_height="wrap_content"
+                            android:minHeight="300dp"
                             android:layout_marginStart="12dp"
                             app:cardCornerRadius="16dp"
                             app:cardElevation="3dp">
@@ -209,7 +211,8 @@
 
                         <com.google.android.material.card.MaterialCardView
                             android:layout_width="240dp"
-                            android:layout_height="300dp"
+                            android:layout_height="wrap_content"
+                            android:minHeight="300dp"
                             android:layout_marginStart="12dp"
                             app:cardCornerRadius="16dp"
                             app:cardElevation="3dp">

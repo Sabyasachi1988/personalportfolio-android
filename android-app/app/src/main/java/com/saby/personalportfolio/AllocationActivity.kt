@@ -127,6 +127,12 @@ class AllocationActivity : AppCompatActivity() {
         // that isn't currently visible (e.g. Portfolio Class while
         // showing Market Cap) is never lost or needs re-fetching on swipe.
         viewPager.offscreenPageLimit = 4
+        viewPager.registerOnPageChangeCallback(object : ViewPager2.OnPageChangeCallback() {
+            override fun onPageSelected(position: Int) {
+                currentPage = position
+                loadPageIfStale(position)
+            }
+        })
 
         val tabLayout = findViewById<TabLayout>(R.id.allocationTabLayout)
         val tabTitles = listOf("Market Cap", "Over Time", "Equity Origin", "Portfolio Class", "Tags")
@@ -160,11 +166,24 @@ class AllocationActivity : AppCompatActivity() {
         // specific adapter instance) immediately before its reload and
         // restores it right after, so a same-ish item list keeps its
         // scroll position across the adapter swap.
-        withPreservedScroll(recyclerView) { loadAndShowMarketCapSection() }
-        overTimePage.refresh()
-        withPreservedScroll(recyclerViewOrigin) { loadAndShowEquityOriginSection() }
-        withPreservedScroll(recyclerViewClass) { loadAndShowPortfolioClassSection() }
-        withPreservedScroll(recyclerViewTags) { loadAndShowTagsSection() }
+        // Only the tab on screen is recomputed now; the others are marked stale and load when swiped to. (All five used
+        // to recompute on every resume, each re-parsing the whole portfolio on the UI thread - the tab-switch lag.)
+        stale.addAll(0..4)
+        loadPageIfStale(currentPage)
+    }
+
+    private val stale = HashSet<Int>()
+    private var currentPage = 0
+
+    private fun loadPageIfStale(page: Int) {
+        if (!stale.remove(page)) return
+        when (page) {
+            0 -> withPreservedScroll(recyclerView) { loadAndShowMarketCapSection() }
+            1 -> overTimePage.refresh()
+            2 -> withPreservedScroll(recyclerViewOrigin) { loadAndShowEquityOriginSection() }
+            3 -> withPreservedScroll(recyclerViewClass) { loadAndShowPortfolioClassSection() }
+            4 -> withPreservedScroll(recyclerViewTags) { loadAndShowTagsSection() }
+        }
     }
 
     private fun withPreservedScroll(recyclerView: RecyclerView, reload: () -> Unit) {

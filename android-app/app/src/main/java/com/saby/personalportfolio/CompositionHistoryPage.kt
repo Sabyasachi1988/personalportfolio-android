@@ -40,6 +40,7 @@ class CompositionHistoryPage(private val activity: AppCompatActivity) {
     private val gson = Gson()
     private val bg = Executors.newSingleThreadExecutor()
     private var lastQuickSync = 0L
+    private var lastFileKey = ""
     private val main = Handler(Looper.getMainLooper())
     private val chart: StackedAreaChartView = root.findViewById(R.id.overTimeChart)
     private val legend: ChipGroup = root.findViewById(R.id.overTimeLegend)
@@ -111,8 +112,13 @@ class CompositionHistoryPage(private val activity: AppCompatActivity) {
 
     /** Called whenever the Allocation screen resumes. */
     fun refresh() {
-        loadMembers()
-        load()
+        val f = java.io.File(PortfolioStorage.filePath(activity))
+        val key = "${f.lastModified()}:${f.length()}"
+        if (!(loadedOnce && key == lastFileKey)) { // unchanged file: nothing to recompute, the chart is already current
+            lastFileKey = key
+            loadMembers()
+            load()
+        }
         // Cheap manifest check (one tiny request); downloads only if the published data is newer than what is stored.
         val now = System.currentTimeMillis()
         if (now - lastQuickSync < 10 * 60 * 1000L) return
@@ -197,18 +203,19 @@ class CompositionHistoryPage(private val activity: AppCompatActivity) {
             if (v.any { it > 0.05 }) list.add(StackedAreaChartView.Series(name, col, v))
         }
         if (!sectorMode) {
-            add("Large cap", color(R.color.viz_s1)) { it.large }
-            add("Mid cap", color(R.color.viz_s2)) { it.mid }
-            add("Small cap", color(R.color.viz_s3)) { it.small }
-            add("Cash", color(R.color.viz_s4)) { it.cash }
-            add("Debt", color(R.color.viz_s5)) { it.debt }
-            add("Foreign", color(R.color.viz_s7)) { it.foreign }
-            add("Other", color(R.color.viz_neutral)) { it.other }
-            add("Unclassified equity", color(R.color.viz_neutral_soft)) { it.unclassified }
-            // labels the name-guess fallback can produce for a fund with no published split
-            add("Multi Cap", color(R.color.viz_s6)) { it.extra?.get("Multi Cap") ?: 0.0 }
-            add("Flexi Cap", color(R.color.viz_s6)) { it.extra?.get("Flexi Cap") ?: 0.0 }
-            add("Commodity", color(R.color.viz_neutral)) { it.extra?.get("Commodity") ?: 0.0 }
+            // Same labels, colours and order as the Dashboard / Allocation donuts (CapSegmentColors, canonical order).
+            fun cap(label: String, f: (CompositionPoint) -> Double) = add(label, CapSegmentColors.forLabel(activity, label), f)
+            cap("Large Cap") { it.large }
+            cap("Mid Cap") { it.mid }
+            cap("Small Cap") { it.small }
+            cap("Multi Cap") { it.extra?.get("Multi Cap") ?: 0.0 }
+            cap("Flexi Cap") { it.extra?.get("Flexi Cap") ?: 0.0 }
+            cap("Cash") { it.cash }
+            cap("International Equity") { it.foreign }
+            cap("Debt") { it.debt }
+            cap("Commodity") { it.extra?.get("Commodity") ?: 0.0 }
+            cap("Others") { it.other }
+            cap("Unclassified") { it.unclassified }
         } else {
             picked.keys.retainAll { k -> points.any { it.sectors?.containsKey(k) == true } }
             if (picked.isEmpty()) {
@@ -289,7 +296,7 @@ class CompositionHistoryPage(private val activity: AppCompatActivity) {
         kpis.removeAllViews()
         val first = 0
         val last = points.size - 1
-        val picks = if (!sectorMode) series.filter { it.name in listOf("Large cap", "Mid cap", "Small cap") }
+        val picks = if (!sectorMode) series.filter { it.name in listOf("Large Cap", "Mid Cap", "Small Cap") }
         else series.take(3)
         picks.forEachIndexed { i, s ->
             val card = MaterialCardView(activity).apply {
@@ -339,7 +346,11 @@ class CompositionHistoryPage(private val activity: AppCompatActivity) {
                 Triple(k, picked[k]?.let { slot -> color(slotColors[slot]) }, v / bs * 100.0)
             }
         }
-        entries.filter { it.third >= 0.05 }.sortedByDescending { it.third }.forEach { (name, col, v) ->
+        val canon = listOf("Large Cap", "Mid Cap", "Small Cap", "Multi Cap", "Flexi Cap", "Cash", "International Equity", "Debt", "Commodity", "Others", "Unclassified")
+        val ordered = entries.filter { it.third >= 0.05 }.let { l ->
+            if (sectorMode) l.sortedByDescending { it.third } else l.sortedBy { canon.indexOf(it.first).let { i -> if (i < 0) 99 else i } }
+        }
+        ordered.forEach { (name, col, v) ->
             val s = StackedAreaChartView.Series(name, col ?: color(R.color.viz_neutral), DoubleArray(0))
             val row = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL; setPadding(0, (6 * dens).toInt(), 0, (6 * dens).toInt()) }
             val line = LinearLayout(activity).apply { gravity = Gravity.CENTER_VERTICAL }
@@ -348,7 +359,7 @@ class CompositionHistoryPage(private val activity: AppCompatActivity) {
                 text = s.name; textSize = 14f; layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
             })
             line.addView(TextView(activity).apply {
-                text = "%.1f%%".format(v); textSize = 14f; setTypeface(typeface, android.graphics.Typeface.BOLD)
+                text = "%.2f%%".format(v); textSize = 14f; setTypeface(typeface, android.graphics.Typeface.BOLD)
             })
             row.addView(line)
             val track = LinearLayout(activity).apply {

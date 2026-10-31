@@ -47,7 +47,7 @@ class StackedAreaChartView @JvmOverloads constructor(
     private val axisText = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = muted; textSize = 11f * sp }
     private val cursor = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = onSurface; strokeWidth = 1.5f * d; alpha = 200 }
     private val dot = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val bubbleFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = surface; setShadowLayer(10f * d, 0f, 3f * d, 0x55000000) }
+    private val bubbleFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = surface }
     private val bubbleLine = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; color = gridColor; strokeWidth = 1f * d }
     private val bubbleTitle = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = onSurface; textSize = 13f * sp; isFakeBoldText = true }
     private val bubbleText = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = onSurface; textSize = 12f * sp }
@@ -57,7 +57,6 @@ class StackedAreaChartView @JvmOverloads constructor(
     private var reveal = 1f
     private var animator: ValueAnimator? = null
 
-    init { setLayerType(LAYER_TYPE_SOFTWARE, null) } // shadow layer on the tooltip card
 
     private fun makeHatch(): Paint {
         val s = (8 * d).toInt().coerceAtLeast(6)
