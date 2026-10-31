@@ -43,4 +43,17 @@
     <color name="chartSlice12">#4DD0E1</color>
     <color name="chartSlice13">#90A4AE</color>
     <color name="chartSlice14">#9575CD</color>
+
+    <color name="viz_s1">#3987E5</color>
+    <color name="viz_s2">#D95926</color>
+    <color name="viz_s3">#199E70</color>
+    <color name="viz_s4">#C98500</color>
+    <color name="viz_s5">#D55181</color>
+    <color name="viz_s6">#008300</color>
+    <color name="viz_s7">#9085E9</color>
+    <color name="viz_neutral">#7C7C76</color>
+    <color name="viz_neutral_soft">#55554F</color>
+    <color name="viz_grid">#2E2E2C</color>
+    <color name="viz_text_muted">#8E8D87</color>
+    <color name="viz_text_secondary">#C3C2B7</color>
 </resources>

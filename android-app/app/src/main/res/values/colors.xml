@@ -59,4 +59,18 @@
     <color name="chartSlice12">#00ACC1</color>
     <color name="chartSlice13">#546E7A</color>
     <color name="chartSlice14">#5E35B1</color>
+
+    <!-- Data-viz tokens (validated categorical palette, see dataviz skill): one set per mode. -->
+    <color name="viz_s1">#2A78D6</color>
+    <color name="viz_s2">#EB6834</color>
+    <color name="viz_s3">#1BAF7A</color>
+    <color name="viz_s4">#EDA100</color>
+    <color name="viz_s5">#E87BA4</color>
+    <color name="viz_s6">#008300</color>
+    <color name="viz_s7">#6250D6</color>
+    <color name="viz_neutral">#9A9A94</color>
+    <color name="viz_neutral_soft">#C9C8C2</color>
+    <color name="viz_grid">#E6E5E0</color>
+    <color name="viz_text_muted">#7A7974</color>
+    <color name="viz_text_secondary">#52514E</color>
 </resources>

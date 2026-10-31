@@ -49,9 +49,6 @@
             android:name=".CapCompositionActivity"
             android:exported="false" />
         <activity
-            android:name=".CompositionHistoryActivity"
-            android:exported="false" />
-        <activity
             android:name=".TransactionsActivity"
             android:launchMode="singleTop"
             android:exported="false" />

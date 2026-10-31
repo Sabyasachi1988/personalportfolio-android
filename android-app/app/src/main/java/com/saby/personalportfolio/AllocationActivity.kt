@@ -22,6 +22,7 @@ class AllocationActivity : AppCompatActivity() {
 
     // Section 1: Market cap (Large/Mid/Small/Cash)
     private lateinit var summary: TextView
+    private lateinit var overTimePage: CompositionHistoryPage
     private lateinit var subCaption: TextView
     private lateinit var recyclerView: RecyclerView
     private lateinit var donutChart: DonutChartView
@@ -62,6 +63,7 @@ class AllocationActivity : AppCompatActivity() {
         val equityOriginPage = inflater.inflate(R.layout.page_allocation_equity_origin, null)
         val portfolioClassPage = inflater.inflate(R.layout.page_allocation_portfolio_class, null)
         val tagsPage = inflater.inflate(R.layout.page_allocation_tags, null)
+        overTimePage = CompositionHistoryPage(this)
 
         summary = marketCapPage.findViewById(R.id.allocationSummary)
         subCaption = marketCapPage.findViewById(R.id.allocationSubCaption)
@@ -118,17 +120,17 @@ class AllocationActivity : AppCompatActivity() {
         // only understands cap-size segment labels today, not tags.
 
         val viewPager = findViewById<ViewPager2>(R.id.allocationViewPager)
-        viewPager.adapter = AllocationPagerAdapter(listOf(marketCapPage, equityOriginPage, portfolioClassPage, tagsPage))
+        viewPager.adapter = AllocationPagerAdapter(listOf(marketCapPage, overTimePage.root, equityOriginPage, portfolioClassPage, tagsPage))
         // offscreenPageLimit keeps all 4 pages' Views alive simultaneously
         // rather than only the current + immediate neighbor - with just
         // 4 total pages this is cheap, and it means data bound to a page
         // that isn't currently visible (e.g. Portfolio Class while
         // showing Market Cap) is never lost or needs re-fetching on swipe.
-        viewPager.offscreenPageLimit = 3
+        viewPager.offscreenPageLimit = 4
 
         val tabLayout = findViewById<TabLayout>(R.id.allocationTabLayout)
-        val tabTitles = listOf("Market Cap", "Equity Origin", "Portfolio Class", "Tags")
-        val tabIcons = listOf(R.drawable.ic_tab_pie, R.drawable.ic_tab_globe, R.drawable.ic_tab_layers, R.drawable.ic_tab_tag)
+        val tabTitles = listOf("Market Cap", "Over Time", "Equity Origin", "Portfolio Class", "Tags")
+        val tabIcons = listOf(R.drawable.ic_tab_pie, R.drawable.ic_tab_trend, R.drawable.ic_tab_globe, R.drawable.ic_tab_layers, R.drawable.ic_tab_tag)
         TabLayoutMediator(tabLayout, viewPager) { tab, position ->
             tab.text = tabTitles[position]
             tab.setIcon(tabIcons[position])
@@ -159,6 +161,7 @@ class AllocationActivity : AppCompatActivity() {
         // restores it right after, so a same-ish item list keeps its
         // scroll position across the adapter swap.
         withPreservedScroll(recyclerView) { loadAndShowMarketCapSection() }
+        overTimePage.refresh()
         withPreservedScroll(recyclerViewOrigin) { loadAndShowEquityOriginSection() }
         withPreservedScroll(recyclerViewClass) { loadAndShowPortfolioClassSection() }
         withPreservedScroll(recyclerViewTags) { loadAndShowTagsSection() }

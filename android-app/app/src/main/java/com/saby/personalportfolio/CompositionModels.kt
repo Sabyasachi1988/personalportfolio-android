@@ -25,6 +25,7 @@ data class CompositionPoint(
     @SerializedName("Debt") val debt: Double = 0.0,
     @SerializedName("Foreign") val foreign: Double = 0.0,
     @SerializedName("Other") val other: Double = 0.0,
+    @SerializedName("Unclassified") val unclassified: Double = 0.0,
     @SerializedName("NoData") val noData: Double = 0.0,
     @SerializedName("Estimated") val estimated: Double = 0.0,
     @SerializedName("Sectors") val sectors: Map<String, Double>? = null,

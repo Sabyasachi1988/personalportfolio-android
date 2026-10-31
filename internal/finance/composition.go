@@ -11,21 +11,22 @@ import (
 // portfolio's total value that day. Fund splits come from each fund's published month; the fund's
 // units on that date (from transactions) times its NAV give the weights.
 type CompositionPoint struct {
-	Month     string
-	Date      string
-	Value     float64
-	Large     float64
-	Mid       float64
-	Small     float64
-	Cash      float64
-	Debt      float64
-	Foreign   float64
-	Other     float64 // unclassified equity + other instruments
-	NoData    float64 // value held in funds with no published split for that month
-	Estimated float64 // share of value whose month was estimated or carried from another month
-	Sectors   map[string]float64
-	OtherBy   map[string]float64 // fund name -> percent of portfolio value that sits in Other / unclassified
-	NoDataBy  map[string]float64 // fund name -> percent of portfolio value with no published split
+	Month        string
+	Date         string
+	Value        float64
+	Large        float64
+	Mid          float64
+	Small        float64
+	Cash         float64
+	Debt         float64
+	Foreign      float64
+	Other        float64 // genuinely other instruments: fund units, REIT/InvIT, commodities, anything not equity/debt/cash
+	Unclassified float64 // Indian-listed equity the AMFI list does not categorise (new listings, delisted, ISIN gaps)
+	NoData       float64 // value held in funds with no published split for that month
+	Estimated    float64 // share of value whose month was estimated or carried from another month
+	Sectors      map[string]float64
+	OtherBy      map[string]float64 // fund name -> percent of portfolio value that sits in Other / unclassified
+	NoDataBy     map[string]float64 // fund name -> percent of portfolio value with no published split
 }
 
 // monthFor picks the fund month to use for a given YYYY-MM: the exact month, else the latest earlier month,
@@ -154,14 +155,15 @@ func ComputeCompositionHistory(p *store.Portfolio, memberID string, today time.T
 				noDataBy[name] += v
 				continue
 			}
-			otherBy[name] += v * (m.Split[3] + m.Split[7])
+			otherBy[name] += v * m.Split[7]
 			if flagged {
 				est += v
 			}
 			pt.Large += v * m.Split[0]
 			pt.Mid += v * m.Split[1]
 			pt.Small += v * m.Split[2]
-			pt.Other += v * (m.Split[3] + m.Split[7])
+			pt.Other += v * m.Split[7]
+			pt.Unclassified += v * m.Split[3]
 			pt.Foreign += v * m.Split[4]
 			pt.Debt += v * m.Split[5]
 			pt.Cash += v * m.Split[6]
@@ -176,6 +178,7 @@ func ComputeCompositionHistory(p *store.Portfolio, memberID string, today time.T
 			pt.Mid *= f
 			pt.Small *= f
 			pt.Other *= f
+			pt.Unclassified *= f
 			pt.Foreign *= f
 			pt.Debt *= f
 			pt.Cash *= f
