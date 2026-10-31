@@ -21,10 +21,10 @@ type CompositionPoint struct {
 	Cash         float64
 	Debt         float64
 	Foreign      float64
-	Other        float64 // genuinely other instruments: fund units, REIT/InvIT, commodities, anything not equity/debt/cash
-	Unclassified float64 // Indian-listed equity the AMFI list does not categorise (new listings, delisted, ISIN gaps)
-	NoData       float64 // value held in funds with no published split for that month
-	Estimated    float64 // share of value whose month was estimated or carried from another month
+	Other        float64            // genuinely other instruments: fund units, REIT/InvIT, commodities, anything not equity/debt/cash
+	Unclassified float64            // Indian-listed equity the AMFI list does not categorise (new listings, delisted, ISIN gaps)
+	NoData       float64            // value held in funds with no published split for that month
+	Estimated    float64            // share of value whose month was estimated or carried from another month
 	Extra        map[string]float64 // name-guess labels with no published bucket (Multi Cap, Flexi Cap, Commodity), percent of value
 	Sectors      map[string]float64
 	OtherBy      map[string]float64 // fund name -> percent of portfolio value that sits in Other / unclassified
@@ -150,8 +150,13 @@ func ComputeCompositionHistory(p *store.Portfolio, memberID string, today time.T
 				// no published figures for this holding: it still counts (same rule as the donut) but is reported as such
 				noData += v
 				why := name
+				if src == "entered" {
+					why += " (your entered figures)"
+				} else {
+					why += " (guessed from name)"
+				}
 				if strings.TrimSpace(included[id].ISIN) == "" {
-					why += " (no ISIN stored)"
+					why += ", no ISIN stored"
 				}
 				noDataBy[why] += v
 			} else if src == "estimated" {
@@ -290,8 +295,7 @@ var capLabels = [8]string{"Large Cap", "Mid Cap", "Small Cap", "Unclassified", "
 // MarketCapMixFor is THE single place that decides how one holding splits across market-cap labels for a month
 // ("YYYY-MM"). Every screen (dashboard donut, Allocation donut, target drift, holdings-by-segment, Over Time) calls it,
 // so the same number appears everywhere. Order of precedence:
-//  1. the fund's published monthly disclosure (month, else the latest earlier month) - unless a cap composition the
-//     person entered by hand is NEWER than that published month (and not after `month`), which then wins;
+//  1. the fund's published monthly disclosure (the month, else the latest earlier one);
 //  2. an entered cap composition;
 //  3. a guess from the fund's name (GuessMarketCapSplit).
 //
@@ -301,19 +305,19 @@ func MarketCapMixFor(p *store.Portfolio, assetID, assetName, month string) (map[
 	manual, hasManual := p.GetCapComposition(assetID)
 	if h, ok := p.FundHistoryFor(assetID); ok {
 		if m, flagged, found := fundMonthFor(h, month); found && len(m.Split) >= 8 {
-			manualWins := hasManual && len(manual.AsOf) >= 7 && manual.AsOf[:7] > m.Month && manual.AsOf[:7] <= month
-			if !manualWins {
-				out := map[string]float64{}
-				for i, w := range m.Split[:8] {
-					if w > 0 {
-						out[capLabels[i]] = w / 100
-					}
+			// Published data always wins. (An entered figure dated this month used to override it, but a published month
+			// is a month-end snapshot, so a later entry date does not mean newer information - and it silently
+			// switched off the official data for the funds that matter most.)
+			out := map[string]float64{}
+			for i, w := range m.Split[:8] {
+				if w > 0 {
+					out[capLabels[i]] = w / 100
 				}
-				if flagged {
-					return out, "estimated"
-				}
-				return out, "published"
 			}
+			if flagged {
+				return out, "estimated"
+			}
+			return out, "published"
 		}
 	}
 	if hasManual {
