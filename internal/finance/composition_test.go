@@ -30,8 +30,8 @@ func TestCompositionHistoryWeighting(t *testing.T) {
 	if math.Abs(pts[0].Large-100) > 1e-6 {
 		t.Fatalf("jan %+v", pts[0])
 	}
-	// Feb: A=100 (large, carried from Jan -> estimated), B=300 small -> 25 / 75
-	if math.Abs(pts[1].Large-25) > 1e-6 || math.Abs(pts[1].Small-75) > 1e-6 || math.Abs(pts[1].Estimated-25) > 1e-6 {
+	// Feb: A=100 (large, carried one month from Jan: not flagged), B=300 small -> 25 / 75
+	if math.Abs(pts[1].Large-25) > 1e-6 || math.Abs(pts[1].Small-75) > 1e-6 || pts[1].Estimated != 0 {
 		t.Fatalf("feb %+v", pts[1])
 	}
 }

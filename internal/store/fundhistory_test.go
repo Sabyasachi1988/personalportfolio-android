@@ -42,3 +42,13 @@ func TestUpsertPricesGuarded(t *testing.T) {
 		t.Fatalf("%+v", st)
 	}
 }
+
+func TestMergeLookThroughReplacesFofOther(t *testing.T) {
+	p := &Portfolio{}
+	other := []float64{0, 0, 0, 0, 0, 0, 0, 100}
+	p.MergeFundMonths("a", "1", "v", "d", []FundMonth{{Month: "2025-01", Split: other}})
+	st := p.MergeFundMonths("a", "1", "v2", "d", []FundMonth{{Month: "2025-01", Split: []float64{95, 5, 0, 0, 0, 0, 0, 0}, Estimated: true}})
+	if st.Updated != 1 || p.FundHistories[0].Months[0].Split[0] != 95 {
+		t.Fatalf("%+v", st)
+	}
+}

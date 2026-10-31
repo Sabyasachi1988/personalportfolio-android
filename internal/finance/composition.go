@@ -24,6 +24,8 @@ type CompositionPoint struct {
 	NoData    float64 // value held in funds with no published split for that month
 	Estimated float64 // share of value whose month was estimated or carried from another month
 	Sectors   map[string]float64
+	OtherBy   map[string]float64 // fund name -> percent of portfolio value that sits in Other / unclassified
+	NoDataBy  map[string]float64 // fund name -> percent of portfolio value with no published split
 }
 
 // monthFor picks the fund month to use for a given YYYY-MM: the exact month, else the latest earlier month,
@@ -43,7 +45,9 @@ func fundMonthFor(h *store.FundHistory, month string) (store.FundMonth, bool, bo
 		}
 	}
 	if before != nil {
-		return *before, true, true
+		// A one-month carry-forward is normal (a month's disclosure is published mid-way through the next month),
+		// so it is only flagged when the carried month was itself an estimate or the gap is 2+ months.
+		return *before, before.Estimated || monthsBetween(before.Month, month) >= 2, true
 	}
 	if after != nil && monthsBetween(month, after.Month) <= 6 {
 		return *after, true, true
@@ -121,7 +125,9 @@ func ComputeCompositionHistory(p *store.Portfolio, memberID string, today time.T
 			units[txs[ti].AssetID] += *txs[ti].Units
 			ti++
 		}
-		pt := CompositionPoint{Month: ds[:7], Date: ds, Sectors: map[string]float64{}}
+		pt := CompositionPoint{Month: ds[:7], Date: ds, Sectors: map[string]float64{}, OtherBy: map[string]float64{}, NoDataBy: map[string]float64{}}
+		otherBy := map[string]float64{}
+		noDataBy := map[string]float64{}
 		var total, noData, est float64
 		sec := map[string]float64{}
 		for id := range included {
@@ -135,16 +141,20 @@ func ComputeCompositionHistory(p *store.Portfolio, memberID string, today time.T
 			}
 			v := u * price
 			total += v
+			name := included[id].Name
 			h, has := p.FundHistoryFor(id)
 			if !has {
 				noData += v
+				noDataBy[name] += v
 				continue
 			}
 			m, flagged, found := fundMonthFor(h, pt.Month)
 			if !found || len(m.Split) < 8 {
 				noData += v
+				noDataBy[name] += v
 				continue
 			}
+			otherBy[name] += v * (m.Split[3] + m.Split[7])
 			if flagged {
 				est += v
 			}
@@ -171,6 +181,16 @@ func ComputeCompositionHistory(p *store.Portfolio, memberID string, today time.T
 			pt.Cash *= f
 			pt.NoData = noData / total * 100
 			pt.Estimated = est / total * 100
+			for k, x := range otherBy {
+				if x*f >= 0.5 {
+					pt.OtherBy[k] = x * f
+				}
+			}
+			for k, x := range noDataBy {
+				if x/total*100 >= 0.5 {
+					pt.NoDataBy[k] = x / total * 100
+				}
+			}
 			for k, x := range sec {
 				if x*f >= 0.05 {
 					pt.Sectors[k] = x * f

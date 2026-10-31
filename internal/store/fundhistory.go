@@ -69,7 +69,10 @@ func (p *Portfolio) MergeFundMonths(assetID, pid, version, syncedAt string, inco
 			continue
 		}
 		cur := h.Months[i]
-		if cur.Source == "MANUAL" || (in.Estimated && !cur.Estimated) || sameMonth(cur, in) {
+		// An estimated month never replaces a published one - except a fund-of-funds month that is ~100% "other"
+		// (only the underlying unit line was visible), which the data side replaces by a look-through to the tracked index.
+		lookThrough := in.Estimated && !cur.Estimated && len(cur.Split) >= 8 && len(in.Split) >= 8 && cur.Split[7] >= 90 && in.Split[7] < 90
+		if cur.Source == "MANUAL" || (in.Estimated && !cur.Estimated && !lookThrough) || sameMonth(cur, in) {
 			st.Kept++
 			continue
 		}

@@ -163,7 +163,7 @@ class CompositionHistoryActivity : AppCompatActivity() {
         showReadout(points.size - 1)
         val last = points.last()
         coverage.text = "Covered by published fund data: ${"%.0f".format(100 - last.noData)}% of the latest value. " +
-            "Months estimated or carried over from a neighbouring month: ${"%.0f".format(last.estimated)}% of the latest value."
+            "Of that, estimated or carried over 2+ months: ${"%.0f".format(last.estimated)}%. The newest month reuses the previous month's published portfolio until the fund house publishes it (mid-way through the following month)."
     }
 
     private fun showReadout(idx: Int) {
@@ -179,6 +179,14 @@ class CompositionHistoryActivity : AppCompatActivity() {
             sb.setSpan(ForegroundColorSpan(s.color or 0xFF000000.toInt()), start, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
             sb.append("${s.name}  ${"%.1f".format(v)}%\n")
         }
+        fun contributors(title: String, m: Map<String, Double>?) {
+            val top = m.orEmpty().entries.sortedByDescending { it.value }.take(3)
+            if (top.isEmpty()) return
+            sb.append("$title: " + top.joinToString(", ") { "${FundNameFormatter.shorten(it.key).ifBlank { it.key }} ${"%.1f".format(it.value)}%" } + "\n")
+        }
+        sb.append("\n")
+        contributors("Other / unclassified mostly from", p.otherBy)
+        contributors("No data for", p.noDataBy)
         readout.text = sb
     }
 
