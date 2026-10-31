@@ -2,6 +2,7 @@ package finance
 
 import (
 	"sort"
+	"strings"
 	"time"
 
 	"ledger/internal/store"
@@ -146,7 +147,11 @@ func ComputeCompositionHistory(p *store.Portfolio, memberID string, today time.T
 			h, has := p.FundHistoryFor(id)
 			if !has {
 				noData += v
-				noDataBy[name] += v
+				why := name
+				if strings.TrimSpace(included[id].ISIN) == "" {
+					why += " (no ISIN stored)"
+				}
+				noDataBy[why] += v
 				continue
 			}
 			m, flagged, found := fundMonthFor(h, pt.Month)
@@ -232,5 +237,26 @@ func ComputeFundComposition(p *store.Portfolio, assetID string) []CompositionPoi
 		out = append(out, pt)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Month < out[j].Month })
+	return out
+}
+
+// PublishedSplitsByAsset returns, per asset, the 8-way split (large, mid, small, unclassified, foreign, debt, cash, other)
+// from its published fund history for the month containing `now` (or the latest earlier one - fundMonthFor). A
+// cap composition the person entered by hand that is NEWER than that published month wins (their own, more recent
+// figure), so those assets are left out and the caller falls back to the entered composition.
+func PublishedSplitsByAsset(p *store.Portfolio, now time.Time) map[string][]float64 {
+	out := map[string][]float64{}
+	month := now.Format("2006-01")
+	for i := range p.FundHistories {
+		h := &p.FundHistories[i]
+		m, _, ok := fundMonthFor(h, month)
+		if !ok || len(m.Split) < 8 {
+			continue
+		}
+		if c, has := p.GetCapComposition(h.AssetID); has && len(c.AsOf) >= 7 && c.AsOf[:7] > m.Month {
+			continue
+		}
+		out[h.AssetID] = m.Split
+	}
 	return out
 }

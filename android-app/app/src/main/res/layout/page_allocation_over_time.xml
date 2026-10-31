@@ -53,13 +53,29 @@
                 android:text="All ▾" />
         </LinearLayout>
 
-        <Button
-            android:id="@+id/overTimeFund"
-            style="@style/Widget.Material3.Button.TextButton"
-            android:layout_width="wrap_content"
+        <LinearLayout
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="2dp"
-            android:text="Whole portfolio ▾" />
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/overTimeFund"
+                style="@style/Widget.Material3.Button.TextButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:gravity="start|center_vertical"
+                android:text="Whole portfolio ▾" />
+
+            <Button
+                android:id="@+id/overTimeAddFundTop"
+                style="@style/Widget.Material3.Button.TonalButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="+ Add fund" />
+        </LinearLayout>
 
         <LinearLayout
             android:id="@+id/overTimeKpis"

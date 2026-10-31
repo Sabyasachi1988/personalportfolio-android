@@ -721,10 +721,19 @@ func SearchMfapiSchemes(query string, limit int) ([]MfapiSchemeMatch, error) {
 // `limit` results, in the order `schemes` was given - a broad query
 // would otherwise return far more than anyone could usefully scan.
 func FilterMfapiSchemes(schemes []MfapiScheme, query string, limit int) []MfapiSchemeMatch {
-	lowerQuery := strings.ToLower(query)
+	words := strings.Fields(strings.ToLower(query))
 	matches := make([]MfapiSchemeMatch, 0, limit)
 	for _, s := range schemes {
-		if !strings.Contains(strings.ToLower(s.SchemeName), lowerQuery) {
+		// every typed word must appear, in any order ("nifty bees" finds "Nifty 50 BeES")
+		lowerName := strings.ToLower(s.SchemeName)
+		allIn := len(words) > 0
+		for _, w := range words {
+			if !strings.Contains(lowerName, w) {
+				allIn = false
+				break
+			}
+		}
+		if !allIn {
 			continue
 		}
 		if s.ISINGrowth != "" {

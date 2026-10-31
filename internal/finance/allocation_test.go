@@ -618,3 +618,20 @@ func TestAllocationByTag(t *testing.T) {
 		t.Errorf("Untagged slice = %+v, want value=400 percent=40 (empty EffectiveTag falls under Untagged)", byLabel["Untagged"])
 	}
 }
+
+func TestAllocationByMarketCapSegmentSplitsUsesPublishedSplit(t *testing.T) {
+	holdings := []Holding{{AssetID: "a", AssetName: "Some Flexi Cap Fund", CurrentValue: 1000, HasPrice: true}, {AssetID: "b", AssetName: "Nifty 50 BeES", CurrentValue: 1000, HasPrice: true}}
+	splits := map[string][]float64{"a": {50, 30, 10, 0, 5, 0, 5, 0}}
+	got := AllocationByMarketCapSegmentSplits(holdings, nil, splits)
+	by := map[string]float64{}
+	for _, s := range got {
+		by[s.Label] = s.Percent
+	}
+	// a contributes 500 large, 300 mid, 100 small, 50 foreign, 50 cash; b is the name guess (large): 1000
+	if d := by["Large Cap"] - 75; d > 0.01 || d < -0.01 {
+		t.Fatalf("large = %v, want 75 (%v)", by["Large Cap"], by)
+	}
+	if by["Mid Cap"] < 14.9 || by["Mid Cap"] > 15.1 || by["International Equity"] < 2.4 || by["International Equity"] > 2.6 {
+		t.Fatalf("unexpected: %v", by)
+	}
+}

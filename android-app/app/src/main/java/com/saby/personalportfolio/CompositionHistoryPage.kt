@@ -96,9 +96,11 @@ class CompositionHistoryPage(private val activity: AppCompatActivity) {
             }
             menu.show()
         }
-        root.findViewById<View>(R.id.overTimeAddFund).setOnClickListener {
+        val openAdd = View.OnClickListener {
             activity.startActivity(android.content.Intent(activity, AdditionalFundsActivity::class.java))
         }
+        root.findViewById<View>(R.id.overTimeAddFund).setOnClickListener(openAdd)
+        root.findViewById<View>(R.id.overTimeAddFundTop).setOnClickListener(openAdd)
         val sources = root.findViewById<TextView>(R.id.overTimeSources)
         root.findViewById<TextView>(R.id.overTimeSourcesToggle).setOnClickListener {
             val show = sources.visibility != View.VISIBLE

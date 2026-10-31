@@ -108,10 +108,27 @@ func EffectiveAssetClass(amfiClass, fundName, override string) string {
 // (see GuessMarketCapSegment) - reasonable for a pure single-segment index
 // tracker, an approximation otherwise.
 func AllocationByMarketCapSegment(holdings []Holding, compositionByAsset map[string]store.CapComposition) []AllocationSlice {
+	return AllocationByMarketCapSegmentSplits(holdings, compositionByAsset, nil)
+}
+
+// AllocationByMarketCapSegmentSplits is AllocationByMarketCapSegment plus the published fund-disclosure splits
+// (see PublishedSplitsByAsset): where an asset has one, its value is distributed over the full 8-way split, so this
+// donut agrees with the Over Time page, which reads the same data. Otherwise the entered composition / name guess applies.
+func AllocationByMarketCapSegmentSplits(holdings []Holding, compositionByAsset map[string]store.CapComposition, splits map[string][]float64) []AllocationSlice {
 	totals := make(map[string]float64)
 	var total float64
+	labels := [8]string{"Large Cap", "Mid Cap", "Small Cap", "Unclassified", "International Equity", "Debt", "Cash", "Others"}
 	for _, h := range holdings {
 		if !h.HasPrice {
+			continue
+		}
+		if sp, ok := splits[h.AssetID]; ok && len(sp) >= 8 {
+			for i, w := range sp[:8] {
+				if w > 0 {
+					totals[labels[i]] += h.CurrentValue * w / 100
+				}
+			}
+			total += h.CurrentValue
 			continue
 		}
 		if comp, ok := compositionByAsset[h.AssetID]; ok {

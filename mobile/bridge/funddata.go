@@ -321,4 +321,8 @@ func ComputeFundCompositionHistory(portfolioJSON string, assetID string) string 
 
 // isFundLike: mutual funds and ETFs both have a published portfolio (index ETFs hold the index stocks), so both
 // get cap/sector history. Direct stocks do not.
-func isFundLike(a store.Asset) bool { return a.Type == "MutualFund" || a.Type == "ETF" }
+// An exchange-traded fund bought through a broker is often stored as a plain "Stock", so the type alone is not
+// enough: an ISIN starting INF is a fund/ETF issuer code (companies are INE).
+func isFundLike(a store.Asset) bool {
+	return a.Type == "MutualFund" || a.Type == "ETF" || strings.HasPrefix(strings.ToUpper(strings.TrimSpace(a.ISIN)), "INF")
+}
