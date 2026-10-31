@@ -39,6 +39,7 @@ class CompositionHistoryPage(private val activity: AppCompatActivity) {
 
     private val gson = Gson()
     private val bg = Executors.newSingleThreadExecutor()
+    private var lastQuickSync = 0L
     private val main = Handler(Looper.getMainLooper())
     private val chart: StackedAreaChartView = root.findViewById(R.id.overTimeChart)
     private val legend: ChipGroup = root.findViewById(R.id.overTimeLegend)
@@ -76,6 +77,9 @@ class CompositionHistoryPage(private val activity: AppCompatActivity) {
             menu.show()
         }
         refreshButton.setOnClickListener { forceRefresh() }
+        root.findViewById<View>(R.id.overTimeAddFund).setOnClickListener {
+            activity.startActivity(android.content.Intent(activity, AdditionalFundsActivity::class.java))
+        }
         val sources = root.findViewById<TextView>(R.id.overTimeSources)
         root.findViewById<TextView>(R.id.overTimeSourcesToggle).setOnClickListener {
             val show = sources.visibility != View.VISIBLE
@@ -88,6 +92,14 @@ class CompositionHistoryPage(private val activity: AppCompatActivity) {
     fun refresh() {
         loadMembers()
         load()
+        // Cheap manifest check (one tiny request); downloads only if the published data is newer than what is stored.
+        val now = System.currentTimeMillis()
+        if (now - lastQuickSync < 10 * 60 * 1000L) return
+        lastQuickSync = now
+        bg.execute {
+            val res = try { Bridge.syncFundHistoriesAtPath(PortfolioStorage.filePath(activity)) } catch (e: Exception) { "" }
+            if (res.contains("\"synced\"")) main.post { load() }
+        }
     }
 
     private fun loadMembers() {

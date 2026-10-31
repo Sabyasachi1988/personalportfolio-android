@@ -85,6 +85,12 @@ func FetchFundDataFile(pid string) (FundDataFile, error) {
 }
 
 var (
+	isinMu      sync.Mutex
+	isinData    map[string]string
+	isinVersion string
+)
+
+var (
 	codesMu      sync.Mutex
 	codesData    map[string]string
 	codesVersion string
@@ -93,6 +99,21 @@ var (
 // ResolveFundPid maps an ISIN to the fund-data portfolio id: ISIN -> AMFI scheme code (mfapi list)
 // -> pid (codes.json). version identifies the codes.json generation so a stale in-memory copy is refreshed.
 func ResolveFundPid(isin, version string) (string, error) {
+	// Fast path: the published ISIN map (built from AMFI's NAV file, so it includes ETFs that mfapi lacks).
+	isinMu.Lock()
+	if isinData == nil || isinVersion != version {
+		m := map[string]string{}
+		if err := fundDataGet("isin.json", &m); err == nil {
+			isinData, isinVersion = m, version
+		} else {
+			isinData = nil
+		}
+	}
+	if pid, ok := isinData[isin]; ok {
+		isinMu.Unlock()
+		return pid, nil
+	}
+	isinMu.Unlock()
 	code, err := ResolveMfapiSchemeCode(isin)
 	if err != nil {
 		return "", err

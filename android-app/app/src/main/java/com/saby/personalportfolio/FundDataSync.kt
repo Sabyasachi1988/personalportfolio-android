@@ -6,7 +6,7 @@ import java.util.concurrent.Executors
 
 /**
  * Keeps each fund's published cap/sector history current with no action from the person. Runs when the app comes to
- * the foreground, at most once every 6 hours. The check is one tiny request (the published manifest version); only
+ * the foreground, at most once every 20 minutes (the check itself is one tiny request). The check is one tiny request (the published manifest version); only
  * funds whose stored version is behind are downloaded, and only their data is merged (append-only, guarded - see
  * store.MergeFundMonths). The Go side reloads the portfolio file fresh before saving, so it never overwrites an edit
  * made while it was fetching. Failures are silent and retried on the next foreground.
@@ -14,7 +14,7 @@ import java.util.concurrent.Executors
 object FundDataSync {
     private const val PREFS = "fund_data_sync"
     private const val KEY_LAST = "last_run_ms"
-    private const val MIN_INTERVAL_MS = 6L * 60 * 60 * 1000
+    private const val MIN_INTERVAL_MS = 20L * 60 * 1000
     private val executor = Executors.newSingleThreadExecutor()
     @Volatile private var running = false
 
